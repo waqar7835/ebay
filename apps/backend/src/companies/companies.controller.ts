@@ -7,7 +7,7 @@ import { RolesGuard } from "../common/guards/roles.guard";
 import { Roles } from "../common/decorators/roles.decorator";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { resolveCompanyId } from "../common/company-scope.util";
-import { multerDiskOptions, publicUploadUrl } from "../uploads/uploads.util";
+import { multerUploadOptions, publicUploadUrl } from "../uploads/uploads.util";
 import type { JwtPayload } from "../auth/jwt.strategy";
 import { CompaniesService } from "./companies.service";
 
@@ -31,7 +31,7 @@ export class CompaniesController {
 
   @Post("me/logo")
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
-  @UseInterceptors(FileInterceptor("logo", multerDiskOptions("logos")))
+  @UseInterceptors(FileInterceptor("logo", multerUploadOptions("logos")))
   uploadLogo(
     @CurrentUser() user: JwtPayload,
     @UploadedFile() file: Express.Multer.File,

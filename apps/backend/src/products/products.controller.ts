@@ -18,7 +18,7 @@ import { PermissionsGuard } from "../common/guards/permissions.guard";
 import { RequirePermission } from "../common/decorators/permission.decorator";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { resolveCompanyId } from "../common/company-scope.util";
-import { multerDiskOptions, publicUploadUrl } from "../uploads/uploads.util";
+import { multerUploadOptions, publicUploadUrl } from "../uploads/uploads.util";
 import type { JwtPayload } from "../auth/jwt.strategy";
 import { ProductsService } from "./products.service";
 import { CreateProductDto, UpdateStockDto } from "./dto/product.dto";
@@ -59,7 +59,7 @@ export class ProductsController {
 
   @Post(":id/image")
   @RequirePermission("canManageStock")
-  @UseInterceptors(FileInterceptor("image", multerDiskOptions("products")))
+  @UseInterceptors(FileInterceptor("image", multerUploadOptions("products")))
   uploadImage(
     @CurrentUser() user: JwtPayload,
     @Param("id") id: string,

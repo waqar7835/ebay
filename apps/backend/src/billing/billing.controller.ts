@@ -20,7 +20,7 @@ import { Roles } from "../common/decorators/roles.decorator";
 import { RequirePermission } from "../common/decorators/permission.decorator";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { resolveCompanyId } from "../common/company-scope.util";
-import { multerDiskOptions, publicUploadUrl } from "../uploads/uploads.util";
+import { multerUploadOptions, publicUploadUrl } from "../uploads/uploads.util";
 import type { JwtPayload } from "../auth/jwt.strategy";
 import { BillingService } from "./billing.service";
 import { SubmitSeatOrderDto } from "./dto/submit-seat-order.dto";
@@ -45,7 +45,7 @@ export class BillingController {
 
   @Post("seat-orders")
   @RequirePermission("canManageUsers")
-  @UseInterceptors(FileInterceptor("receipt", multerDiskOptions("receipts")))
+  @UseInterceptors(FileInterceptor("receipt", multerUploadOptions("receipts")))
   submitOrder(
     @CurrentUser() user: JwtPayload,
     @Body() body: SubmitSeatOrderDto & { items: string },
