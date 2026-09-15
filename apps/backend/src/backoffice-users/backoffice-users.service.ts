@@ -1,12 +1,16 @@
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectModel } from "@nestjs/sequelize";
+import * as bcrypt from "bcrypt";
 import { Role, TokenPurpose, UserStatus } from "@ebay-order-management/shared";
 import { BackofficeUser } from "../database/models/backoffice-user.model";
 import { BackofficeStaffProfile } from "../database/models/backoffice-staff-profile.model";
 import { MailerService } from "../mailer/mailer.service";
 import { TokensService } from "../tokens/tokens.service";
 import { BackofficePermissionsInput, InviteBackofficeUserDto } from "./dto/invite-backoffice-user.dto";
+
+/** Placeholder password set on invited accounts before the user completes accept-invite; never surfaced to anyone. */
+const DEFAULT_INVITE_PASSWORD = "changeme";
 
 @Injectable()
 export class BackofficeUsersService {
@@ -46,6 +50,7 @@ export class BackofficeUsersService {
       email: dto.email,
       status: UserStatus.INVITED,
       role: Role.PLATFORM_STAFF,
+      passwordHash: await bcrypt.hash(DEFAULT_INVITE_PASSWORD, 10),
     });
 
     await this.upsertPermissions(user.id, dto.permissions);

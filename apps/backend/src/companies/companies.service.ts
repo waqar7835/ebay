@@ -26,6 +26,13 @@ export class CompaniesService {
     return company;
   }
 
+  async updateBillingAnchorDay(companyId: string, billingAnchorDay: number) {
+    const company = await this.get(companyId);
+    company.billingAnchorDay = billingAnchorDay;
+    await company.save();
+    return company;
+  }
+
   async list() {
     return this.companyModel.findAll({ order: [["createdAt", "DESC"]] });
   }

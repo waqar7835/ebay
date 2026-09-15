@@ -23,6 +23,8 @@ import { ChangePasswordDto, UpdateOwnProfileDto } from "./dto/update-own-profile
 
 const PROFILE_INCLUDES = [StaffProfile, AccountHolderProfile, StockOwnerProfile, ThreePlProfile, UserRoleAssignment];
 const PAID_ROLES = [Role.ACCOUNT_HOLDER, Role.STOCK_OWNER, Role.THREE_PL];
+/** Placeholder password set on invited accounts before the user completes accept-invite; never surfaced to anyone. */
+const DEFAULT_INVITE_PASSWORD = "changeme";
 /** ADMIN is created at company registration and SUPER_ADMIN is a platform-level seed; neither is invitable. */
 const INVITABLE_ROLES = [Role.STAFF, ...PAID_ROLES];
 
@@ -70,14 +72,19 @@ export class UsersService {
   }
 
   async invite(companyId: string, invitedByUserId: string, dto: InviteUserDto) {
-    const existing = await this.userModel.findOne({ where: { email: dto.email } });
-    if (existing) {
-      throw new ConflictException("An account with this email already exists");
-    }
-
     const notInvitable = dto.roles.find((role) => !INVITABLE_ROLES.includes(role));
     if (notInvitable) {
       throw new BadRequestException(`The ${notInvitable} role cannot be assigned through an invite`);
+    }
+
+    // Email is unique per role, not globally: the same person can hold a separate account for
+    // each role (Staff, Account Holder, Stock Owner, 3PL), each invited and signed into independently.
+    const conflict = await this.userRoleModel.findOne({
+      where: { role: dto.roles },
+      include: [{ model: this.userModel, where: { email: dto.email }, attributes: [] }],
+    });
+    if (conflict) {
+      throw new ConflictException(`An account with this email already exists for the ${conflict.role} role`);
     }
 
     const user = await this.userModel.create({
@@ -85,6 +92,7 @@ export class UsersService {
       name: dto.name ?? null,
       email: dto.email,
       status: UserStatus.INVITED,
+      passwordHash: await bcrypt.hash(DEFAULT_INVITE_PASSWORD, 10),
     });
 
     await this.userRoleModel.bulkCreate(dto.roles.map((role) => ({ userId: user.id, role })));

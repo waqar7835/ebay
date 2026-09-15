@@ -24,7 +24,9 @@ export class User extends Model {
   @Column({ type: DataType.STRING, allowNull: true })
   declare name: string | null;
 
-  @Column({ type: DataType.STRING, allowNull: false, unique: true })
+  // Not unique: a company can invite the same email address as multiple role-scoped accounts
+  // (Staff, Account Holder, Stock Owner, 3PL); uniqueness is enforced per (email, role) in UsersService.
+  @Column({ type: DataType.STRING, allowNull: false })
   declare email: string;
 
   @Column({ type: DataType.STRING, allowNull: true, field: "password_hash" })

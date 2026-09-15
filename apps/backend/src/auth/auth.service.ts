@@ -94,16 +94,28 @@ export class AuthService {
     if (dto.context === "backoffice") {
       return this.loginBackoffice(dto.email, dto.password);
     }
-    return this.loginPortal(dto.email, dto.password);
+    return this.loginPortal(dto.email, dto.password, dto.role);
   }
 
-  private async loginPortal(email: string, password: string) {
-    const user = await this.userModel.scope("withPassword").findOne({
+  private async loginPortal(email: string, password: string, role?: Role) {
+    // A person can hold several role-scoped accounts under the same email, each with its own
+    // password: the selected user type narrows to that account, then password confirms it.
+    const candidates = await this.userModel.scope("withPassword").findAll({
       where: { email },
       include: [UserRoleAssignment, StaffProfile],
     });
 
-    if (!user || !user.passwordHash || !(await bcrypt.compare(password, user.passwordHash))) {
+    const scoped = role ? candidates.filter((c) => c.roleAssignments.some((r) => r.role === role)) : candidates;
+
+    let user: User | null = null;
+    for (const candidate of scoped) {
+      if (candidate.passwordHash && (await bcrypt.compare(password, candidate.passwordHash))) {
+        user = candidate;
+        break;
+      }
+    }
+
+    if (!user) {
       throw new UnauthorizedException("Invalid credentials");
     }
     if (user.status !== UserStatus.ACTIVE) {

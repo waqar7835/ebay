@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import { acceptInvite } from "@/lib/api";
 
 export default function AcceptInvitePage() {
@@ -14,6 +14,7 @@ export default function AcceptInvitePage() {
 }
 
 function AcceptInviteForm() {
+  const router = useRouter();
   const params = useSearchParams();
   const token = params.get("token") ?? "";
   const [password, setPassword] = useState("");
@@ -32,12 +33,19 @@ function AcceptInviteForm() {
     }
   }
 
+  useEffect(() => {
+    if (!done) return;
+    const timer = setTimeout(() => router.push("/"), 1500);
+    return () => clearTimeout(timer);
+  }, [done, router]);
+
   if (done) {
     return (
       <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center p-8 text-center">
         <h1 className="mb-2 text-xl font-semibold">Account activated</h1>
+        <p className="mb-4 text-sm text-gray-600">Redirecting you to log in...</p>
         <Link href="/" className="text-sm text-gray-600 underline">
-          Log in
+          Log in now
         </Link>
       </main>
     );

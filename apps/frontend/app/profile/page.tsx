@@ -10,6 +10,7 @@ import {
   getMyProfile,
   getStoredUser,
   getToken,
+  updateCompanyBillingAnchorDay,
   updateCompanyName,
   updateMyProfile,
   uploadCompanyLogo,
@@ -18,6 +19,7 @@ import {
 const inputClass = "mt-1 w-full rounded border px-3 py-2";
 const disabledInputClass = `${inputClass} bg-gray-50 text-gray-500`;
 const labelClass = "text-sm font-medium text-gray-700";
+const BILLING_ANCHOR_DAY_OPTIONS = [1, 5, 10, 15, 20, 25, 30];
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -30,6 +32,7 @@ export default function ProfilePage() {
 
   const [name, setName] = useState("");
   const [companyName, setCompanyName] = useState("");
+  const [billingAnchorDay, setBillingAnchorDay] = useState(1);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
 
@@ -56,6 +59,7 @@ export default function ProfilePage() {
       .then((c) => {
         setCompany(c);
         setCompanyName(c.name);
+        setBillingAnchorDay(c.billingAnchorDay);
       })
       .catch((err) => setLoadError(err instanceof Error ? err.message : "Failed to load company"));
   }
@@ -98,6 +102,10 @@ export default function ProfilePage() {
       }
       if (isAdmin && company && companyName !== company.name) {
         const updated = await updateCompanyName(companyName);
+        setCompany(updated);
+      }
+      if (isAdmin && company && billingAnchorDay !== company.billingAnchorDay) {
+        const updated = await updateCompanyBillingAnchorDay(billingAnchorDay);
         setCompany(updated);
       }
       setSaveMessage("Profile saved");
@@ -154,11 +162,6 @@ export default function ProfilePage() {
             </label>
 
             <label className={labelClass}>
-              Status
-              <input value={user?.status ?? ""} disabled className={disabledInputClass} />
-            </label>
-
-            <label className={labelClass}>
               Roles
               <input value={user?.roles.join(", ") ?? ""} disabled className={disabledInputClass} />
             </label>
@@ -166,6 +169,16 @@ export default function ProfilePage() {
 
           <h2 className="mt-8 text-lg font-medium">Company</h2>
           <div className="mt-4 flex flex-col gap-4">
+            <label className={labelClass}>
+              Company name
+              <input
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                disabled={!isAdmin}
+                className={isAdmin ? inputClass : disabledInputClass}
+              />
+            </label>
+
             <div>
               <span className={labelClass}>Logo</span>
               <div className="mt-1 flex items-center gap-4">
@@ -189,23 +202,19 @@ export default function ProfilePage() {
             </div>
 
             <label className={labelClass}>
-              Company name
-              <input
-                value={companyName}
-                onChange={(e) => setCompanyName(e.target.value)}
+              Billing anchor day
+              <select
+                value={billingAnchorDay}
+                onChange={(e) => setBillingAnchorDay(Number(e.target.value))}
                 disabled={!isAdmin}
                 className={isAdmin ? inputClass : disabledInputClass}
-              />
-            </label>
-
-            <label className={labelClass}>
-              Verified
-              <input value={company?.emailVerifiedAt ? "Yes" : "No"} disabled className={disabledInputClass} />
-            </label>
-
-            <label className={labelClass}>
-              Billing anchor day
-              <input value={company?.billingAnchorDay ?? ""} disabled className={disabledInputClass} />
+              >
+                {BILLING_ANCHOR_DAY_OPTIONS.map((day) => (
+                  <option key={day} value={day}>
+                    {day}
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
 

@@ -1,12 +1,22 @@
 "use client";
 
+import type { Role } from "@ebay-order-management/shared";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { login } from "@/lib/api";
 
+const USER_TYPES: { role: Role; label: string }[] = [
+  { role: "ADMIN" as Role, label: "Admin" },
+  { role: "STAFF" as Role, label: "Staff" },
+  { role: "ACCOUNT_HOLDER" as Role, label: "Account Holder" },
+  { role: "STOCK_OWNER" as Role, label: "Stock Owner" },
+  { role: "THREE_PL" as Role, label: "3PL" },
+];
+
 export default function LoginPage() {
   const router = useRouter();
+  const [userType, setUserType] = useState<Role>("ADMIN" as Role);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -17,7 +27,7 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      const { accessToken, user } = await login(email, password);
+      const { accessToken, user } = await login(email, password, userType);
       localStorage.setItem("accessToken", accessToken);
       localStorage.setItem("user", JSON.stringify(user));
       router.push("/dashboard");
@@ -32,6 +42,20 @@ export default function LoginPage() {
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center p-8">
       <h1 className="mb-6 text-2xl font-semibold">Partner Portal Login</h1>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <label className="text-sm text-gray-600">
+          User type
+          <select
+            value={userType}
+            onChange={(e) => setUserType(e.target.value as Role)}
+            className="mt-1 w-full rounded border px-3 py-2 text-black"
+          >
+            {USER_TYPES.map(({ role, label }) => (
+              <option key={role} value={role}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
         <input
           type="email"
           placeholder="Email"

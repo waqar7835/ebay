@@ -11,6 +11,7 @@ import { multerUploadOptions, publicUploadUrl } from "../uploads/uploads.util";
 import type { JwtPayload } from "../auth/jwt.strategy";
 import { CompaniesService } from "./companies.service";
 import { UpdateCompanyNameDto } from "./dto/update-company-name.dto";
+import { UpdateCompanyBillingAnchorDayDto } from "./dto/update-company-billing-anchor-day.dto";
 
 @ApiTags("companies")
 @ApiBearerAuth()
@@ -45,5 +46,15 @@ export class CompaniesController {
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   updateName(@CurrentUser() user: JwtPayload, @Body() dto: UpdateCompanyNameDto, @Query("companyId") companyId?: string) {
     return this.companiesService.updateName(resolveCompanyId(user, companyId), dto.name);
+  }
+
+  @Post("me/billing-anchor-day")
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  updateBillingAnchorDay(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: UpdateCompanyBillingAnchorDayDto,
+    @Query("companyId") companyId?: string,
+  ) {
+    return this.companiesService.updateBillingAnchorDay(resolveCompanyId(user, companyId), dto.billingAnchorDay);
   }
 }

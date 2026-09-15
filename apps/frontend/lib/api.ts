@@ -55,10 +55,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json();
 }
 
-export function login(email: string, password: string) {
+export function login(email: string, password: string, role: Role) {
   return request<{ accessToken: string; user: StoredUser }>("/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email, password, context: "portal" }),
+    body: JSON.stringify({ email, password, role, context: "portal" }),
   });
 }
 
@@ -157,6 +157,13 @@ export function getMyCompany() {
 
 export function updateCompanyName(name: string) {
   return request<CompanyDto>("/companies/me/name", { method: "POST", body: JSON.stringify({ name }) });
+}
+
+export function updateCompanyBillingAnchorDay(billingAnchorDay: number) {
+  return request<CompanyDto>("/companies/me/billing-anchor-day", {
+    method: "POST",
+    body: JSON.stringify({ billingAnchorDay }),
+  });
 }
 
 export async function uploadCompanyLogo(logo: File) {
