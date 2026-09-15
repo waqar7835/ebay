@@ -1,7 +1,7 @@
 "use client";
 
 import type { CompanyDto, UserDto } from "@ebay-order-management/shared";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import {
@@ -15,6 +15,10 @@ import {
   uploadCompanyLogo,
 } from "@/lib/api";
 
+const inputClass = "mt-1 w-full rounded border px-3 py-2";
+const disabledInputClass = `${inputClass} bg-gray-50 text-gray-500`;
+const labelClass = "text-sm font-medium text-gray-700";
+
 export default function ProfilePage() {
   const router = useRouter();
   const storedUser = getStoredUser();
@@ -25,18 +29,14 @@ export default function ProfilePage() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [name, setName] = useState("");
-  const [nameSaving, setNameSaving] = useState(false);
-  const [nameMessage, setNameMessage] = useState<string | null>(null);
-  const [nameError, setNameError] = useState<string | null>(null);
-
   const [companyName, setCompanyName] = useState("");
-  const [companySaving, setCompanySaving] = useState(false);
-  const [companyMessage, setCompanyMessage] = useState<string | null>(null);
-  const [companyError, setCompanyError] = useState<string | null>(null);
-
   const [logoFile, setLogoFile] = useState<File | null>(null);
-  const [logoUploading, setLogoUploading] = useState(false);
-  const [logoError, setLogoError] = useState<string | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -69,51 +69,42 @@ export default function ProfilePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
-  async function handleSaveName(e: React.FormEvent) {
-    e.preventDefault();
-    setNameError(null);
-    setNameMessage(null);
-    setNameSaving(true);
-    try {
-      const updated = await updateMyProfile({ name });
-      setUser(updated);
-      setNameMessage("Saved");
-    } catch (err) {
-      setNameError(err instanceof Error ? err.message : "Failed to save");
-    } finally {
-      setNameSaving(false);
+  // Preview the newly-picked file locally; fall back to the saved logo otherwise.
+  useEffect(() => {
+    if (!logoFile) {
+      setLogoPreview(null);
+      return;
     }
-  }
+    const url = URL.createObjectURL(logoFile);
+    setLogoPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [logoFile]);
 
-  async function handleSaveCompanyName(e: React.FormEvent) {
+  async function handleSave(e: React.FormEvent) {
     e.preventDefault();
-    setCompanyError(null);
-    setCompanyMessage(null);
-    setCompanySaving(true);
+    setSaveError(null);
+    setSaveMessage(null);
+    setSaving(true);
     try {
-      const updated = await updateCompanyName(companyName);
-      setCompany(updated);
-      setCompanyMessage("Saved");
+      if (logoFile) {
+        const updated = await uploadCompanyLogo(logoFile);
+        setCompany(updated);
+        setLogoFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+      if (name !== (user?.name ?? "")) {
+        const updated = await updateMyProfile({ name });
+        setUser(updated);
+      }
+      if (isAdmin && company && companyName !== company.name) {
+        const updated = await updateCompanyName(companyName);
+        setCompany(updated);
+      }
+      setSaveMessage("Profile saved");
     } catch (err) {
-      setCompanyError(err instanceof Error ? err.message : "Failed to save");
+      setSaveError(err instanceof Error ? err.message : "Failed to save");
     } finally {
-      setCompanySaving(false);
-    }
-  }
-
-  async function handleUploadLogo(e: React.FormEvent) {
-    e.preventDefault();
-    if (!logoFile) return;
-    setLogoError(null);
-    setLogoUploading(true);
-    try {
-      const updated = await uploadCompanyLogo(logoFile);
-      setCompany(updated);
-      setLogoFile(null);
-    } catch (err) {
-      setLogoError(err instanceof Error ? err.message : "Failed to upload logo");
-    } finally {
-      setLogoUploading(false);
+      setSaving(false);
     }
   }
 
@@ -135,146 +126,144 @@ export default function ProfilePage() {
     }
   }
 
+  const displayLogo = logoPreview ?? company?.logoUrl ?? null;
+
   return (
     <>
       <Nav />
-      <main className="ml-56 max-w-2xl p-8">
+      <main className="ml-56 max-w-2xl p-8 pb-16">
         <h1 className="text-2xl font-semibold">Profile</h1>
         {loadError && <p className="mt-4 text-sm text-red-600">{loadError}</p>}
 
-        <section className="mt-8 rounded border p-6">
+        <form onSubmit={handleSave} className="mt-6 rounded border p-6">
           <h2 className="text-lg font-medium">Your details</h2>
-          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm text-gray-600">
-            <dt>Email</dt>
-            <dd>{user?.email}</dd>
-            <dt>Status</dt>
-            <dd>{user?.status}</dd>
-            <dt>Roles</dt>
-            <dd>{user?.roles.join(", ")}</dd>
-          </dl>
-
-          <form onSubmit={handleSaveName} className="mt-4 flex flex-col gap-3">
-            <label className="text-sm font-medium text-gray-700">
+          <div className="mt-4 flex flex-col gap-4">
+            <label className={labelClass}>
               Name
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Your name"
-                className="mt-1 w-full rounded border px-3 py-2"
+                className={inputClass}
               />
             </label>
-            {nameError && <p className="text-sm text-red-600">{nameError}</p>}
-            {nameMessage && <p className="text-sm text-green-600">{nameMessage}</p>}
-            <button
-              type="submit"
-              disabled={nameSaving}
-              className="self-start rounded bg-gray-900 px-3 py-2 text-sm text-white disabled:opacity-50"
-            >
-              {nameSaving ? "Saving..." : "Save name"}
-            </button>
-          </form>
-        </section>
 
-        <section className="mt-8 rounded border p-6">
-          <h2 className="text-lg font-medium">Company</h2>
-          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm text-gray-600">
-            <dt>Verified</dt>
-            <dd>{company?.emailVerifiedAt ? "Yes" : "No"}</dd>
-            <dt>Billing anchor day</dt>
-            <dd>{company?.billingAnchorDay}</dd>
-          </dl>
+            <label className={labelClass}>
+              Email
+              <input value={user?.email ?? ""} disabled className={disabledInputClass} />
+            </label>
 
-          <div className="mt-4 flex items-center gap-4">
-            {company?.logoUrl ? (
-              <img src={company.logoUrl} alt="Company logo" className="h-16 w-16 rounded border object-contain" />
-            ) : (
-              <div className="flex h-16 w-16 items-center justify-center rounded border text-xs text-gray-400">
-                No logo
-              </div>
-            )}
-            {isAdmin && (
-              <form onSubmit={handleUploadLogo} className="flex flex-col gap-2">
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)}
-                  className="text-sm"
-                />
-                {logoError && <p className="text-sm text-red-600">{logoError}</p>}
-                <button
-                  type="submit"
-                  disabled={!logoFile || logoUploading}
-                  className="self-start rounded border px-3 py-1.5 text-sm disabled:opacity-50"
-                >
-                  {logoUploading ? "Uploading..." : "Upload logo"}
-                </button>
-              </form>
-            )}
+            <label className={labelClass}>
+              Status
+              <input value={user?.status ?? ""} disabled className={disabledInputClass} />
+            </label>
+
+            <label className={labelClass}>
+              Roles
+              <input value={user?.roles.join(", ") ?? ""} disabled className={disabledInputClass} />
+            </label>
           </div>
 
-          {isAdmin ? (
-            <form onSubmit={handleSaveCompanyName} className="mt-4 flex flex-col gap-3">
-              <label className="text-sm font-medium text-gray-700">
-                Company name
-                <input
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  className="mt-1 w-full rounded border px-3 py-2"
-                />
-              </label>
-              {companyError && <p className="text-sm text-red-600">{companyError}</p>}
-              {companyMessage && <p className="text-sm text-green-600">{companyMessage}</p>}
-              <button
-                type="submit"
-                disabled={companySaving}
-                className="self-start rounded bg-gray-900 px-3 py-2 text-sm text-white disabled:opacity-50"
-              >
-                {companySaving ? "Saving..." : "Save company name"}
-              </button>
-            </form>
-          ) : (
-            <p className="mt-4 text-sm text-gray-600">Company name: {company?.name}</p>
-          )}
-        </section>
+          <h2 className="mt-8 text-lg font-medium">Company</h2>
+          <div className="mt-4 flex flex-col gap-4">
+            <div>
+              <span className={labelClass}>Logo</span>
+              <div className="mt-1 flex items-center gap-4">
+                {displayLogo ? (
+                  <img src={displayLogo} alt="Company logo preview" className="h-20 w-20 rounded border object-contain" />
+                ) : (
+                  <div className="flex h-20 w-20 items-center justify-center rounded border text-xs text-gray-400">
+                    No logo
+                  </div>
+                )}
+                {isAdmin && (
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)}
+                    className="text-sm"
+                  />
+                )}
+              </div>
+            </div>
 
-        <section className="mt-8 rounded border p-6">
+            <label className={labelClass}>
+              Company name
+              <input
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                disabled={!isAdmin}
+                className={isAdmin ? inputClass : disabledInputClass}
+              />
+            </label>
+
+            <label className={labelClass}>
+              Verified
+              <input value={company?.emailVerifiedAt ? "Yes" : "No"} disabled className={disabledInputClass} />
+            </label>
+
+            <label className={labelClass}>
+              Billing anchor day
+              <input value={company?.billingAnchorDay ?? ""} disabled className={disabledInputClass} />
+            </label>
+          </div>
+
+          {saveError && <p className="mt-4 text-sm text-red-600">{saveError}</p>}
+          {saveMessage && <p className="mt-4 text-sm text-green-600">{saveMessage}</p>}
+          <button
+            type="submit"
+            disabled={saving}
+            className="mt-6 rounded bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </form>
+
+        <form onSubmit={handleChangePassword} className="mt-8 rounded border p-6">
           <h2 className="text-lg font-medium">Change password</h2>
-          <form onSubmit={handleChangePassword} className="mt-4 flex flex-col gap-3">
-            <input
-              type="password"
-              placeholder="Current password"
-              required
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              className="rounded border px-3 py-2"
-            />
-            <input
-              type="password"
-              placeholder="New password"
-              required
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              className="rounded border px-3 py-2"
-            />
-            <input
-              type="password"
-              placeholder="Confirm new password"
-              required
-              value={confirmNewPassword}
-              onChange={(e) => setConfirmNewPassword(e.target.value)}
-              className="rounded border px-3 py-2"
-            />
-            {passwordError && <p className="text-sm text-red-600">{passwordError}</p>}
-            {passwordMessage && <p className="text-sm text-green-600">{passwordMessage}</p>}
-            <button
-              type="submit"
-              disabled={passwordSaving}
-              className="self-start rounded bg-gray-900 px-3 py-2 text-sm text-white disabled:opacity-50"
-            >
-              {passwordSaving ? "Saving..." : "Change password"}
-            </button>
-          </form>
-        </section>
+          <div className="mt-4 flex flex-col gap-4">
+            <label className={labelClass}>
+              Current password
+              <input
+                type="password"
+                required
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                className={inputClass}
+              />
+            </label>
+            <label className={labelClass}>
+              New password
+              <input
+                type="password"
+                required
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className={inputClass}
+              />
+            </label>
+            <label className={labelClass}>
+              Confirm new password
+              <input
+                type="password"
+                required
+                value={confirmNewPassword}
+                onChange={(e) => setConfirmNewPassword(e.target.value)}
+                className={inputClass}
+              />
+            </label>
+          </div>
+          {passwordError && <p className="mt-4 text-sm text-red-600">{passwordError}</p>}
+          {passwordMessage && <p className="mt-4 text-sm text-green-600">{passwordMessage}</p>}
+          <button
+            type="submit"
+            disabled={passwordSaving}
+            className="mt-6 rounded bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+          >
+            {passwordSaving ? "Saving..." : "Change password"}
+          </button>
+        </form>
       </main>
     </>
   );
