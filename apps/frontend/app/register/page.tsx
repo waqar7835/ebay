@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { register, verifyEmailCode } from "@/lib/api";
 
 export default function RegisterPage() {
+  const router = useRouter();
   const [companyName, setCompanyName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -46,13 +48,19 @@ export default function RegisterPage() {
     }
   }
 
+  useEffect(() => {
+    if (!verified) return;
+    const timer = setTimeout(() => router.push("/"), 1500);
+    return () => clearTimeout(timer);
+  }, [verified, router]);
+
   if (verified) {
     return (
       <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center p-8 text-center">
         <h1 className="mb-2 text-xl font-semibold">Email verified</h1>
-        <p className="mb-4 text-sm text-gray-600">Your company is now active.</p>
+        <p className="mb-4 text-sm text-gray-600">Your company is now active. Redirecting you to log in...</p>
         <Link href="/" className="text-sm text-gray-600 underline">
-          Log in
+          Log in now
         </Link>
       </main>
     );

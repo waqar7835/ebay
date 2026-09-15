@@ -30,6 +30,12 @@ export class MailerService {
       return;
     }
 
-    await this.transporter.sendMail({ from: this.from, to, subject, html });
+    try {
+      await this.transporter.sendMail({ from: this.from, to, subject, html });
+    } catch (err) {
+      // Email delivery is best-effort here (SMTP isn't fully configured yet) — log
+      // and let the caller continue rather than failing the request that triggered it.
+      this.logger.error(`Failed to send email to=${to} subject="${subject}": ${(err as Error).message}`);
+    }
   }
 }
