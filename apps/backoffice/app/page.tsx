@@ -57,8 +57,7 @@ export default function LoginPage() {
           {loading ? "Signing in..." : "Sign in"}
         </button>
       </form>
-      <div className="mt-4 flex justify-between text-sm text-gray-600">
-        <Link href="/register">Register a company</Link>
+      <div className="mt-4 flex justify-end text-sm text-gray-600">
         <Link href="/forgot-password">Forgot password?</Link>
       </div>
     </main>

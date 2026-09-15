@@ -72,6 +72,13 @@ export function verifyEmail(token: string) {
   return request<{ message: string }>("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) });
 }
 
+export function verifyEmailCode(email: string, code: string) {
+  return request<{ message: string }>("/auth/verify-email-code", {
+    method: "POST",
+    body: JSON.stringify({ email, code }),
+  });
+}
+
 export function forgotPassword(email: string) {
   return request<{ message: string }>("/auth/forgot-password", { method: "POST", body: JSON.stringify({ email }) });
 }

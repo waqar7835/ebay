@@ -76,13 +76,6 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 // --- Auth ---
-export function register(companyName: string, email: string, password: string, confirmPassword: string) {
-  return request<{ companyId: string; userId: string }>("/auth/register", {
-    method: "POST",
-    body: JSON.stringify({ companyName, email, password, confirmPassword }),
-  });
-}
-
 export function login(email: string, password: string) {
   return request<{ accessToken: string; user: StoredUser }>("/auth/login", {
     method: "POST",
@@ -90,9 +83,6 @@ export function login(email: string, password: string) {
   });
 }
 
-export function verifyEmail(token: string) {
-  return request<{ message: string }>("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) });
-}
 
 export function resendVerification(email: string) {
   return request<{ message: string }>("/auth/resend-verification", { method: "POST", body: JSON.stringify({ email }) });

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { register } from "@/lib/api";
+import { register, verifyEmailCode } from "@/lib/api";
 
 export default function RegisterPage() {
   const [companyName, setCompanyName] = useState("");
@@ -10,8 +10,13 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
+  const [registered, setRegistered] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  const [code, setCode] = useState("");
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [verified, setVerified] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -19,7 +24,7 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       await register(companyName, email, password, confirmPassword);
-      setDone(true);
+      setRegistered(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
@@ -27,13 +32,56 @@ export default function RegisterPage() {
     }
   }
 
-  if (done) {
+  async function handleVerify(e: React.FormEvent) {
+    e.preventDefault();
+    setCodeError(null);
+    setVerifying(true);
+    try {
+      await verifyEmailCode(email, code);
+      setVerified(true);
+    } catch (err) {
+      setCodeError(err instanceof Error ? err.message : "Verification failed");
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  if (verified) {
     return (
       <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center p-8 text-center">
-        <h1 className="mb-2 text-xl font-semibold">Check your email</h1>
-        <p className="text-sm text-gray-600">
-          We sent a verification link to {email}. Click it to activate your company, then log in.
+        <h1 className="mb-2 text-xl font-semibold">Email verified</h1>
+        <p className="mb-4 text-sm text-gray-600">Your company is now active.</p>
+        <Link href="/" className="text-sm text-gray-600 underline">
+          Log in
+        </Link>
+      </main>
+    );
+  }
+
+  if (registered) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center p-8">
+        <h1 className="mb-2 text-xl font-semibold text-center">Check your email</h1>
+        <p className="mb-6 text-center text-sm text-gray-600">
+          We sent a verification code to {email}. Enter it below to activate your company.
         </p>
+        <form onSubmit={handleVerify} className="flex flex-col gap-4">
+          <input
+            placeholder="Verification code"
+            required
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            className="rounded border px-3 py-2 text-center tracking-widest"
+          />
+          {codeError && <p className="text-sm text-red-600">{codeError}</p>}
+          <button
+            type="submit"
+            disabled={verifying}
+            className="rounded bg-gray-900 px-3 py-2 text-white disabled:opacity-50"
+          >
+            {verifying ? "Verifying..." : "Verify email"}
+          </button>
+        </form>
       </main>
     );
   }

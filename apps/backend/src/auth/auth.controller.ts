@@ -3,7 +3,7 @@ import { ApiTags } from "@nestjs/swagger";
 import { AuthService } from "./auth.service";
 import { RegisterDto } from "./dto/register.dto";
 import { LoginDto } from "./dto/login.dto";
-import { VerifyEmailDto, ResendVerificationDto } from "./dto/verify-email.dto";
+import { VerifyEmailDto, VerifyEmailCodeDto, ResendVerificationDto } from "./dto/verify-email.dto";
 import { ForgotPasswordDto, ResetPasswordDto } from "./dto/password-reset.dto";
 import { AcceptInviteDto } from "./dto/accept-invite.dto";
 
@@ -25,6 +25,11 @@ export class AuthController {
   @Post("verify-email")
   verifyEmail(@Body() dto: VerifyEmailDto) {
     return this.authService.verifyEmail(dto.token);
+  }
+
+  @Post("verify-email-code")
+  verifyEmailCode(@Body() dto: VerifyEmailCodeDto) {
+    return this.authService.verifyEmailByCode(dto.email, dto.code);
   }
 
   @Post("resend-verification")

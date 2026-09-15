@@ -12,6 +12,9 @@ export class VerificationToken extends Model {
   @Column({ type: DataType.STRING, allowNull: false, unique: true })
   declare token: string;
 
+  @Column({ type: DataType.STRING(6), allowNull: true })
+  declare code: string | null;
+
   @Column({ type: DataType.STRING, allowNull: false })
   declare email: string;
 

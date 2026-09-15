@@ -77,6 +77,19 @@ export class AuthService {
     return { message: "Email verified" };
   }
 
+  async verifyEmailByCode(email: string, code: string) {
+    const company = await this.findCompanyByAdminEmail(email);
+    if (company.emailVerifiedAt) {
+      throw new BadRequestException("This company is already verified");
+    }
+
+    await this.tokensService.consumeByCode(email, code, TokenPurpose.EMAIL_VERIFY);
+
+    company.emailVerifiedAt = new Date();
+    await company.save();
+    return { message: "Email verified" };
+  }
+
   async login(dto: LoginDto) {
     if (dto.context === "backoffice") {
       return this.loginBackoffice(dto.email, dto.password);
@@ -287,13 +300,16 @@ export class AuthService {
       email,
       companyId,
       purpose: TokenPurpose.EMAIL_VERIFY,
+      withCode: true,
     });
 
     const url = `${this.config.get<string>("PORTAL_URL")}/verify-email?token=${record.token}`;
     await this.mailer.send(
       email,
       "Verify your company email",
-      `<p>Click to verify your email: <a href="${url}">${url}</a></p><p>This link expires in 30 minutes.</p>`,
+      `<p>Your verification code is: <strong>${record.code}</strong></p>` +
+        `<p>Enter it on the verification screen, or click to verify instead: <a href="${url}">${url}</a></p>` +
+        `<p>This code expires in 30 minutes.</p>`,
     );
   }
 }
