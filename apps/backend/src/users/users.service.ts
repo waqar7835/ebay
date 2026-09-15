@@ -1,6 +1,7 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectModel } from "@nestjs/sequelize";
+import * as bcrypt from "bcrypt";
 import { Role, TokenPurpose, UserStatus } from "@ebay-order-management/shared";
 import { User } from "../database/models/user.model";
 import { UserRoleAssignment } from "../database/models/user-role.model";
@@ -18,6 +19,7 @@ import {
   StockOwnerProfileInput,
   ThreePlProfileInput,
 } from "./dto/invite-user.dto";
+import { ChangePasswordDto, UpdateOwnProfileDto } from "./dto/update-own-profile.dto";
 
 const PROFILE_INCLUDES = [StaffProfile, AccountHolderProfile, StockOwnerProfile, ThreePlProfile, UserRoleAssignment];
 const PAID_ROLES = [Role.ACCOUNT_HOLDER, Role.STOCK_OWNER, Role.THREE_PL];
@@ -120,6 +122,32 @@ export class UsersService {
     await this.sendInviteEmail(user, companyId);
 
     return this.get(companyId, user.id);
+  }
+
+  async updateOwnProfile(userId: string, dto: UpdateOwnProfileDto) {
+    const user = await this.userModel.findByPk(userId);
+    if (!user) throw new NotFoundException("User not found");
+    if (dto.name !== undefined) {
+      user.name = dto.name;
+    }
+    await user.save();
+    return this.toDto(await user.reload({ include: PROFILE_INCLUDES }));
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    if (dto.newPassword !== dto.confirmNewPassword) {
+      throw new BadRequestException("Passwords do not match");
+    }
+
+    const user = await this.userModel.scope("withPassword").findByPk(userId);
+    if (!user) throw new NotFoundException("User not found");
+    if (!user.passwordHash || !(await bcrypt.compare(dto.currentPassword, user.passwordHash))) {
+      throw new UnauthorizedException("Current password is incorrect");
+    }
+
+    user.passwordHash = await bcrypt.hash(dto.newPassword, 10);
+    await user.save();
+    return { message: "Password updated" };
   }
 
   async setStatus(companyId: string, userId: string, status: UserStatus) {

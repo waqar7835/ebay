@@ -1,5 +1,6 @@
 import type {
   AccountHolderProfileDto,
+  CompanyDto,
   InvoiceDto,
   OrderDto,
   OrderStatus,
@@ -151,7 +152,42 @@ export function generateMyInvoice(userId: string, role: Role) {
 
 // --- Companies ---
 export function getMyCompany() {
-  return request<{ id: string; name: string; logoUrl: string | null; emailVerifiedAt: string | null }>("/companies/me");
+  return request<CompanyDto>("/companies/me");
+}
+
+export function updateCompanyName(name: string) {
+  return request<CompanyDto>("/companies/me/name", { method: "POST", body: JSON.stringify({ name }) });
+}
+
+export async function uploadCompanyLogo(logo: File) {
+  const form = new FormData();
+  form.append("logo", logo);
+  const res = await fetch(`${API_URL}/companies/me/logo`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: form,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message ?? `Request failed: ${res.status}`);
+  }
+  return res.json() as Promise<CompanyDto>;
+}
+
+// --- My profile (any logged-in user) ---
+export function getMyProfile() {
+  return request<UserDto>("/users/me");
+}
+
+export function updateMyProfile(payload: { name?: string }) {
+  return request<UserDto>("/users/me", { method: "PATCH", body: JSON.stringify(payload) });
+}
+
+export function changeMyPassword(currentPassword: string, newPassword: string, confirmNewPassword: string) {
+  return request<{ message: string }>("/users/me/password", {
+    method: "PATCH",
+    body: JSON.stringify({ currentPassword, newPassword, confirmNewPassword }),
+  });
 }
 
 // --- Users (company self-management: ADMIN/STAFF-with-canManageUsers) ---

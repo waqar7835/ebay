@@ -25,6 +25,7 @@ export default function Nav() {
     { href: "/users", label: "Users", show: isAdmin || !!perms?.canManageUsers },
     { href: "/invoices", label: "Invoices", show: true },
     { href: "/billing", label: "Billing", show: isAdmin || !!perms?.canManageUsers },
+    { href: "/profile", label: "Profile", show: true },
   ].filter((link) => link.show);
 
   function logout() {

@@ -16,6 +16,7 @@ import {
   StockOwnerProfileInput,
   ThreePlProfileInput,
 } from "./dto/invite-user.dto";
+import { ChangePasswordDto, UpdateOwnProfileDto } from "./dto/update-own-profile.dto";
 
 @ApiTags("users")
 @ApiBearerAuth()
@@ -28,6 +29,21 @@ export class UsersController {
   @RequirePermission("canManageUsers")
   list(@CurrentUser() user: JwtPayload, @Query("companyId") companyId?: string) {
     return this.usersService.list(resolveCompanyId(user, companyId));
+  }
+
+  @Get("me")
+  getOwn(@CurrentUser() user: JwtPayload) {
+    return this.usersService.get(resolveCompanyId(user), user.sub);
+  }
+
+  @Patch("me")
+  updateOwn(@CurrentUser() user: JwtPayload, @Body() dto: UpdateOwnProfileDto) {
+    return this.usersService.updateOwnProfile(user.sub, dto);
+  }
+
+  @Patch("me/password")
+  changeOwnPassword(@CurrentUser() user: JwtPayload, @Body() dto: ChangePasswordDto) {
+    return this.usersService.changePassword(user.sub, dto);
   }
 
   @Get(":id")
