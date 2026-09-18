@@ -68,11 +68,17 @@ export function ensureUploadsDir(): string {
   return uploadsDir;
 }
 
-export function multerUploadOptions(subfolder: string): MulterOptions {
+export function multerUploadOptions(
+  subfolder: string,
+  options?: { fileFilter?: MulterOptions["fileFilter"]; maxFileSize?: number },
+): MulterOptions {
+  const limits = { fileSize: options?.maxFileSize ?? 5 * 1024 * 1024 };
+
   if (r2Enabled) {
     return {
       storage: new R2Storage(subfolder),
-      limits: { fileSize: 5 * 1024 * 1024 },
+      limits,
+      fileFilter: options?.fileFilter,
     };
   }
 
@@ -88,7 +94,8 @@ export function multerUploadOptions(subfolder: string): MulterOptions {
         cb(null, `${randomUUID()}${extname(file.originalname)}`);
       },
     }),
-    limits: { fileSize: 5 * 1024 * 1024 },
+    limits,
+    fileFilter: options?.fileFilter,
   };
 }
 

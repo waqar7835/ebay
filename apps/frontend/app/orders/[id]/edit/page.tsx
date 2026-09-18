@@ -4,10 +4,11 @@ import type { OrderDto, ProductDto } from "@ebay-order-management/shared";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
-import { API_URL, getToken, listOrders, listProducts, listUsers, updateOrder } from "@/lib/api";
+import { getToken, listOrders, listProducts, listUsers, mediaUrl, updateOrder, uploadOrderShippingLabel } from "@/lib/api";
 
 interface UserOption {
   id: string;
+  name: string | null;
   email: string;
   roles: string[];
 }
@@ -34,6 +35,7 @@ export default function EditOrderPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [shippingLabel, setShippingLabel] = useState<File | null>(null);
 
   function setField<K extends keyof typeof emptyForm>(key: K, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -84,6 +86,9 @@ export default function EditOrderPage() {
         ebayNetProceeds: Number(form.ebayNetProceeds),
         shippingCost: Number(form.shippingCost),
       });
+      if (shippingLabel) {
+        await uploadOrderShippingLabel(orderId, shippingLabel);
+      }
       router.push("/orders");
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to save order");
@@ -128,7 +133,7 @@ export default function EditOrderPage() {
                   <option value="">Select…</option>
                   {accountHolders.map((u) => (
                     <option key={u.id} value={u.id}>
-                      {u.email}
+                      {u.name || u.email}
                     </option>
                   ))}
                 </select>
@@ -139,7 +144,7 @@ export default function EditOrderPage() {
               <div className="h-9 w-9 shrink-0 overflow-hidden rounded border bg-white">
                 {product?.imageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={`${API_URL}${product.imageUrl}`} alt="" className="h-full w-full object-cover" />
+                  <img src={mediaUrl(product.imageUrl)} alt="" className="h-full w-full object-cover" />
                 ) : (
                   <span className="flex h-full w-full items-center justify-center text-[10px] text-gray-400">—</span>
                 )}
@@ -201,6 +206,26 @@ export default function EditOrderPage() {
                 />
               </label>
             </div>
+
+            <label>
+              Shipping label (PDF)
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={(e) => setShippingLabel(e.target.files?.[0] ?? null)}
+                className="mt-1 block w-full text-sm"
+              />
+              {order.shippingLabelUrl && (
+                <a
+                  href={mediaUrl(order.shippingLabelUrl)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1 inline-block text-xs text-blue-600 underline"
+                >
+                  View current shipping label
+                </a>
+              )}
+            </label>
 
             {formError && <p className="text-red-600">{formError}</p>}
             <button

@@ -12,9 +12,15 @@ import { ThreePlProfile } from "../database/models/three-pl-profile.model";
 import { StaffProfile } from "../database/models/staff-profile.model";
 import { SeatBilling } from "../database/models/seat-billing.model";
 import { FinanceService } from "../finance/finance.service";
-import { currentCycle } from "../invoices/billing-cycle.util";
+import { currentCycle, toDateOnly } from "../invoices/billing-cycle.util";
 
 const NON_COUNTABLE = [OrderStatus.CANCELLED, OrderStatus.REFUNDED];
+
+export interface DashboardOrderFilters {
+  status?: OrderStatus;
+  startDate?: string;
+  endDate?: string;
+}
 
 @Injectable()
 export class DashboardService {
@@ -38,81 +44,154 @@ export class DashboardService {
     };
   }
 
-  async accountHolder(companyId: string, userId: string) {
+  async accountHolder(companyId: string, userId: string, filters: DashboardOrderFilters = {}) {
     const profile = await this.accountHolderProfileModel.findByPk(userId);
     if (!profile) throw new NotFoundException("Account Holder profile not found");
 
-    const { start, end } = await this.cycle(companyId, profile.billingCycleStartDay);
-    const orders = await this.orderModel.findAll({
-      where: { companyId, accountHolderId: userId, createdAt: { [Op.gte]: start, [Op.lt]: end } },
+    const cycle = await this.cycle(companyId, profile.billingCycleStartDay);
+    const cycleOrders = await this.orderModel.findAll({
+      where: { companyId, accountHolderId: userId, createdAt: { [Op.gte]: cycle.start, [Op.lt]: cycle.end } },
     });
+    const countable = cycleOrders.filter((o) => !NON_COUNTABLE.includes(o.status));
+    const totalProfit = round2(countable.reduce((sum, o) => sum + this.finance.compute(o).accountHolderPayout, 0));
 
-    const rows = orders.map((order) => ({
+    const range = resolveRange(filters, cycle);
+    const listWhere: Record<string, unknown> = {
+      companyId,
+      accountHolderId: userId,
+      createdAt: { [Op.gte]: range.start, [Op.lt]: range.end },
+    };
+    if (filters.status) listWhere.status = filters.status;
+    const listOrders = await this.orderModel.findAll({ where: listWhere, order: [["createdAt", "DESC"]] });
+
+    const rows = listOrders.map((order) => ({
       orderId: order.id,
       ebayOrderRef: order.ebayOrderRef,
       status: order.status,
+      productId: order.productId,
+      quantity: order.quantity,
       profit: this.finance.compute(order).accountHolderProfit,
       payout: this.finance.compute(order).accountHolderPayout,
     }));
 
-    const countable = orders.filter((o) => !NON_COUNTABLE.includes(o.status));
-    const totalProfit = round2(countable.reduce((sum, o) => sum + this.finance.compute(o).accountHolderPayout, 0));
-
-    return { cycleStart: start, cycleEnd: end, orderCount: orders.length, orders: rows, totalProfit };
+    return {
+      cycleStart: toDateOnly(cycle.start),
+      cycleEnd: toDateOnly(cycle.end),
+      listStart: toDateOnly(range.start),
+      listEnd: toDateOnly(lastInclusiveDay(range.end)),
+      orderCount: cycleOrders.length,
+      orders: rows,
+      totalProfit,
+    };
   }
 
-  async stockOwner(companyId: string, userId: string) {
+  async stockOwner(companyId: string, userId: string, filters: DashboardOrderFilters = {}) {
     const profile = await this.stockOwnerProfileModel.findByPk(userId);
     if (!profile) throw new NotFoundException("Stock Owner profile not found");
 
-    const { start, end } = await this.cycle(companyId, profile.billingCycleStartDay);
-    const orders = await this.orderModel.findAll({
-      where: { companyId, stockOwnerId: userId, createdAt: { [Op.gte]: start, [Op.lt]: end } },
+    const cycle = await this.cycle(companyId, profile.billingCycleStartDay);
+    const cycleOrders = await this.orderModel.findAll({
+      where: { companyId, stockOwnerId: userId, createdAt: { [Op.gte]: cycle.start, [Op.lt]: cycle.end } },
     });
+    const countable = cycleOrders.filter((o) => !NON_COUNTABLE.includes(o.status));
+    const itemsSold = countable.reduce((sum, o) => sum + o.quantity, 0);
+    const totalProfit = round2(countable.reduce((sum, o) => sum + this.finance.compute(o).stockOwnerNet, 0));
 
-    const rows = orders.map((order) => {
+    const range = resolveRange(filters, cycle);
+    const listWhere: Record<string, unknown> = {
+      companyId,
+      stockOwnerId: userId,
+      createdAt: { [Op.gte]: range.start, [Op.lt]: range.end },
+    };
+    if (filters.status) listWhere.status = filters.status;
+    const listOrders = await this.orderModel.findAll({ where: listWhere, order: [["createdAt", "DESC"]] });
+
+    const rows = listOrders.map((order) => {
       const f = this.finance.compute(order);
       return {
         orderId: order.id,
         ebayOrderRef: order.ebayOrderRef,
         status: order.status,
+        productId: order.productId,
         quantity: order.quantity,
         net: f.stockOwnerNet,
       };
     });
 
-    const countable = orders.filter((o) => !NON_COUNTABLE.includes(o.status));
-    const itemsSold = countable.reduce((sum, o) => sum + o.quantity, 0);
-    const totalProfit = round2(countable.reduce((sum, o) => sum + this.finance.compute(o).stockOwnerNet, 0));
-
-    return { cycleStart: start, cycleEnd: end, itemsSold, orders: rows, totalProfit };
+    return {
+      cycleStart: toDateOnly(cycle.start),
+      cycleEnd: toDateOnly(cycle.end),
+      listStart: toDateOnly(range.start),
+      listEnd: toDateOnly(lastInclusiveDay(range.end)),
+      itemsSold,
+      orders: rows,
+      totalProfit,
+    };
   }
 
-  async threePl(companyId: string, userId: string) {
+  async threePl(companyId: string, userId: string, filters: DashboardOrderFilters = {}) {
     const profile = await this.threePlProfileModel.findByPk(userId);
     if (!profile) throw new NotFoundException("3PL profile not found");
 
-    const { start, end } = await this.cycle(companyId, profile.billingCycleStartDay);
+    const cycle = await this.cycle(companyId, profile.billingCycleStartDay);
+    const range = resolveRange(filters, cycle);
 
-    const toProcess = await this.orderModel.findAll({
-      where: { companyId, threePlId: userId, status: { [Op.in]: [OrderStatus.PENDING, OrderStatus.PROCESSING] } },
-    });
-    const fulfilled = await this.orderModel.findAll({
+    const cycleFulfilled = await this.orderModel.findAll({
       where: {
         companyId,
         threePlId: userId,
         status: { [Op.in]: [OrderStatus.SHIPPED, OrderStatus.DELIVERED] },
-        createdAt: { [Op.gte]: start, [Op.lt]: end },
+        createdAt: { [Op.gte]: cycle.start, [Op.lt]: cycle.end },
       },
     });
+    const totalEarnings = round2(cycleFulfilled.reduce((sum, o) => sum + this.finance.compute(o).threePlPayout, 0));
 
-    const totalEarnings = round2(fulfilled.reduce((sum, o) => sum + this.finance.compute(o).threePlPayout, 0));
+    const toProcessStatuses = filters.status
+      ? [OrderStatus.PENDING, OrderStatus.PROCESSING].filter((s) => s === filters.status)
+      : [OrderStatus.PENDING, OrderStatus.PROCESSING];
+    const toProcess = toProcessStatuses.length
+      ? await this.orderModel.findAll({
+          where: {
+            companyId,
+            threePlId: userId,
+            status: { [Op.in]: toProcessStatuses },
+            createdAt: { [Op.gte]: range.start, [Op.lt]: range.end },
+          },
+          order: [["createdAt", "DESC"]],
+        })
+      : [];
+
+    const fulfilledStatuses = filters.status
+      ? [OrderStatus.SHIPPED, OrderStatus.DELIVERED].filter((s) => s === filters.status)
+      : [OrderStatus.SHIPPED, OrderStatus.DELIVERED];
+    const fulfilled = fulfilledStatuses.length
+      ? await this.orderModel.findAll({
+          where: {
+            companyId,
+            threePlId: userId,
+            status: { [Op.in]: fulfilledStatuses },
+            createdAt: { [Op.gte]: range.start, [Op.lt]: range.end },
+          },
+          order: [["createdAt", "DESC"]],
+        })
+      : [];
+
+    const mapRow = (o: Order) => ({
+      orderId: o.id,
+      ebayOrderRef: o.ebayOrderRef,
+      status: o.status,
+      productId: o.productId,
+      quantity: o.quantity,
+      shippingLabelUrl: o.shippingLabelUrl,
+    });
 
     return {
-      cycleStart: start,
-      cycleEnd: end,
-      toProcess: toProcess.map((o) => ({ orderId: o.id, ebayOrderRef: o.ebayOrderRef, status: o.status })),
-      fulfilled: fulfilled.map((o) => ({ orderId: o.id, ebayOrderRef: o.ebayOrderRef, status: o.status })),
+      cycleStart: toDateOnly(cycle.start),
+      cycleEnd: toDateOnly(cycle.end),
+      listStart: toDateOnly(range.start),
+      listEnd: toDateOnly(lastInclusiveDay(range.end)),
+      toProcess: toProcess.map(mapRow),
+      fulfilled: fulfilled.map(mapRow),
       totalEarnings,
     };
   }
@@ -224,4 +303,21 @@ export class DashboardService {
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+/** Resolves the active list range: explicit filter dates win, otherwise the billing cycle. `endDate` is inclusive. */
+function resolveRange(filters: DashboardOrderFilters, cycle: { start: Date; end: Date }): { start: Date; end: Date } {
+  const start = filters.startDate ? new Date(`${filters.startDate}T00:00:00`) : cycle.start;
+  const end = filters.endDate ? inclusiveEnd(new Date(`${filters.endDate}T00:00:00`)) : cycle.end;
+  return { start, end };
+}
+
+/** Converts an inclusive calendar date into the exclusive upper bound covering that whole day. */
+function inclusiveEnd(date: Date): Date {
+  return new Date(date.getTime() + 24 * 60 * 60 * 1000);
+}
+
+/** Converts an exclusive upper bound back into the last inclusive calendar date it covers, for display. */
+function lastInclusiveDay(exclusiveEnd: Date): Date {
+  return new Date(exclusiveEnd.getTime() - 24 * 60 * 60 * 1000);
 }

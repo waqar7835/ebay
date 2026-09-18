@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectModel } from "@nestjs/sequelize";
+import { Op } from "sequelize";
 import { OrderStatus, ProductFulfillmentType, Role } from "@ebay-order-management/shared";
 import { Order } from "../database/models/order.model";
 import { Product } from "../database/models/product.model";
@@ -17,6 +18,15 @@ const THREE_PL_ALLOWED_FORWARD: Partial<Record<OrderStatus, OrderStatus>> = {
   [OrderStatus.PENDING]: OrderStatus.PROCESSING,
   [OrderStatus.PROCESSING]: OrderStatus.SHIPPED,
 };
+const MANAGER_ROLES = [Role.ADMIN, Role.STAFF, Role.SUPER_ADMIN, Role.PLATFORM_STAFF];
+
+export interface OrderListFilters {
+  accountHolderId?: string;
+  threePlId?: string;
+  status?: OrderStatus;
+  startDate?: string;
+  endDate?: string;
+}
 
 @Injectable()
 export class OrdersService {
@@ -29,13 +39,25 @@ export class OrdersService {
     private readonly billingService: BillingService,
   ) {}
 
-  async list(companyId: string, requester: JwtPayload) {
+  async list(companyId: string, requester: JwtPayload, filters: OrderListFilters = {}) {
     const where: Record<string, unknown> = { companyId };
+    const isManager = requester.roles.some((r) => MANAGER_ROLES.includes(r));
 
-    if (!requester.roles.some((r) => r === Role.ADMIN || r === Role.STAFF || r === Role.SUPER_ADMIN || r === Role.PLATFORM_STAFF)) {
+    if (!isManager) {
       if (requester.roles.includes(Role.ACCOUNT_HOLDER)) where.accountHolderId = requester.sub;
       else if (requester.roles.includes(Role.STOCK_OWNER)) where.stockOwnerId = requester.sub;
       else if (requester.roles.includes(Role.THREE_PL)) where.threePlId = requester.sub;
+    } else {
+      if (filters.accountHolderId) where.accountHolderId = filters.accountHolderId;
+      if (filters.threePlId) where.threePlId = filters.threePlId;
+    }
+
+    if (filters.status) where.status = filters.status;
+    if (filters.startDate || filters.endDate) {
+      const orderDate: Record<symbol, string> = {};
+      if (filters.startDate) orderDate[Op.gte] = filters.startDate;
+      if (filters.endDate) orderDate[Op.lte] = filters.endDate;
+      where.orderDate = orderDate;
     }
 
     return this.orderModel.findAll({ where, order: [["createdAt", "DESC"]] });
@@ -64,9 +86,11 @@ export class OrdersService {
       if (!threePlId) {
         throw new BadRequestException("A 3PL must be assigned for STOCK fulfillment products");
       }
-      if (await this.billingService.isSeatBlocked(threePlId)) {
-        throw new ForbiddenException("This 3PL's seat is blocked pending payment");
-      }
+    } else if (dto.threePlId) {
+      threePlId = dto.threePlId;
+    }
+    if (threePlId && (await this.billingService.isSeatBlocked(threePlId))) {
+      throw new ForbiddenException("This 3PL's seat is blocked pending payment");
     }
 
     const accountHolderProfile = await this.accountHolderProfileModel.findByPk(dto.accountHolderId);
@@ -83,6 +107,11 @@ export class OrdersService {
     if (threePlId) {
       const threePlProfile = await this.threePlProfileModel.findByPk(threePlId);
       if (!threePlProfile) throw new BadRequestException("3PL profile not found");
+      if (threePlProfile.fulfillmentType !== product.fulfillmentType) {
+        throw new BadRequestException(
+          `The selected 3PL handles ${threePlProfile.fulfillmentType} fulfillment, but this product is ${product.fulfillmentType}`,
+        );
+      }
       threePlPriceChargedSnapshot = accountHolderProfile.threePlPriceCharged ?? 0;
       threePlPayoutSnapshot = threePlProfile.payoutPerOrder;
     }
@@ -128,6 +157,13 @@ export class OrdersService {
     if (dto.ebayNetProceeds !== undefined) order.ebayNetProceeds = dto.ebayNetProceeds;
     if (dto.shippingCost !== undefined) order.shippingCost = dto.shippingCost;
 
+    await order.save();
+    return order;
+  }
+
+  async uploadShippingLabel(companyId: string, id: string, shippingLabelUrl: string) {
+    const order = await this.get(companyId, id);
+    order.shippingLabelUrl = shippingLabelUrl;
     await order.save();
     return order;
   }

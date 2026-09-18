@@ -1,16 +1,10 @@
 "use client";
 
-import type { ProductDto } from "@ebay-order-management/shared";
+import type { ProductDto, UserDto } from "@ebay-order-management/shared";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
-import { API_URL, createOrder, getToken, listProducts, listUsers } from "@/lib/api";
-
-interface UserOption {
-  id: string;
-  email: string;
-  roles: string[];
-}
+import { createOrder, getToken, listProducts, listUsers, mediaUrl, uploadOrderShippingLabel } from "@/lib/api";
 
 function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
@@ -20,6 +14,7 @@ const emptyForm = {
   accountHolderId: "",
   productId: "",
   quantity: "1",
+  threePlId: "",
   orderDate: todayIsoDate(),
   ebayOrderRef: "",
   trackingNumber: "",
@@ -31,10 +26,11 @@ const emptyForm = {
 export default function NewOrderPage() {
   const router = useRouter();
   const [products, setProducts] = useState<ProductDto[]>([]);
-  const [users, setUsers] = useState<UserOption[]>([]);
+  const [users, setUsers] = useState<UserDto[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [shippingLabel, setShippingLabel] = useState<File | null>(null);
 
   function setField<K extends keyof typeof emptyForm>(key: K, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -46,21 +42,35 @@ export default function NewOrderPage() {
       return;
     }
     listProducts().then(setProducts).catch(() => undefined);
-    listUsers().then(setUsers as never).catch(() => undefined);
+    listUsers().then(setUsers).catch(() => undefined);
   }, [router]);
 
-  const accountHolders = users.filter((u) => u.roles.includes("ACCOUNT_HOLDER"));
+  const accountHolders = users.filter((u) => u.roles.includes("ACCOUNT_HOLDER" as never));
   const productById = new Map(products.map((p) => [p.id, p]));
+  const selectedProduct = productById.get(form.productId);
+  const eligibleThreePls = users.filter(
+    (u) => u.roles.includes("THREE_PL" as never) && u.threePlProfile?.fulfillmentType === selectedProduct?.fulfillmentType,
+  );
+
+  function handleProductChange(productId: string) {
+    const product = productById.get(productId);
+    setForm((f) => ({
+      ...f,
+      productId,
+      threePlId: product?.threePlId ?? "",
+    }));
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
     setSubmitting(true);
     try {
-      await createOrder({
+      const order = await createOrder({
         accountHolderId: form.accountHolderId,
         productId: form.productId,
         quantity: Number(form.quantity),
+        threePlId: form.threePlId || undefined,
         orderDate: form.orderDate,
         ebayOrderRef: form.ebayOrderRef,
         trackingNumber: form.trackingNumber || undefined,
@@ -68,6 +78,9 @@ export default function NewOrderPage() {
         ebayNetProceeds: Number(form.ebayNetProceeds),
         shippingCost: Number(form.shippingCost),
       });
+      if (shippingLabel) {
+        await uploadOrderShippingLabel(order.id, shippingLabel);
+      }
       router.push("/orders");
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to save order");
@@ -109,7 +122,7 @@ export default function NewOrderPage() {
                 <option value="">Select…</option>
                 {accountHolders.map((u) => (
                   <option key={u.id} value={u.id}>
-                    {u.email}
+                    {u.name || u.email}
                   </option>
                 ))}
               </select>
@@ -122,13 +135,13 @@ export default function NewOrderPage() {
               <select
                 required
                 value={form.productId}
-                onChange={(e) => setField("productId", e.target.value)}
+                onChange={(e) => handleProductChange(e.target.value)}
                 className="mt-1 w-full rounded border px-2 py-1"
               >
                 <option value="">Select…</option>
                 {products.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.sku} — {p.title}
+                    {p.sku} — {p.title} ({p.fulfillmentType === "DROPSHIP" ? "Dropshipping" : "Stock"})
                   </option>
                 ))}
               </select>
@@ -140,10 +153,34 @@ export default function NewOrderPage() {
             {productById.get(form.productId)?.imageUrl && (
               <div className="mt-6 h-9 w-9 shrink-0 overflow-hidden rounded border bg-gray-50">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`${API_URL}${productById.get(form.productId)?.imageUrl}`} alt="" className="h-full w-full object-cover" />
+                <img src={mediaUrl(productById.get(form.productId)?.imageUrl)} alt="" className="h-full w-full object-cover" />
               </div>
             )}
           </div>
+
+          {selectedProduct && (
+            <label>
+              3PL {selectedProduct.fulfillmentType === "STOCK" ? "" : "(optional)"}
+              <select
+                required={selectedProduct.fulfillmentType === "STOCK"}
+                value={form.threePlId}
+                onChange={(e) => setField("threePlId", e.target.value)}
+                className="mt-1 w-full rounded border px-2 py-1"
+              >
+                <option value="">{selectedProduct.fulfillmentType === "STOCK" ? "Select…" : "None"}</option>
+                {eligibleThreePls.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name || u.email}
+                  </option>
+                ))}
+              </select>
+              {eligibleThreePls.length === 0 && (
+                <span className="mt-1 block text-xs text-gray-500">
+                  No 3PL users are set up for {selectedProduct.fulfillmentType === "STOCK" ? "Stock" : "Dropshipping"} fulfillment yet.
+                </span>
+              )}
+            </label>
+          )}
 
           <div className="flex gap-3">
             <label className="flex-1">
@@ -197,6 +234,16 @@ export default function NewOrderPage() {
               />
             </label>
           </div>
+
+          <label>
+            Shipping label (PDF)
+            <input
+              type="file"
+              accept="application/pdf"
+              onChange={(e) => setShippingLabel(e.target.files?.[0] ?? null)}
+              className="mt-1 block w-full text-sm"
+            />
+          </label>
 
           {formError && <p className="text-red-600">{formError}</p>}
           <button

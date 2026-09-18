@@ -13,7 +13,7 @@ import {
   Min,
   ValidateNested,
 } from "class-validator";
-import { Role, StockOwnerPayoutMode } from "@ebay-order-management/shared";
+import { ProductFulfillmentType, Role, StockOwnerPayoutMode } from "@ebay-order-management/shared";
 
 export class StaffPermissionsInput {
   @IsBoolean() canManageOrders!: boolean;
@@ -40,6 +40,7 @@ export class StockOwnerProfileInput {
 export class ThreePlProfileInput {
   @IsNumber() payoutPerOrder!: number;
   @IsInt() @Min(1) @Max(28) billingCycleStartDay!: number;
+  @IsEnum(ProductFulfillmentType) fulfillmentType!: ProductFulfillmentType;
 }
 
 export class InviteUserDto {

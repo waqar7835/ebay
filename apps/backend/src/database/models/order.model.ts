@@ -61,6 +61,9 @@ export class Order extends Model {
   @Column({ type: DataType.STRING, allowNull: true, field: "tracking_number" })
   declare trackingNumber: string | null;
 
+  @Column({ type: DataType.STRING, allowNull: true, field: "shipping_label_url" })
+  declare shippingLabelUrl: string | null;
+
   @Column({ type: DataType.TEXT, allowNull: false, field: "buyer_details" })
   declare buyerDetails: string;
 

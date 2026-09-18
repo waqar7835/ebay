@@ -1,6 +1,6 @@
 import { Controller, ForbiddenException, Get, Query, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
-import { Role } from "@ebay-order-management/shared";
+import { Role, type OrderStatus } from "@ebay-order-management/shared";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { RolesGuard } from "../common/guards/roles.guard";
 import { Roles } from "../common/decorators/roles.decorator";
@@ -27,23 +27,41 @@ export class DashboardController {
 
   @Get("account-holder")
   @Roles(Role.ACCOUNT_HOLDER)
-  async accountHolder(@CurrentUser() user: JwtPayload, @Query("companyId") companyId?: string) {
+  async accountHolder(
+    @CurrentUser() user: JwtPayload,
+    @Query("companyId") companyId?: string,
+    @Query("status") status?: OrderStatus,
+    @Query("startDate") startDate?: string,
+    @Query("endDate") endDate?: string,
+  ) {
     await this.assertSeatActive(user.sub);
-    return this.dashboardService.accountHolder(resolveCompanyId(user, companyId), user.sub);
+    return this.dashboardService.accountHolder(resolveCompanyId(user, companyId), user.sub, { status, startDate, endDate });
   }
 
   @Get("stock-owner")
   @Roles(Role.STOCK_OWNER)
-  async stockOwner(@CurrentUser() user: JwtPayload, @Query("companyId") companyId?: string) {
+  async stockOwner(
+    @CurrentUser() user: JwtPayload,
+    @Query("companyId") companyId?: string,
+    @Query("status") status?: OrderStatus,
+    @Query("startDate") startDate?: string,
+    @Query("endDate") endDate?: string,
+  ) {
     await this.assertSeatActive(user.sub);
-    return this.dashboardService.stockOwner(resolveCompanyId(user, companyId), user.sub);
+    return this.dashboardService.stockOwner(resolveCompanyId(user, companyId), user.sub, { status, startDate, endDate });
   }
 
   @Get("three-pl")
   @Roles(Role.THREE_PL)
-  async threePl(@CurrentUser() user: JwtPayload, @Query("companyId") companyId?: string) {
+  async threePl(
+    @CurrentUser() user: JwtPayload,
+    @Query("companyId") companyId?: string,
+    @Query("status") status?: OrderStatus,
+    @Query("startDate") startDate?: string,
+    @Query("endDate") endDate?: string,
+  ) {
     await this.assertSeatActive(user.sub);
-    return this.dashboardService.threePl(resolveCompanyId(user, companyId), user.sub);
+    return this.dashboardService.threePl(resolveCompanyId(user, companyId), user.sub, { status, startDate, endDate });
   }
 
   @Get("staff")

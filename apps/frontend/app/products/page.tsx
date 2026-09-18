@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import ImageCropModal from "@/components/ImageCropModal";
-import { API_URL, getToken, listProducts, uploadProductImage } from "@/lib/api";
+import { getToken, listProducts, mediaUrl, uploadProductImage } from "@/lib/api";
 
 interface ProductRow {
   id: string;
@@ -100,7 +100,7 @@ export default function ProductsPage() {
                   >
                     {p.imageUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={`${API_URL}${p.imageUrl}`} alt={p.title} className="h-full w-full object-cover" />
+                      <img src={mediaUrl(p.imageUrl)} alt={p.title} className="h-full w-full object-cover" />
                     ) : (
                       <span className="flex h-full w-full items-center justify-center text-[10px] text-gray-400">
                         {uploadingId === p.id ? "…" : "Add"}

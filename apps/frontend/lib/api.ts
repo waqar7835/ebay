@@ -15,6 +15,23 @@ import type {
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
+/** Mirrors the backend's currentCycle()/toDateOnly() so filter defaults match a user's billing cycle without a round trip. */
+export function computeCurrentCycle(anchorDay: number, today: Date = new Date()): { start: string; end: string } {
+  let start = new Date(today.getFullYear(), today.getMonth(), anchorDay);
+  if (start.getTime() > today.getTime()) {
+    start = new Date(today.getFullYear(), today.getMonth() - 1, anchorDay);
+  }
+  const end = new Date(start.getFullYear(), start.getMonth() + 1, anchorDay);
+  const lastInclusiveDay = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+  const toDateOnly = (d: Date) => d.toISOString().slice(0, 10);
+  return { start: toDateOnly(start), end: toDateOnly(lastInclusiveDay) };
+}
+
+export function mediaUrl(path: string | null | undefined): string {
+  if (!path) return "";
+  return /^https?:\/\//.test(path) ? path : `${API_URL}${path}`;
+}
+
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("accessToken");
@@ -102,40 +119,61 @@ export function seatStatus() {
   return request<{ paidThroughDate: string | null; blocked: boolean }>("/dashboard/seat-status");
 }
 
+export interface DashboardOrderFilters {
+  status?: OrderStatus;
+  startDate?: string;
+  endDate?: string;
+}
+
+function dashboardQuery(filters: DashboardOrderFilters = {}) {
+  const params = new URLSearchParams();
+  if (filters.status) params.set("status", filters.status);
+  if (filters.startDate) params.set("startDate", filters.startDate);
+  if (filters.endDate) params.set("endDate", filters.endDate);
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
+
 export interface AccountHolderDashboard {
   cycleStart: string;
   cycleEnd: string;
+  listStart: string;
+  listEnd: string;
   orderCount: number;
   totalProfit: number;
-  orders: { orderId: string; ebayOrderRef: string; status: string; profit: number; payout: number }[];
+  orders: { orderId: string; ebayOrderRef: string; status: string; productId: string; quantity: number; profit: number; payout: number }[];
 }
 
-export function accountHolderDashboard() {
-  return request<AccountHolderDashboard>("/dashboard/account-holder");
+export function accountHolderDashboard(filters: DashboardOrderFilters = {}) {
+  return request<AccountHolderDashboard>(`/dashboard/account-holder${dashboardQuery(filters)}`);
 }
 
 export interface StockOwnerDashboard {
   cycleStart: string;
   cycleEnd: string;
+  listStart: string;
+  listEnd: string;
   itemsSold: number;
   totalProfit: number;
-  orders: { orderId: string; ebayOrderRef: string; status: string; quantity: number; net: number }[];
+  orders: { orderId: string; ebayOrderRef: string; status: string; productId: string; quantity: number; net: number }[];
 }
 
-export function stockOwnerDashboard() {
-  return request<StockOwnerDashboard>("/dashboard/stock-owner");
+export function stockOwnerDashboard(filters: DashboardOrderFilters = {}) {
+  return request<StockOwnerDashboard>(`/dashboard/stock-owner${dashboardQuery(filters)}`);
 }
 
 export interface ThreePlDashboard {
   cycleStart: string;
   cycleEnd: string;
+  listStart: string;
+  listEnd: string;
   totalEarnings: number;
-  toProcess: { orderId: string; ebayOrderRef: string; status: string }[];
-  fulfilled: { orderId: string; ebayOrderRef: string; status: string }[];
+  toProcess: { orderId: string; ebayOrderRef: string; status: string; productId: string; quantity: number; shippingLabelUrl: string | null }[];
+  fulfilled: { orderId: string; ebayOrderRef: string; status: string; productId: string; quantity: number; shippingLabelUrl: string | null }[];
 }
 
-export function threePlDashboard() {
-  return request<ThreePlDashboard>("/dashboard/three-pl");
+export function threePlDashboard(filters: DashboardOrderFilters = {}) {
+  return request<ThreePlDashboard>(`/dashboard/three-pl${dashboardQuery(filters)}`);
 }
 
 export function updateOrderStatus(orderId: string, status: OrderStatus) {
@@ -209,11 +247,19 @@ export interface InviteUserPayload {
   staffPermissions?: StaffPermissionsDto;
   accountHolderProfile?: Pick<AccountHolderProfileDto, "sharePercent" | "threePlPriceCharged" | "billingCycleStartDay">;
   stockOwnerProfile?: Pick<StockOwnerProfileDto, "payoutMode" | "sharePercent" | "billingCycleStartDay">;
-  threePlProfile?: Pick<ThreePlProfileDto, "payoutPerOrder" | "billingCycleStartDay">;
+  threePlProfile?: Pick<ThreePlProfileDto, "payoutPerOrder" | "billingCycleStartDay" | "fulfillmentType">;
 }
 
 export function inviteUser(payload: InviteUserPayload) {
   return request<UserDto>("/users/invite", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function getUser(id: string) {
+  return request<UserDto>(`/users/${id}`);
+}
+
+export function updateThreePlProfile(id: string, payload: Pick<ThreePlProfileDto, "payoutPerOrder" | "billingCycleStartDay" | "fulfillmentType">) {
+  return request<unknown>(`/users/${id}/three-pl-profile`, { method: "PATCH", body: JSON.stringify(payload) });
 }
 
 export function setUserStatus(userId: string, enable: boolean) {
@@ -265,8 +311,23 @@ export async function uploadProductImage(productId: string, image: File) {
 }
 
 // --- Orders (company self-management: ADMIN/STAFF-with-canManageOrders) ---
-export function listOrders() {
-  return request<OrderDto[]>("/orders");
+export interface OrderListFilters {
+  accountHolderId?: string;
+  threePlId?: string;
+  status?: OrderStatus;
+  startDate?: string;
+  endDate?: string;
+}
+
+export function listOrders(filters: OrderListFilters = {}) {
+  const params = new URLSearchParams();
+  if (filters.accountHolderId) params.set("accountHolderId", filters.accountHolderId);
+  if (filters.threePlId) params.set("threePlId", filters.threePlId);
+  if (filters.status) params.set("status", filters.status);
+  if (filters.startDate) params.set("startDate", filters.startDate);
+  if (filters.endDate) params.set("endDate", filters.endDate);
+  const qs = params.toString();
+  return request<OrderDto[]>(`/orders${qs ? `?${qs}` : ""}`);
 }
 
 export interface CreateOrderPayload {
@@ -290,6 +351,21 @@ export function createOrder(payload: CreateOrderPayload) {
 
 export function updateOrder(orderId: string, payload: UpdateOrderPayload) {
   return request<OrderDto>(`/orders/${orderId}`, { method: "PATCH", body: JSON.stringify(payload) });
+}
+
+export async function uploadOrderShippingLabel(orderId: string, shippingLabel: File) {
+  const form = new FormData();
+  form.append("shippingLabel", shippingLabel);
+  const res = await fetch(`${API_URL}/orders/${orderId}/shipping-label`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: form,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message ?? `Request failed: ${res.status}`);
+  }
+  return res.json() as Promise<OrderDto>;
 }
 
 // --- Invoices (company-wide admin view: ADMIN/STAFF-with-canGenerateInvoices/canViewFinancials) ---

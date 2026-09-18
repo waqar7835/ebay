@@ -1,11 +1,26 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
+import type { OrderStatus } from "@ebay-order-management/shared";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { RolesGuard } from "../common/guards/roles.guard";
 import { PermissionsGuard } from "../common/guards/permissions.guard";
 import { RequirePermission } from "../common/decorators/permission.decorator";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { resolveCompanyId } from "../common/company-scope.util";
+import { multerUploadOptions, publicUploadUrl } from "../uploads/uploads.util";
 import type { JwtPayload } from "../auth/jwt.strategy";
 import { OrdersService } from "./orders.service";
 import { CreateOrderDto } from "./dto/create-order.dto";
@@ -20,8 +35,22 @@ export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Get()
-  list(@CurrentUser() user: JwtPayload, @Query("companyId") companyId?: string) {
-    return this.ordersService.list(resolveCompanyId(user, companyId), user);
+  list(
+    @CurrentUser() user: JwtPayload,
+    @Query("companyId") companyId?: string,
+    @Query("accountHolderId") accountHolderId?: string,
+    @Query("threePlId") threePlId?: string,
+    @Query("status") status?: OrderStatus,
+    @Query("startDate") startDate?: string,
+    @Query("endDate") endDate?: string,
+  ) {
+    return this.ordersService.list(resolveCompanyId(user, companyId), user, {
+      accountHolderId,
+      threePlId,
+      status,
+      startDate,
+      endDate,
+    });
   }
 
   @Get(":id")
@@ -54,5 +83,35 @@ export class OrdersController {
     @Query("companyId") companyId?: string,
   ) {
     return this.ordersService.updateStatus(resolveCompanyId(user, companyId), user, id, dto);
+  }
+
+  @Post(":id/shipping-label")
+  @RequirePermission("canManageOrders")
+  @UseInterceptors(
+    FileInterceptor(
+      "shippingLabel",
+      multerUploadOptions("shipping-labels", {
+        fileFilter: (_req, file, cb) => {
+          if (file.mimetype !== "application/pdf") {
+            cb(new BadRequestException("Shipping label must be a PDF file"), false);
+            return;
+          }
+          cb(null, true);
+        },
+      }),
+    ),
+  )
+  uploadShippingLabel(
+    @CurrentUser() user: JwtPayload,
+    @Param("id") id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Query("companyId") companyId?: string,
+  ) {
+    if (!file) throw new BadRequestException("Shipping label file is required");
+    return this.ordersService.uploadShippingLabel(
+      resolveCompanyId(user, companyId),
+      id,
+      publicUploadUrl("shipping-labels", file.filename),
+    );
   }
 }

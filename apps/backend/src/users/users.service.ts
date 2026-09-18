@@ -208,6 +208,7 @@ export class UsersService {
     Object.assign(profile, {
       payoutPerOrder: input.payoutPerOrder,
       billingCycleStartDay: input.billingCycleStartDay,
+      fulfillmentType: input.fulfillmentType,
     });
     await profile.save();
     return profile;

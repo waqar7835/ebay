@@ -79,6 +79,7 @@ export interface StockOwnerProfileDto {
 export interface ThreePlProfileDto {
   payoutPerOrder: number;
   billingCycleStartDay: number;
+  fulfillmentType: ProductFulfillmentType;
 }
 
 export interface UserDto {
@@ -124,6 +125,7 @@ export interface OrderDto {
   orderDate: string;
   ebayOrderRef: string;
   trackingNumber: string | null;
+  shippingLabelUrl: string | null;
   buyerDetails: string;
   ebayNetProceeds: number;
   shippingCost: number;

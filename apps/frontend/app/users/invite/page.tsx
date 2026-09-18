@@ -1,6 +1,6 @@
 "use client";
 
-import type { Role, StockOwnerPayoutMode } from "@ebay-order-management/shared";
+import type { ProductFulfillmentType, Role, StockOwnerPayoutMode } from "@ebay-order-management/shared";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
@@ -44,6 +44,7 @@ export default function InviteUserPage() {
   const [payoutMode, setPayoutMode] = useState<StockOwnerPayoutMode>("FIXED" as StockOwnerPayoutMode);
   const [stockOwnerSharePercent, setStockOwnerSharePercent] = useState("0");
   const [payoutPerOrder, setPayoutPerOrder] = useState("0");
+  const [threePlFulfillmentType, setThreePlFulfillmentType] = useState<ProductFulfillmentType>("STOCK" as ProductFulfillmentType);
   const [billingCycleStartDay, setBillingCycleStartDay] = useState("1");
   const [staffPermissions, setStaffPermissions] = useState<StaffPermissionsState>(DEFAULT_STAFF_PERMISSIONS);
   const [hasRevenueShare, setHasRevenueShare] = useState(false);
@@ -101,7 +102,11 @@ export default function InviteUserPage() {
             : undefined,
         threePlProfile:
           activeType === ("THREE_PL" as Role)
-            ? { payoutPerOrder: Number(payoutPerOrder), billingCycleStartDay: Number(billingCycleStartDay) }
+            ? {
+                payoutPerOrder: Number(payoutPerOrder),
+                billingCycleStartDay: Number(billingCycleStartDay),
+                fulfillmentType: threePlFulfillmentType,
+              }
             : undefined,
       });
       const label = USER_TYPES.find((t) => t.role === activeType)?.label ?? activeType;
@@ -260,10 +265,23 @@ export default function InviteUserPage() {
           {activeType === ("THREE_PL" as Role) && (
             <div className="rounded bg-gray-50 p-3 text-sm">
               <p className="mb-2 font-medium">3PL settings</p>
-              <label className="block">
-                Payout per order fulfilled
-                <input value={payoutPerOrder} onChange={(e) => setPayoutPerOrder(e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
-              </label>
+              <div className="flex gap-3">
+                <label className="flex-1">
+                  Type
+                  <select
+                    value={threePlFulfillmentType}
+                    onChange={(e) => setThreePlFulfillmentType(e.target.value as ProductFulfillmentType)}
+                    className="mt-1 w-full rounded border px-2 py-1"
+                  >
+                    <option value="STOCK">Stock</option>
+                    <option value="DROPSHIP">Dropshipping</option>
+                  </select>
+                </label>
+                <label className="flex-1">
+                  Payout per order fulfilled
+                  <input value={payoutPerOrder} onChange={(e) => setPayoutPerOrder(e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
+                </label>
+              </div>
               <label className="mt-3 block">
                 Billing cycle start day (1–28)
                 <input

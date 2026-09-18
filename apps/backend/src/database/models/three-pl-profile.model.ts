@@ -1,4 +1,5 @@
 import { BelongsTo, Column, DataType, ForeignKey, Model, Table } from "sequelize-typescript";
+import { ProductFulfillmentType } from "@ebay-order-management/shared";
 import { toDecimal } from "../decimal.util";
 import { User } from "./user.model";
 
@@ -24,4 +25,12 @@ export class ThreePlProfile extends Model {
 
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 1, field: "billing_cycle_start_day" })
   declare billingCycleStartDay: number;
+
+  @Column({
+    type: DataType.ENUM(...Object.values(ProductFulfillmentType)),
+    allowNull: false,
+    defaultValue: ProductFulfillmentType.STOCK,
+    field: "fulfillment_type",
+  })
+  declare fulfillmentType: ProductFulfillmentType;
 }
