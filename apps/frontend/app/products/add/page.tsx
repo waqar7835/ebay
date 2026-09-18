@@ -104,6 +104,18 @@ export default function AddProductPage() {
             <input placeholder="Title" required value={title} onChange={(e) => setTitle(e.target.value)} className="flex-1 rounded border px-2 py-1" />
           </div>
 
+          <label>
+            Fulfillment type
+            <select
+              value={fulfillmentType}
+              onChange={(e) => setFulfillmentType(e.target.value as ProductFulfillmentType)}
+              className="mt-1 w-full rounded border px-2 py-1"
+            >
+              <option value="STOCK">Stock</option>
+              <option value="DROPSHIP">Dropship</option>
+            </select>
+          </label>
+
           {isStock && (
             <label>
               Stock Owner
@@ -117,18 +129,6 @@ export default function AddProductPage() {
               </select>
             </label>
           )}
-
-          <label>
-            Fulfillment type
-            <select
-              value={fulfillmentType}
-              onChange={(e) => setFulfillmentType(e.target.value as ProductFulfillmentType)}
-              className="mt-1 w-full rounded border px-2 py-1"
-            >
-              <option value="STOCK">Stock</option>
-              <option value="DROPSHIP">Dropship</option>
-            </select>
-          </label>
 
           {fulfillmentType === ("STOCK" as ProductFulfillmentType) && (
             <label>
