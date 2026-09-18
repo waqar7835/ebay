@@ -210,15 +210,17 @@ export default function EditOrderPage() {
               </label>
             </div>
 
-            <label>
-              Supplier/product listing URL (optional)
-              <input
-                placeholder="https://…"
-                value={form.supplierUrl}
-                onChange={(e) => setField("supplierUrl", e.target.value)}
-                className="mt-1 w-full rounded border px-2 py-1"
-              />
-            </label>
+            {product?.fulfillmentType === "DROPSHIP" && (
+              <label>
+                Supplier/product listing URL (optional)
+                <input
+                  placeholder="https://…"
+                  value={form.supplierUrl}
+                  onChange={(e) => setField("supplierUrl", e.target.value)}
+                  className="mt-1 w-full rounded border px-2 py-1"
+                />
+              </label>
+            )}
 
             <label>
               Shipping label (PDF)

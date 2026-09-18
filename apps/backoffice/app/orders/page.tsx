@@ -289,15 +289,17 @@ export default function OrdersPage() {
               </label>
             </div>
 
-            <label>
-              Supplier/product listing URL (optional)
-              <input
-                placeholder="https://…"
-                value={form.supplierUrl}
-                onChange={(e) => setField("supplierUrl", e.target.value)}
-                className="mt-1 w-full rounded border px-2 py-1"
-              />
-            </label>
+            {productById.get(form.productId)?.fulfillmentType === "DROPSHIP" && (
+              <label>
+                Supplier/product listing URL (optional)
+                <input
+                  placeholder="https://…"
+                  value={form.supplierUrl}
+                  onChange={(e) => setField("supplierUrl", e.target.value)}
+                  className="mt-1 w-full rounded border px-2 py-1"
+                />
+              </label>
+            )}
 
             {formError && <p className="text-red-600">{formError}</p>}
             <button type="submit" className="self-start rounded bg-gray-900 px-3 py-2 text-white">

@@ -184,15 +184,17 @@ export default function NewOrderPage() {
             </label>
           )}
 
-          <label>
-            Supplier/product listing URL (optional)
-            <input
-              placeholder="https://…"
-              value={form.supplierUrl}
-              onChange={(e) => setField("supplierUrl", e.target.value)}
-              className="mt-1 w-full rounded border px-2 py-1"
-            />
-          </label>
+          {selectedProduct?.fulfillmentType === "DROPSHIP" && (
+            <label>
+              Supplier/product listing URL (optional)
+              <input
+                placeholder="https://…"
+                value={form.supplierUrl}
+                onChange={(e) => setField("supplierUrl", e.target.value)}
+                className="mt-1 w-full rounded border px-2 py-1"
+              />
+            </label>
+          )}
 
           <div className="flex gap-3">
             <label className="flex-1">
