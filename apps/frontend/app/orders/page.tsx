@@ -212,6 +212,9 @@ export default function OrdersPage() {
               <th className="py-2">Tracking #</th>
               <th className="py-2">Qty</th>
               <th className="py-2">Payout</th>
+              {isManager && <th className="py-2">Buy Price</th>}
+              {isManager && <th className="py-2">3PL Fee</th>}
+              {isManager && <th className="py-2">Profit</th>}
               <th className="py-2">Status</th>
               {isThreePl && <th className="py-2">Label</th>}
               <th className="py-2"></th>
@@ -241,6 +244,15 @@ export default function OrdersPage() {
                   <td className="py-2">{order.trackingNumber ?? "—"}</td>
                   <td className="py-2">{order.quantity}</td>
                   <td className="py-2">${order.ebayNetProceeds.toFixed(2)}</td>
+                  {isManager && <td className="py-2">${order.buyPriceSnapshot.toFixed(2)}</td>}
+                  {isManager && (
+                    <td className="py-2">
+                      {order.threePlPayoutSnapshot != null ? `$${order.threePlPayoutSnapshot.toFixed(2)}` : "—"}
+                    </td>
+                  )}
+                  {isManager && (
+                    <td className="py-2">{order.companyProfit != null ? `$${order.companyProfit.toFixed(2)}` : "—"}</td>
+                  )}
                   <td className="py-2">
                     <div className="flex items-center gap-2">
                       <select
@@ -289,7 +301,7 @@ export default function OrdersPage() {
             })}
             {orders.length === 0 && (
               <tr>
-                <td colSpan={12} className="py-4 text-gray-500">
+                <td colSpan={15} className="py-4 text-gray-500">
                   No orders match these filters.
                 </td>
               </tr>

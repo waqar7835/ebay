@@ -70,14 +70,9 @@ export default function UsersPage() {
                 <td className="py-2">{u.status}</td>
                 <td className="py-2">
                   <div className="flex items-center gap-3">
-                    {u.roles.includes("THREE_PL" as Role) && (
-                      <button
-                        onClick={() => router.push(`/users/${u.id}/edit-three-pl`)}
-                        className="text-xs text-gray-600 underline"
-                      >
-                        Edit
-                      </button>
-                    )}
+                    <button onClick={() => router.push(`/users/${u.id}/edit`)} className="text-xs text-gray-600 underline">
+                      Edit
+                    </button>
                     {!u.roles.includes("ADMIN" as Role) && (
                       <button onClick={() => toggleStatus(u)} className="text-xs text-gray-600 underline">
                         {u.status === "ACTIVE" ? "Disable" : "Enable"}

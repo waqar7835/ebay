@@ -142,6 +142,16 @@ export class UsersService {
     return this.toDto(await user.reload({ include: PROFILE_INCLUDES }));
   }
 
+  async updateUser(companyId: string, userId: string, dto: UpdateOwnProfileDto) {
+    const user = await this.userModel.findOne({ where: { id: userId, companyId } });
+    if (!user) throw new NotFoundException("User not found");
+    if (dto.name !== undefined) {
+      user.name = dto.name;
+    }
+    await user.save();
+    return this.toDto(await user.reload({ include: PROFILE_INCLUDES }));
+  }
+
   async changePassword(userId: string, dto: ChangePasswordDto) {
     if (dto.newPassword !== dto.confirmNewPassword) {
       throw new BadRequestException("Passwords do not match");

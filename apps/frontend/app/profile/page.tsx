@@ -167,6 +167,59 @@ export default function ProfilePage() {
             </label>
           </div>
 
+          {user?.staffProfile && (
+            <>
+              <h2 className="mt-8 text-lg font-medium">Staff permissions</h2>
+              <p className="mt-2 text-xs text-gray-500">Set by an admin — contact them to make changes.</p>
+              <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+                <span>Manage orders: {user.staffProfile.canManageOrders ? "Yes" : "No"}</span>
+                <span>Manage stock: {user.staffProfile.canManageStock ? "Yes" : "No"}</span>
+                <span>Manage users: {user.staffProfile.canManageUsers ? "Yes" : "No"}</span>
+                <span>Generate invoices: {user.staffProfile.canGenerateInvoices ? "Yes" : "No"}</span>
+                <span>View financials: {user.staffProfile.canViewFinancials ? "Yes" : "No"}</span>
+                <span>
+                  Revenue share: {user.staffProfile.hasRevenueShare ? `${user.staffProfile.sharePercent ?? 0}%` : "No"}
+                </span>
+              </div>
+            </>
+          )}
+
+          {user?.accountHolderProfile && (
+            <>
+              <h2 className="mt-8 text-lg font-medium">Account Holder settings</h2>
+              <p className="mt-2 text-xs text-gray-500">Set by an admin — contact them to make changes.</p>
+              <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+                <span>Share % of profit: {user.accountHolderProfile.sharePercent}%</span>
+                <span>3PL price charged: {user.accountHolderProfile.threePlPriceCharged ?? "—"}</span>
+                <span>Billing cycle start day: {user.accountHolderProfile.billingCycleStartDay}</span>
+              </div>
+            </>
+          )}
+
+          {user?.stockOwnerProfile && (
+            <>
+              <h2 className="mt-8 text-lg font-medium">Stock Owner settings</h2>
+              <p className="mt-2 text-xs text-gray-500">Set by an admin — contact them to make changes.</p>
+              <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+                <span>Payout mode: {user.stockOwnerProfile.payoutMode}</span>
+                <span>Share % of margin: {user.stockOwnerProfile.sharePercent ?? "—"}</span>
+                <span>Billing cycle start day: {user.stockOwnerProfile.billingCycleStartDay}</span>
+              </div>
+            </>
+          )}
+
+          {user?.threePlProfile && (
+            <>
+              <h2 className="mt-8 text-lg font-medium">3PL settings</h2>
+              <p className="mt-2 text-xs text-gray-500">Set by an admin — contact them to make changes.</p>
+              <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+                <span>Type: {user.threePlProfile.fulfillmentType}</span>
+                <span>Payout per order: {user.threePlProfile.payoutPerOrder}</span>
+                <span>Billing cycle start day: {user.threePlProfile.billingCycleStartDay}</span>
+              </div>
+            </>
+          )}
+
           <h2 className="mt-8 text-lg font-medium">Company</h2>
           <div className="mt-4 flex flex-col gap-4">
             <label className={labelClass}>

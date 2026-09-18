@@ -145,6 +145,8 @@ export interface OrderDto {
   daysInStatus?: number;
   /** Present on list responses only. True when the order has sat in PENDING/PROCESSING/SHIPPED past the company's stale-order threshold. */
   stale?: boolean;
+  /** Present on list responses only, and only for managers (ADMIN/STAFF/SUPER_ADMIN/PLATFORM_STAFF) — total company profit contribution from this order. */
+  companyProfit?: number;
 }
 
 export interface OrderFinancials {

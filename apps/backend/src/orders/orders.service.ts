@@ -9,6 +9,7 @@ import { AccountHolderProfile } from "../database/models/account-holder-profile.
 import { StockOwnerProfile } from "../database/models/stock-owner-profile.model";
 import { ThreePlProfile } from "../database/models/three-pl-profile.model";
 import { BillingService } from "../billing/billing.service";
+import { FinanceService } from "../finance/finance.service";
 import type { JwtPayload } from "../auth/jwt.strategy";
 import { CreateOrderDto } from "./dto/create-order.dto";
 import { UpdateOrderDto } from "./dto/update-order.dto";
@@ -40,6 +41,7 @@ export class OrdersService {
     @InjectModel(StockOwnerProfile) private readonly stockOwnerProfileModel: typeof StockOwnerProfile,
     @InjectModel(ThreePlProfile) private readonly threePlProfileModel: typeof ThreePlProfile,
     private readonly billingService: BillingService,
+    private readonly financeService: FinanceService,
   ) {}
 
   async list(companyId: string, requester: JwtPayload, filters: OrderListFilters = {}) {
@@ -66,7 +68,7 @@ export class OrdersService {
     const orders = await this.orderModel.findAll({ where, order: [["createdAt", "DESC"]] });
     const staleOrderDays = await this.staleOrderDays(companyId);
     const now = new Date();
-    return orders.map((order) => this.withStaleness(order, staleOrderDays, now));
+    return orders.map((order) => this.withStaleness(order, staleOrderDays, now, isManager));
   }
 
   async get(companyId: string, id: string) {
@@ -80,11 +82,13 @@ export class OrdersService {
     return company?.staleOrderDays ?? 3;
   }
 
-  private withStaleness(order: Order, staleOrderDays: number, now: Date) {
+  private withStaleness(order: Order, staleOrderDays: number, now: Date, isManager: boolean) {
     return {
       ...order.toJSON(),
       daysInStatus: daysInStatus(order.statusChangedAt, now),
       stale: isOrderStale(order.status, order.statusChangedAt, staleOrderDays, now),
+      // Company profit is a manager-only figure — Account Holders/Stock Owners/3PLs only ever see their own payout.
+      companyProfit: isManager ? this.financeService.companyProfit(order) : undefined,
     };
   }
 

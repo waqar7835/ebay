@@ -52,6 +52,17 @@ export class UsersController {
     return this.usersService.get(resolveCompanyId(user, companyId), id);
   }
 
+  @Patch(":id")
+  @RequirePermission("canManageUsers")
+  update(
+    @CurrentUser() user: JwtPayload,
+    @Param("id") id: string,
+    @Body() dto: UpdateOwnProfileDto,
+    @Query("companyId") companyId?: string,
+  ) {
+    return this.usersService.updateUser(resolveCompanyId(user, companyId), id, dto);
+  }
+
   @Post("invite")
   @RequirePermission("canManageUsers")
   invite(@CurrentUser() user: JwtPayload, @Body() dto: InviteUserDto, @Query("companyId") companyId?: string) {

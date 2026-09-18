@@ -309,8 +309,26 @@ export function getUser(id: string) {
   return request<UserDto>(`/users/${id}`);
 }
 
+export function updateUser(id: string, payload: { name?: string }) {
+  return request<UserDto>(`/users/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
+}
+
 export function updateThreePlProfile(id: string, payload: Pick<ThreePlProfileDto, "payoutPerOrder" | "billingCycleStartDay" | "fulfillmentType">) {
   return request<unknown>(`/users/${id}/three-pl-profile`, { method: "PATCH", body: JSON.stringify(payload) });
+}
+
+export function updateAccountHolderProfile(
+  id: string,
+  payload: Pick<AccountHolderProfileDto, "sharePercent" | "threePlPriceCharged" | "billingCycleStartDay">,
+) {
+  return request<unknown>(`/users/${id}/account-holder-profile`, { method: "PATCH", body: JSON.stringify(payload) });
+}
+
+export function updateStockOwnerProfile(
+  id: string,
+  payload: Pick<StockOwnerProfileDto, "payoutMode" | "sharePercent" | "billingCycleStartDay">,
+) {
+  return request<unknown>(`/users/${id}/stock-owner-profile`, { method: "PATCH", body: JSON.stringify(payload) });
 }
 
 export function setUserStatus(userId: string, enable: boolean) {
