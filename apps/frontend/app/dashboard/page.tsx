@@ -3,10 +3,27 @@
 import type { OrderStatus, ProductDto } from "@ebay-order-management/shared";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import Nav from "@/components/Nav";
 import {
   AccountHolderDashboard,
+  DailyPoint,
   DashboardOrderFilters,
+  StaffDashboard,
   StockOwnerDashboard,
   ThreePlDashboard,
   accountHolderDashboard,
@@ -15,12 +32,21 @@ import {
   listProducts,
   mediaUrl,
   seatStatus,
+  staffDashboard,
   stockOwnerDashboard,
   threePlDashboard,
   updateOrderStatus,
 } from "@/lib/api";
 
 const STATUS_OPTIONS: OrderStatus[] = ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "REFUNDED"] as OrderStatus[];
+const STATUS_COLORS: Record<string, string> = {
+  PENDING: "#f59e0b",
+  PROCESSING: "#3b82f6",
+  SHIPPED: "#8b5cf6",
+  DELIVERED: "#10b981",
+  CANCELLED: "#ef4444",
+  REFUNDED: "#6b7280",
+};
 
 interface FilterState {
   status: string;
@@ -96,6 +122,76 @@ function ProductCell({ product }: { product: ProductDto | undefined }) {
   );
 }
 
+function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded border bg-white p-3">
+      <p className="mb-2 text-xs font-medium text-gray-500">{title}</p>
+      <div className="h-52 w-full">{children}</div>
+    </div>
+  );
+}
+
+function DailyLineChart({ data, color, valueLabel }: { data: DailyPoint[]; color: string; valueLabel: string }) {
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <LineChart data={data}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+        <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(d: string) => d.slice(5)} />
+        <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+        <Tooltip formatter={(v) => [v, valueLabel] as [number, string]} />
+        <Line type="monotone" dataKey="value" stroke={color} strokeWidth={2} dot={false} />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+function NamedBarChart({ data, color, valueLabel }: { data: { name: string; value: number }[]; color: string; valueLabel: string }) {
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <BarChart data={data} layout="vertical" margin={{ left: 24 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+        <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
+        <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={90} />
+        <Tooltip formatter={(v) => [v, valueLabel] as [number, string]} />
+        <Bar dataKey="value" fill={color} radius={[0, 4, 4, 0]} />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+function StatusPieChart({ data }: { data: Record<string, number> }) {
+  const rows = Object.entries(data)
+    .filter(([, count]) => count > 0)
+    .map(([status, count]) => ({ name: status, value: count }));
+  if (rows.length === 0) {
+    return <p className="flex h-full items-center justify-center text-xs text-gray-400">No orders yet.</p>;
+  }
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <PieChart>
+        <Pie data={rows} dataKey="value" nameKey="name" innerRadius={40} outerRadius={70}>
+          {rows.map((row) => (
+            <Cell key={row.name} fill={STATUS_COLORS[row.name] ?? "#9ca3af"} />
+          ))}
+        </Pie>
+        <Legend wrapperStyle={{ fontSize: 10 }} />
+        <Tooltip />
+      </PieChart>
+    </ResponsiveContainer>
+  );
+}
+
+function StaleBadge({ daysInStatus }: { daysInStatus: number }) {
+  return (
+    <span
+      title={`In this status for ${daysInStatus} days`}
+      className="ml-2 inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700"
+    >
+      ⚠ {daysInStatus}d
+    </span>
+  );
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const user = getStoredUser();
@@ -104,6 +200,7 @@ export default function DashboardPage() {
   const [ah, setAh] = useState<AccountHolderDashboard | null>(null);
   const [so, setSo] = useState<StockOwnerDashboard | null>(null);
   const [tp, setTp] = useState<ThreePlDashboard | null>(null);
+  const [staff, setStaff] = useState<StaffDashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [ahFilter, setAhFilter] = useState<FilterState>(emptyFilter);
@@ -114,6 +211,11 @@ export default function DashboardPage() {
   const [tpInit, setTpInit] = useState(false);
 
   const productById = new Map(products.map((p) => [p.id, p]));
+  const isStaffViewer =
+    user?.roles.includes("ADMIN" as never) ||
+    user?.roles.includes("STAFF" as never) ||
+    user?.roles.includes("SUPER_ADMIN" as never) ||
+    user?.roles.includes("PLATFORM_STAFF" as never);
 
   function refreshAh(filter: FilterState) {
     if (!user?.roles.includes("ACCOUNT_HOLDER" as never)) return;
@@ -154,6 +256,13 @@ export default function DashboardPage() {
       .catch((err) => setError(err.message));
   }
 
+  function refreshStaff() {
+    if (!isStaffViewer) return;
+    staffDashboard()
+      .then(setStaff)
+      .catch((err) => setError(err.message));
+  }
+
   useEffect(() => {
     if (!getToken()) {
       router.push("/");
@@ -164,6 +273,7 @@ export default function DashboardPage() {
     refreshAh(emptyFilter);
     refreshSo(emptyFilter);
     refreshTp(emptyFilter);
+    refreshStaff();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
@@ -212,16 +322,120 @@ export default function DashboardPage() {
   return (
     <>
       <Nav />
-      <main className="ml-56 max-w-4xl p-8">
+      <main className="ml-56 max-w-5xl p-8">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
         {error && <p className="mt-4 text-red-600">{error}</p>}
 
-        {ah && (
+        {staff && (
           <section className="mt-6">
+            <h2 className="text-lg font-medium">Company overview</h2>
+            <p className="text-sm text-gray-500">
+              {staff.orderCount} orders this cycle — total company profit ${staff.totalCompanyProfit.toFixed(2)}
+            </p>
+
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="rounded border bg-white p-3">
+                <p className="text-xs text-gray-500">Active users</p>
+                <p className="text-xl font-semibold text-green-700">{staff.userStats.active}</p>
+              </div>
+              <div className="rounded border bg-white p-3">
+                <p className="text-xs text-gray-500">Disabled users</p>
+                <p className="text-xl font-semibold text-gray-500">{staff.userStats.disabled}</p>
+              </div>
+              <div className="rounded border bg-white p-3">
+                <p className="text-xs text-gray-500">Invited (pending)</p>
+                <p className="text-xl font-semibold text-amber-600">{staff.userStats.invited}</p>
+              </div>
+              <div className="rounded border bg-white p-3">
+                <p className="text-xs text-gray-500">Aging orders</p>
+                <p className="text-xl font-semibold text-red-600">{staff.agingOrders.length}</p>
+              </div>
+            </div>
+
+            <div className="mt-3 rounded border bg-white p-3">
+              <p className="mb-2 text-xs font-medium text-gray-500">Users per role</p>
+              <div className="flex flex-wrap gap-4 text-xs">
+                {Object.entries(staff.userStats.byRole)
+                  .filter(([, count]) => count > 0)
+                  .map(([role, count]) => (
+                    <span key={role} className="rounded bg-gray-100 px-2 py-1">
+                      {role}: <span className="font-semibold">{count}</span>
+                    </span>
+                  ))}
+              </div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <ChartCard title="Orders per day this cycle">
+                <DailyLineChart data={staff.ordersPerDay} color="#3b82f6" valueLabel="orders" />
+              </ChartCard>
+              <ChartCard title="Orders by status">
+                <StatusPieChart data={staff.ordersByStatus} />
+              </ChartCard>
+              <ChartCard title="Orders per account holder this cycle">
+                <NamedBarChart
+                  data={staff.salesByAccountHolder.map((r) => ({ name: r.name, value: r.orderCount }))}
+                  color="#8b5cf6"
+                  valueLabel="orders"
+                />
+              </ChartCard>
+              <ChartCard title="Products per stock owner">
+                <NamedBarChart
+                  data={staff.productsPerStockOwner.map((r) => ({ name: r.name, value: r.productCount }))}
+                  color="#10b981"
+                  valueLabel="products"
+                />
+              </ChartCard>
+            </div>
+
+            {staff.agingOrders.length > 0 && (
+              <div className="mt-3 rounded border border-red-200 bg-red-50 p-3">
+                <p className="mb-2 text-xs font-medium text-red-700">
+                  Orders stuck in status for {staff.staleOrderDays}+ days
+                </p>
+                <table className="w-full border-collapse text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-red-200">
+                      <th className="py-1">Order</th>
+                      <th className="py-1">Status</th>
+                      <th className="py-1">Days</th>
+                      <th className="py-1">Account Holder</th>
+                      <th className="py-1">Stock Owner</th>
+                      <th className="py-1">3PL</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {staff.agingOrders.map((o) => (
+                      <tr key={o.orderId} className="border-b border-red-100">
+                        <td className="py-1">{o.ebayOrderRef}</td>
+                        <td className="py-1">{o.status}</td>
+                        <td className="py-1 font-medium text-red-700">{o.daysInStatus}</td>
+                        <td className="py-1">{o.accountHolderName}</td>
+                        <td className="py-1">{o.stockOwnerName}</td>
+                        <td className="py-1">{o.threePlName ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
+
+        {ah && (
+          <section className="mt-8">
             <h2 className="text-lg font-medium">Account Holder</h2>
             <p className="text-sm text-gray-500">
               {ah.orderCount} orders this cycle — total profit ${ah.totalProfit.toFixed(2)}
             </p>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <ChartCard title="Your payout per day">
+                <DailyLineChart data={ah.payoutByDay} color="#10b981" valueLabel="$" />
+              </ChartCard>
+              <ChartCard title="Your orders per day">
+                <DailyLineChart data={ah.ordersByDay} color="#3b82f6" valueLabel="orders" />
+              </ChartCard>
+            </div>
             <FilterBar value={ahFilter} onChange={setAhFilter} />
             <table className="mt-2 w-full border-collapse text-left text-sm">
               <thead>
@@ -263,6 +477,18 @@ export default function DashboardPage() {
             <p className="text-sm text-gray-500">
               {so.itemsSold} items sold this cycle — total profit ${so.totalProfit.toFixed(2)}
             </p>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <ChartCard title="Items sold per day">
+                <DailyLineChart data={so.itemsSoldByDay} color="#f59e0b" valueLabel="items" />
+              </ChartCard>
+              <ChartCard title="Units sold by product">
+                <NamedBarChart
+                  data={so.byProduct.map((p) => ({ name: productById.get(p.productId)?.title ?? p.productId, value: p.quantity }))}
+                  color="#f59e0b"
+                  valueLabel="units"
+                />
+              </ChartCard>
+            </div>
             <FilterBar value={soFilter} onChange={setSoFilter} />
             <table className="mt-2 w-full border-collapse text-left text-sm">
               <thead>
@@ -300,6 +526,11 @@ export default function DashboardPage() {
           <section className="mt-8">
             <h2 className="text-lg font-medium">3PL</h2>
             <p className="text-sm text-gray-500">Earnings this cycle: ${tp.totalEarnings.toFixed(2)}</p>
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2">
+              <ChartCard title="Orders fulfilled per day">
+                <DailyLineChart data={tp.fulfilledByDay} color="#8b5cf6" valueLabel="orders" />
+              </ChartCard>
+            </div>
             <FilterBar value={tpFilter} onChange={setTpFilter} />
 
             <h3 className="mt-4 font-medium">Needs processing</h3>
@@ -320,7 +551,10 @@ export default function DashboardPage() {
                     <td className="py-2">{o.ebayOrderRef}</td>
                     <ProductCell product={productById.get(o.productId)} />
                     <td className="py-2">{o.quantity}</td>
-                    <td className="py-2">{o.status}</td>
+                    <td className="py-2">
+                      {o.status}
+                      {o.stale && <StaleBadge daysInStatus={o.daysInStatus} />}
+                    </td>
                     <td className="py-2">
                       {o.status === "PENDING" && (
                         <button onClick={() => advanceThreePl(o.orderId, "PROCESSING" as OrderStatus)} className="text-xs underline">

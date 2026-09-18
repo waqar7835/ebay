@@ -171,6 +171,9 @@ export class Order extends Model {
   @Column({ type: DataType.DATE, allowNull: true, field: "delivered_at" })
   declare deliveredAt: Date | null;
 
+  @Column({ type: DataType.DATE, allowNull: false, field: "status_changed_at" })
+  declare statusChangedAt: Date;
+
   declare createdAt: Date;
   declare updatedAt: Date;
 }

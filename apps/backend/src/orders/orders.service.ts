@@ -3,6 +3,7 @@ import { InjectModel } from "@nestjs/sequelize";
 import { Op } from "sequelize";
 import { OrderStatus, ProductFulfillmentType, Role } from "@ebay-order-management/shared";
 import { Order } from "../database/models/order.model";
+import { Company } from "../database/models/company.model";
 import { Product } from "../database/models/product.model";
 import { AccountHolderProfile } from "../database/models/account-holder-profile.model";
 import { StockOwnerProfile } from "../database/models/stock-owner-profile.model";
@@ -12,6 +13,7 @@ import type { JwtPayload } from "../auth/jwt.strategy";
 import { CreateOrderDto } from "./dto/create-order.dto";
 import { UpdateOrderDto } from "./dto/update-order.dto";
 import { UpdateOrderStatusDto } from "./dto/update-status.dto";
+import { daysInStatus, isOrderStale } from "./order-staleness.util";
 
 const TERMINAL_RESTOCK_STATUSES = [OrderStatus.CANCELLED, OrderStatus.REFUNDED];
 const THREE_PL_ALLOWED_FORWARD: Partial<Record<OrderStatus, OrderStatus>> = {
@@ -32,6 +34,7 @@ export interface OrderListFilters {
 export class OrdersService {
   constructor(
     @InjectModel(Order) private readonly orderModel: typeof Order,
+    @InjectModel(Company) private readonly companyModel: typeof Company,
     @InjectModel(Product) private readonly productModel: typeof Product,
     @InjectModel(AccountHolderProfile) private readonly accountHolderProfileModel: typeof AccountHolderProfile,
     @InjectModel(StockOwnerProfile) private readonly stockOwnerProfileModel: typeof StockOwnerProfile,
@@ -60,13 +63,29 @@ export class OrdersService {
       where.orderDate = orderDate;
     }
 
-    return this.orderModel.findAll({ where, order: [["createdAt", "DESC"]] });
+    const orders = await this.orderModel.findAll({ where, order: [["createdAt", "DESC"]] });
+    const staleOrderDays = await this.staleOrderDays(companyId);
+    const now = new Date();
+    return orders.map((order) => this.withStaleness(order, staleOrderDays, now));
   }
 
   async get(companyId: string, id: string) {
     const order = await this.orderModel.findOne({ where: { id, companyId } });
     if (!order) throw new NotFoundException("Order not found");
     return order;
+  }
+
+  private async staleOrderDays(companyId: string): Promise<number> {
+    const company = await this.companyModel.findByPk(companyId);
+    return company?.staleOrderDays ?? 3;
+  }
+
+  private withStaleness(order: Order, staleOrderDays: number, now: Date) {
+    return {
+      ...order.toJSON(),
+      daysInStatus: daysInStatus(order.statusChangedAt, now),
+      stale: isOrderStale(order.status, order.statusChangedAt, staleOrderDays, now),
+    };
   }
 
   async create(companyId: string, dto: CreateOrderDto) {
@@ -124,6 +143,7 @@ export class OrdersService {
       quantity: dto.quantity,
       threePlId,
       status: OrderStatus.PENDING,
+      statusChangedAt: new Date(),
       orderDate: dto.orderDate ?? new Date().toISOString().slice(0, 10),
       ebayOrderRef: dto.ebayOrderRef,
       trackingNumber: dto.trackingNumber ?? null,
@@ -173,6 +193,7 @@ export class OrdersService {
     this.assertStatusTransitionAllowed(order, requester, dto.status);
 
     order.status = dto.status;
+    order.statusChangedAt = new Date();
     if (dto.status === OrderStatus.DELIVERED) {
       order.deliveredAt = new Date();
     }

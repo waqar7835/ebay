@@ -126,6 +126,7 @@ export interface OrderDto {
   ebayOrderRef: string;
   trackingNumber: string | null;
   shippingLabelUrl: string | null;
+  statusChangedAt: string;
   buyerDetails: string;
   ebayNetProceeds: number;
   shippingCost: number;
@@ -140,6 +141,10 @@ export interface OrderDto {
   createdAt: string;
   updatedAt: string;
   deliveredAt: string | null;
+  /** Present on list responses only. Days since the order last changed status. */
+  daysInStatus?: number;
+  /** Present on list responses only. True when the order has sat in PENDING/PROCESSING/SHIPPED past the company's stale-order threshold. */
+  stale?: boolean;
 }
 
 export interface OrderFinancials {
@@ -192,6 +197,7 @@ export interface CompanyDto {
   logoUrl: string | null;
   emailVerifiedAt: string | null;
   billingAnchorDay: number;
+  staleOrderDays: number;
   createdAt: string;
 }
 

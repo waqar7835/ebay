@@ -242,17 +242,27 @@ export default function OrdersPage() {
                   <td className="py-2">{order.quantity}</td>
                   <td className="py-2">${order.ebayNetProceeds.toFixed(2)}</td>
                   <td className="py-2">
-                    <select
-                      value={order.status}
-                      onChange={(e) => handleStatusChange(order.id, e.target.value as OrderStatus)}
-                      className="rounded border px-2 py-1"
-                    >
-                      {STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={order.status}
+                        onChange={(e) => handleStatusChange(order.id, e.target.value as OrderStatus)}
+                        className="rounded border px-2 py-1"
+                      >
+                        {STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                      {isThreePl && order.stale && (
+                        <span
+                          title={`In this status for ${order.daysInStatus} days`}
+                          className="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700"
+                        >
+                          ⚠ {order.daysInStatus}d
+                        </span>
+                      )}
+                    </div>
                   </td>
                   {isThreePl && (
                     <td className="py-2">

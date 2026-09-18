@@ -134,6 +134,11 @@ function dashboardQuery(filters: DashboardOrderFilters = {}) {
   return qs ? `?${qs}` : "";
 }
 
+export interface DailyPoint {
+  date: string;
+  value: number;
+}
+
 export interface AccountHolderDashboard {
   cycleStart: string;
   cycleEnd: string;
@@ -142,6 +147,8 @@ export interface AccountHolderDashboard {
   orderCount: number;
   totalProfit: number;
   orders: { orderId: string; ebayOrderRef: string; status: string; productId: string; quantity: number; profit: number; payout: number }[];
+  payoutByDay: DailyPoint[];
+  ordersByDay: DailyPoint[];
 }
 
 export function accountHolderDashboard(filters: DashboardOrderFilters = {}) {
@@ -156,10 +163,23 @@ export interface StockOwnerDashboard {
   itemsSold: number;
   totalProfit: number;
   orders: { orderId: string; ebayOrderRef: string; status: string; productId: string; quantity: number; net: number }[];
+  itemsSoldByDay: DailyPoint[];
+  byProduct: { productId: string; quantity: number; net: number }[];
 }
 
 export function stockOwnerDashboard(filters: DashboardOrderFilters = {}) {
   return request<StockOwnerDashboard>(`/dashboard/stock-owner${dashboardQuery(filters)}`);
+}
+
+export interface ThreePlOrderRow {
+  orderId: string;
+  ebayOrderRef: string;
+  status: string;
+  productId: string;
+  quantity: number;
+  shippingLabelUrl: string | null;
+  daysInStatus: number;
+  stale: boolean;
 }
 
 export interface ThreePlDashboard {
@@ -168,12 +188,43 @@ export interface ThreePlDashboard {
   listStart: string;
   listEnd: string;
   totalEarnings: number;
-  toProcess: { orderId: string; ebayOrderRef: string; status: string; productId: string; quantity: number; shippingLabelUrl: string | null }[];
-  fulfilled: { orderId: string; ebayOrderRef: string; status: string; productId: string; quantity: number; shippingLabelUrl: string | null }[];
+  toProcess: ThreePlOrderRow[];
+  fulfilled: ThreePlOrderRow[];
+  fulfilledByDay: DailyPoint[];
 }
 
 export function threePlDashboard(filters: DashboardOrderFilters = {}) {
   return request<ThreePlDashboard>(`/dashboard/three-pl${dashboardQuery(filters)}`);
+}
+
+export interface StaffDashboard {
+  cycleStart: string;
+  cycleEnd: string;
+  totalCompanyProfit: number;
+  orderCount: number;
+  ordersByStatus: Record<string, number>;
+  ordersPerUser: { userId: string; name: string; role: Role; byStatus: Record<string, number> }[];
+  profitSeries: { date: string; accountHolders: number; threePl: number; stockOwners: number }[];
+  ordersPerDay: DailyPoint[];
+  ordersPerDayByAccountHolder: { accountHolderId: string; name: string; series: DailyPoint[] }[];
+  userStats: { active: number; disabled: number; invited: number; byRole: Record<string, number> };
+  productsPerStockOwner: { stockOwnerId: string; name: string; productCount: number; totalStockQuantity: number }[];
+  agingOrders: {
+    orderId: string;
+    ebayOrderRef: string;
+    status: string;
+    productId: string;
+    daysInStatus: number;
+    accountHolderName: string;
+    stockOwnerName: string;
+    threePlName: string | null;
+  }[];
+  staleOrderDays: number;
+  salesByAccountHolder: { accountHolderId: string; name: string; orderCount: number; profit: number }[];
+}
+
+export function staffDashboard() {
+  return request<StaffDashboard>("/dashboard/staff");
 }
 
 export function updateOrderStatus(orderId: string, status: OrderStatus) {

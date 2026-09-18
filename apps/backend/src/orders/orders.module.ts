@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { SequelizeModule } from "@nestjs/sequelize";
 import { Order } from "../database/models/order.model";
+import { Company } from "../database/models/company.model";
 import { Product } from "../database/models/product.model";
 import { AccountHolderProfile } from "../database/models/account-holder-profile.model";
 import { StockOwnerProfile } from "../database/models/stock-owner-profile.model";
@@ -15,6 +16,7 @@ import { OrdersService } from "./orders.service";
   imports: [
     SequelizeModule.forFeature([
       Order,
+      Company,
       Product,
       AccountHolderProfile,
       StockOwnerProfile,

@@ -18,6 +18,9 @@ export class Company extends Model {
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 1, field: "billing_anchor_day" })
   declare billingAnchorDay: number;
 
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 3, field: "stale_order_days" })
+  declare staleOrderDays: number;
+
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false, field: "free_account_holder_used" })
   declare freeAccountHolderUsed: boolean;
 
