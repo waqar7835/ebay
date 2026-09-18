@@ -136,7 +136,7 @@ export default function EditUserPage() {
       if (user.threePlProfile) {
         await updateThreePlProfile(userId, {
           fulfillmentType,
-          payoutPerOrder: Number(payoutPerOrder),
+          payoutPerOrder: fulfillmentType === ("STOCK" as ProductFulfillmentType) ? Number(payoutPerOrder) : undefined,
           billingCycleStartDay: Number(tpBillingCycleStartDay),
         });
       }
@@ -285,11 +285,18 @@ export default function EditUserPage() {
                       <option value="DROPSHIP">Dropshipping</option>
                     </select>
                   </label>
-                  <label className="flex-1">
-                    Payout per order fulfilled
-                    <input value={payoutPerOrder} onChange={(e) => setPayoutPerOrder(e.target.value)} className={inputClass} />
-                  </label>
+                  {fulfillmentType === ("STOCK" as ProductFulfillmentType) && (
+                    <label className="flex-1">
+                      Payout per order fulfilled
+                      <input value={payoutPerOrder} onChange={(e) => setPayoutPerOrder(e.target.value)} className={inputClass} />
+                    </label>
+                  )}
                 </div>
+                {fulfillmentType === ("DROPSHIP" as ProductFulfillmentType) && (
+                  <p className="mt-2 text-xs text-gray-500">
+                    Dropshipping 3PLs have no fixed rate — they're paid the buy price they enter against each order.
+                  </p>
+                )}
                 <label className="mt-3 block">
                   Billing cycle start day (1–28)
                   <input

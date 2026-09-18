@@ -13,6 +13,7 @@ import {
   listProducts,
   listUsers,
   mediaUrl,
+  submitDropshipBuyPrice,
   updateOrderStatus,
 } from "@/lib/api";
 
@@ -49,6 +50,8 @@ export default function OrdersPage() {
     endDate: "",
   });
   const [filterInit, setFilterInit] = useState(false);
+  const [buyPriceDrafts, setBuyPriceDrafts] = useState<Record<string, string>>({});
+  const [buyPriceSaving, setBuyPriceSaving] = useState<string | null>(null);
 
   const currentUser = getStoredUser();
   const isThreePl = currentUser?.roles.includes(Role.THREE_PL) ?? false;
@@ -113,6 +116,20 @@ export default function OrdersPage() {
     const win = window.open(mediaUrl(shippingLabelUrl), "_blank");
     if (win) {
       setTimeout(() => win.print(), 500);
+    }
+  }
+
+  async function handleSubmitBuyPrice(orderId: string) {
+    const value = Number(buyPriceDrafts[orderId]);
+    if (Number.isNaN(value)) return;
+    setBuyPriceSaving(orderId);
+    try {
+      await submitDropshipBuyPrice(orderId, value);
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save buy price");
+    } finally {
+      setBuyPriceSaving(null);
     }
   }
 
@@ -211,13 +228,14 @@ export default function OrdersPage() {
               <th className="py-2">Order #</th>
               <th className="py-2">Tracking #</th>
               <th className="py-2">Qty</th>
-              <th className="py-2">Payout</th>
+              {!isThreePl && <th className="py-2">Payout</th>}
               {isManager && <th className="py-2">Buy Price</th>}
               {isManager && <th className="py-2">3PL Fee</th>}
               {isManager && <th className="py-2">Profit</th>}
+              {isThreePl && <th className="py-2">Buy Price</th>}
               <th className="py-2">Status</th>
               {isThreePl && <th className="py-2">Label</th>}
-              <th className="py-2"></th>
+              {isManager && <th className="py-2"></th>}
             </tr>
           </thead>
           <tbody>
@@ -243,8 +261,10 @@ export default function OrdersPage() {
                   <td className="py-2">{order.ebayOrderRef}</td>
                   <td className="py-2">{order.trackingNumber ?? "—"}</td>
                   <td className="py-2">{order.quantity}</td>
-                  <td className="py-2">${order.ebayNetProceeds.toFixed(2)}</td>
-                  {isManager && <td className="py-2">${order.buyPriceSnapshot.toFixed(2)}</td>}
+                  {!isThreePl && <td className="py-2">${order.ebayNetProceeds.toFixed(2)}</td>}
+                  {isManager && (
+                    <td className="py-2">{order.buyPriceSnapshot != null ? `$${order.buyPriceSnapshot.toFixed(2)}` : "Pending"}</td>
+                  )}
                   {isManager && (
                     <td className="py-2">
                       {order.threePlPayoutSnapshot != null ? `$${order.threePlPayoutSnapshot.toFixed(2)}` : "—"}
@@ -252,6 +272,31 @@ export default function OrdersPage() {
                   )}
                   {isManager && (
                     <td className="py-2">{order.companyProfit != null ? `$${order.companyProfit.toFixed(2)}` : "—"}</td>
+                  )}
+                  {isThreePl && (
+                    <td className="py-2">
+                      {product?.fulfillmentType !== "DROPSHIP" ? (
+                        "—"
+                      ) : order.buyPriceSnapshot != null ? (
+                        `$${order.buyPriceSnapshot.toFixed(2)}`
+                      ) : (
+                        <div className="flex items-center gap-1">
+                          <input
+                            value={buyPriceDrafts[order.id] ?? ""}
+                            onChange={(e) => setBuyPriceDrafts((d) => ({ ...d, [order.id]: e.target.value }))}
+                            placeholder="0.00"
+                            className="w-16 rounded border px-1 py-0.5 text-xs"
+                          />
+                          <button
+                            onClick={() => handleSubmitBuyPrice(order.id)}
+                            disabled={buyPriceSaving === order.id}
+                            className="rounded border px-1.5 py-0.5 text-xs disabled:opacity-50"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      )}
+                    </td>
                   )}
                   <td className="py-2">
                     <div className="flex items-center gap-2">
@@ -291,11 +336,13 @@ export default function OrdersPage() {
                       )}
                     </td>
                   )}
-                  <td className="py-2">
-                    <button onClick={() => router.push(`/orders/${order.id}/edit`)} className="rounded border px-2 py-1 text-xs">
-                      Edit
-                    </button>
-                  </td>
+                  {isManager && (
+                    <td className="py-2">
+                      <button onClick={() => router.push(`/orders/${order.id}/edit`)} className="rounded border px-2 py-1 text-xs">
+                        Edit
+                      </button>
+                    </td>
+                  )}
                 </tr>
               );
             })}

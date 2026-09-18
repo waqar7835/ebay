@@ -1,6 +1,6 @@
 import { BelongsTo, Column, DataType, ForeignKey, Model, Table } from "sequelize-typescript";
 import { ProductFulfillmentType } from "@ebay-order-management/shared";
-import { toDecimal } from "../decimal.util";
+import { toNullableDecimal } from "../decimal.util";
 import { Company } from "./company.model";
 import { User } from "./user.model";
 
@@ -14,8 +14,8 @@ export class Product extends Model {
   declare companyId: string;
 
   @ForeignKey(() => User)
-  @Column({ type: DataType.UUID, allowNull: false, field: "stock_owner_id" })
-  declare stockOwnerId: string;
+  @Column({ type: DataType.UUID, allowNull: true, field: "stock_owner_id" })
+  declare stockOwnerId: string | null;
 
   @BelongsTo(() => User, "stockOwnerId")
   declare stockOwner: User;
@@ -46,33 +46,33 @@ export class Product extends Model {
 
   @Column({
     type: DataType.DECIMAL(12, 2),
-    allowNull: false,
+    allowNull: true,
     field: "stock_owner_cost",
     get(this: Product) {
-      return toDecimal(this.getDataValue("stockOwnerCost" as keyof Product));
+      return toNullableDecimal(this.getDataValue("stockOwnerCost" as keyof Product));
     },
   })
-  declare stockOwnerCost: number;
+  declare stockOwnerCost: number | null;
 
   @Column({
     type: DataType.DECIMAL(12, 2),
-    allowNull: false,
+    allowNull: true,
     field: "buy_price",
     get(this: Product) {
-      return toDecimal(this.getDataValue("buyPrice" as keyof Product));
+      return toNullableDecimal(this.getDataValue("buyPrice" as keyof Product));
     },
   })
-  declare buyPrice: number;
+  declare buyPrice: number | null;
 
   @Column({
     type: DataType.DECIMAL(12, 2),
-    allowNull: false,
+    allowNull: true,
     field: "sell_price",
     get(this: Product) {
-      return toDecimal(this.getDataValue("sellPrice" as keyof Product));
+      return toNullableDecimal(this.getDataValue("sellPrice" as keyof Product));
     },
   })
-  declare sellPrice: number;
+  declare sellPrice: number | null;
 
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0, field: "stock_quantity" })
   declare stockQuantity: number;

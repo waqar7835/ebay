@@ -12,10 +12,10 @@ interface ProductRow {
   sku: string;
   title: string;
   fulfillmentType: ProductFulfillmentType;
-  stockOwnerId: string;
+  stockOwnerId: string | null;
   threePlId: string | null;
-  buyPrice: number;
-  sellPrice: number;
+  buyPrice: number | null;
+  sellPrice: number | null;
   stockQuantity: number;
   imageUrl: string | null;
 }
@@ -127,9 +127,9 @@ export default function ProductsPage() {
                 <td className="py-2">{p.sku}</td>
                 <td className="py-2">{p.title}</td>
                 <td className="py-2">{p.fulfillmentType}</td>
-                <td className="py-2">${p.buyPrice.toFixed(2)}</td>
-                <td className="py-2">${p.sellPrice.toFixed(2)}</td>
-                <td className="py-2">{p.stockQuantity}</td>
+                <td className="py-2">{p.buyPrice != null ? `$${p.buyPrice.toFixed(2)}` : "—"}</td>
+                <td className="py-2">{p.sellPrice != null ? `$${p.sellPrice.toFixed(2)}` : "—"}</td>
+                <td className="py-2">{p.fulfillmentType === "DROPSHIP" ? "—" : p.stockQuantity}</td>
               </tr>
             ))}
             {products.length === 0 && (

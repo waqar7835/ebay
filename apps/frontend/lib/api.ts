@@ -298,7 +298,8 @@ export interface InviteUserPayload {
   staffPermissions?: StaffPermissionsDto;
   accountHolderProfile?: Pick<AccountHolderProfileDto, "sharePercent" | "threePlPriceCharged" | "billingCycleStartDay">;
   stockOwnerProfile?: Pick<StockOwnerProfileDto, "payoutMode" | "sharePercent" | "billingCycleStartDay">;
-  threePlProfile?: Pick<ThreePlProfileDto, "payoutPerOrder" | "billingCycleStartDay" | "fulfillmentType">;
+  threePlProfile?: Partial<Pick<ThreePlProfileDto, "payoutPerOrder">> &
+    Pick<ThreePlProfileDto, "billingCycleStartDay" | "fulfillmentType">;
 }
 
 export function inviteUser(payload: InviteUserPayload) {
@@ -313,7 +314,10 @@ export function updateUser(id: string, payload: { name?: string }) {
   return request<UserDto>(`/users/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
 }
 
-export function updateThreePlProfile(id: string, payload: Pick<ThreePlProfileDto, "payoutPerOrder" | "billingCycleStartDay" | "fulfillmentType">) {
+export function updateThreePlProfile(
+  id: string,
+  payload: Partial<Pick<ThreePlProfileDto, "payoutPerOrder">> & Pick<ThreePlProfileDto, "billingCycleStartDay" | "fulfillmentType">,
+) {
   return request<unknown>(`/users/${id}/three-pl-profile`, { method: "PATCH", body: JSON.stringify(payload) });
 }
 
@@ -345,15 +349,16 @@ export function listProducts() {
 }
 
 export interface CreateProductPayload {
-  stockOwnerId: string;
+  // Required for STOCK; omitted entirely for DROPSHIP products.
+  stockOwnerId?: string;
   fulfillmentType: ProductFulfillmentType;
   threePlId?: string;
   sku: string;
   title: string;
-  stockOwnerCost: number;
-  buyPrice: number;
-  sellPrice: number;
-  stockQuantity: number;
+  stockOwnerCost?: number;
+  buyPrice?: number;
+  sellPrice?: number;
+  stockQuantity?: number;
 }
 
 export function createProduct(payload: CreateProductPayload) {
@@ -410,6 +415,7 @@ export interface CreateOrderPayload {
   buyerDetails: string;
   ebayNetProceeds: number;
   shippingCost?: number;
+  supplierUrl?: string;
 }
 
 export type UpdateOrderPayload = Partial<Omit<CreateOrderPayload, "quantity" | "threePlId" | "productId">>;
@@ -420,6 +426,11 @@ export function createOrder(payload: CreateOrderPayload) {
 
 export function updateOrder(orderId: string, payload: UpdateOrderPayload) {
   return request<OrderDto>(`/orders/${orderId}`, { method: "PATCH", body: JSON.stringify(payload) });
+}
+
+// Assigned 3PL entering the buy price on a DROPSHIP order once it's visible to them (status past PENDING).
+export function submitDropshipBuyPrice(orderId: string, buyPrice: number) {
+  return request<OrderDto>(`/orders/${orderId}/dropship-buy-price`, { method: "PATCH", body: JSON.stringify({ buyPrice }) });
 }
 
 export async function uploadOrderShippingLabel(orderId: string, shippingLabel: File) {

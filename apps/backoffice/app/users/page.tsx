@@ -1,6 +1,6 @@
 "use client";
 
-import type { Role, StockOwnerPayoutMode } from "@ebay-order-management/shared";
+import type { ProductFulfillmentType, Role, StockOwnerPayoutMode } from "@ebay-order-management/shared";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
@@ -50,6 +50,7 @@ export default function UsersPage() {
   const [payoutMode, setPayoutMode] = useState<StockOwnerPayoutMode>("FIXED" as StockOwnerPayoutMode);
   const [stockOwnerSharePercent, setStockOwnerSharePercent] = useState("0");
   const [payoutPerOrder, setPayoutPerOrder] = useState("0");
+  const [threePlFulfillmentType, setThreePlFulfillmentType] = useState<ProductFulfillmentType>("STOCK" as ProductFulfillmentType);
   const [billingCycleStartDay, setBillingCycleStartDay] = useState("1");
   const [staffPermissions, setStaffPermissions] = useState<StaffPermissionsState>(DEFAULT_STAFF_PERMISSIONS);
   const [hasRevenueShare, setHasRevenueShare] = useState(false);
@@ -114,7 +115,11 @@ export default function UsersPage() {
             }
           : undefined,
         threePlProfile: roles.includes("THREE_PL" as Role)
-          ? { payoutPerOrder: Number(payoutPerOrder), billingCycleStartDay: Number(billingCycleStartDay) }
+          ? {
+              payoutPerOrder: threePlFulfillmentType === ("STOCK" as ProductFulfillmentType) ? Number(payoutPerOrder) : undefined,
+              billingCycleStartDay: Number(billingCycleStartDay),
+              fulfillmentType: threePlFulfillmentType,
+            }
           : undefined,
       });
       setShowForm(false);
@@ -267,9 +272,26 @@ export default function UsersPage() {
               <div className="rounded bg-gray-50 p-3 text-sm">
                 <p className="mb-2 font-medium">3PL settings</p>
                 <label>
-                  Payout per order fulfilled
-                  <input value={payoutPerOrder} onChange={(e) => setPayoutPerOrder(e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
+                  Type
+                  <select
+                    value={threePlFulfillmentType}
+                    onChange={(e) => setThreePlFulfillmentType(e.target.value as ProductFulfillmentType)}
+                    className="mt-1 w-full rounded border px-2 py-1"
+                  >
+                    <option value="STOCK">Stock</option>
+                    <option value="DROPSHIP">Dropshipping</option>
+                  </select>
                 </label>
+                {threePlFulfillmentType === ("STOCK" as ProductFulfillmentType) ? (
+                  <label className="mt-3 block">
+                    Payout per order fulfilled
+                    <input value={payoutPerOrder} onChange={(e) => setPayoutPerOrder(e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
+                  </label>
+                ) : (
+                  <p className="mt-2 text-xs text-gray-500">
+                    Dropshipping 3PLs have no fixed rate — they're paid the buy price they enter against each order.
+                  </p>
+                )}
               </div>
             )}
 

@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException, 
 import { ConfigService } from "@nestjs/config";
 import { InjectModel } from "@nestjs/sequelize";
 import * as bcrypt from "bcrypt";
-import { Role, TokenPurpose, UserStatus } from "@ebay-order-management/shared";
+import { ProductFulfillmentType, Role, TokenPurpose, UserStatus } from "@ebay-order-management/shared";
 import { User } from "../database/models/user.model";
 import { UserRoleAssignment } from "../database/models/user-role.model";
 import { StaffProfile } from "../database/models/staff-profile.model";
@@ -216,7 +216,8 @@ export class UsersService {
   async upsertThreePlProfile(userId: string, input: ThreePlProfileInput) {
     const [profile] = await this.threePlModel.findOrCreate({ where: { userId }, defaults: { userId } });
     Object.assign(profile, {
-      payoutPerOrder: input.payoutPerOrder,
+      // DROPSHIP 3PLs have no configured rate — they're paid the buy price entered per order instead.
+      payoutPerOrder: input.fulfillmentType === ProductFulfillmentType.STOCK ? (input.payoutPerOrder ?? 0) : 0,
       billingCycleStartDay: input.billingCycleStartDay,
       fulfillmentType: input.fulfillmentType,
     });

@@ -36,4 +36,8 @@ export class CreateOrderDto {
   @IsNumber()
   @Min(0)
   shippingCost?: number;
+
+  @IsOptional()
+  @IsString()
+  supplierUrl?: string;
 }

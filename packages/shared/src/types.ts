@@ -99,15 +99,16 @@ export interface UserDto {
 export interface ProductDto {
   id: string;
   companyId: string;
-  stockOwnerId: string;
+  // Null for DROPSHIP products: no Stock Owner, no prices, no stock held.
+  stockOwnerId: string | null;
   fulfillmentType: ProductFulfillmentType;
   threePlId: string | null;
   sku: string;
   title: string;
   imageUrl: string | null;
-  stockOwnerCost: number;
-  buyPrice: number;
-  sellPrice: number;
+  stockOwnerCost: number | null;
+  buyPrice: number | null;
+  sellPrice: number | null;
   stockQuantity: number;
   createdAt: string;
   updatedAt: string;
@@ -117,7 +118,8 @@ export interface OrderDto {
   id: string;
   companyId: string;
   accountHolderId: string;
-  stockOwnerId: string;
+  // Null for DROPSHIP orders (no Stock Owner involved).
+  stockOwnerId: string | null;
   productId: string;
   quantity: number;
   threePlId: string | null;
@@ -126,17 +128,20 @@ export interface OrderDto {
   ebayOrderRef: string;
   trackingNumber: string | null;
   shippingLabelUrl: string | null;
+  /** Supplier/product listing link, admin-entered — used for DROPSHIP orders. */
+  supplierUrl: string | null;
   statusChangedAt: string;
   buyerDetails: string;
   ebayNetProceeds: number;
   shippingCost: number;
-  sellPriceSnapshot: number;
-  buyPriceSnapshot: number;
-  stockOwnerCostSnapshot: number;
+  /** Null on a DROPSHIP order until the assigned 3PL enters the buy price. */
+  sellPriceSnapshot: number | null;
+  buyPriceSnapshot: number | null;
+  stockOwnerCostSnapshot: number | null;
   threePlPriceChargedSnapshot: number | null;
   threePlPayoutSnapshot: number | null;
   accountHolderSharePercentSnapshot: number;
-  stockOwnerPayoutModeSnapshot: StockOwnerPayoutMode;
+  stockOwnerPayoutModeSnapshot: StockOwnerPayoutMode | null;
   stockOwnerSharePercentSnapshot: number | null;
   createdAt: string;
   updatedAt: string;

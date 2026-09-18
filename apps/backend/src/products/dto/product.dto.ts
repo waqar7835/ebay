@@ -1,9 +1,11 @@
-import { IsEnum, IsInt, IsNumber, IsOptional, IsString, Min } from "class-validator";
+import { IsEnum, IsInt, IsNumber, IsOptional, IsString, Min, ValidateIf } from "class-validator";
 import { ProductFulfillmentType } from "@ebay-order-management/shared";
 
 export class CreateProductDto {
+  // Required for STOCK (tied to a Stock Owner); omitted entirely for DROPSHIP.
+  @ValidateIf((o) => o.fulfillmentType === ProductFulfillmentType.STOCK)
   @IsString()
-  stockOwnerId!: string;
+  stockOwnerId?: string;
 
   @IsEnum(ProductFulfillmentType)
   fulfillmentType!: ProductFulfillmentType;
@@ -18,21 +20,25 @@ export class CreateProductDto {
   @IsString()
   title!: string;
 
+  @ValidateIf((o) => o.fulfillmentType === ProductFulfillmentType.STOCK)
   @IsNumber()
   @Min(0)
-  stockOwnerCost!: number;
+  stockOwnerCost?: number;
 
+  @ValidateIf((o) => o.fulfillmentType === ProductFulfillmentType.STOCK)
   @IsNumber()
   @Min(0)
-  buyPrice!: number;
+  buyPrice?: number;
 
+  @ValidateIf((o) => o.fulfillmentType === ProductFulfillmentType.STOCK)
   @IsNumber()
   @Min(0)
-  sellPrice!: number;
+  sellPrice?: number;
 
+  @ValidateIf((o) => o.fulfillmentType === ProductFulfillmentType.STOCK)
   @IsInt()
   @Min(0)
-  stockQuantity!: number;
+  stockQuantity?: number;
 }
 
 export class UpdateStockDto {

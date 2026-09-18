@@ -123,7 +123,8 @@ export interface InviteUserPayload {
   staffPermissions?: StaffPermissionsDto;
   accountHolderProfile?: Pick<AccountHolderProfileDto, "sharePercent" | "threePlPriceCharged" | "billingCycleStartDay">;
   stockOwnerProfile?: Pick<StockOwnerProfileDto, "payoutMode" | "sharePercent" | "billingCycleStartDay">;
-  threePlProfile?: Pick<ThreePlProfileDto, "payoutPerOrder" | "billingCycleStartDay">;
+  threePlProfile?: Partial<Pick<ThreePlProfileDto, "payoutPerOrder">> &
+    Pick<ThreePlProfileDto, "billingCycleStartDay" | "fulfillmentType">;
 }
 
 export function inviteUser(payload: InviteUserPayload) {
@@ -144,15 +145,15 @@ export function listProducts() {
 }
 
 export interface CreateProductPayload {
-  stockOwnerId: string;
+  stockOwnerId?: string;
   fulfillmentType: ProductFulfillmentType;
   threePlId?: string;
   sku: string;
   title: string;
-  stockOwnerCost: number;
-  buyPrice: number;
-  sellPrice: number;
-  stockQuantity: number;
+  stockOwnerCost?: number;
+  buyPrice?: number;
+  sellPrice?: number;
+  stockQuantity?: number;
 }
 
 export function createProduct(payload: CreateProductPayload) {
@@ -194,6 +195,7 @@ export interface CreateOrderPayload {
   buyerDetails: string;
   ebayNetProceeds: number;
   shippingCost?: number;
+  supplierUrl?: string;
 }
 
 export type UpdateOrderPayload = Partial<Omit<CreateOrderPayload, "quantity" | "threePlId" | "productId">>;

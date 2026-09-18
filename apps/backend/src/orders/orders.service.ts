@@ -17,8 +17,9 @@ import { UpdateOrderStatusDto } from "./dto/update-status.dto";
 import { daysInStatus, isOrderStale } from "./order-staleness.util";
 
 const TERMINAL_RESTOCK_STATUSES = [OrderStatus.CANCELLED, OrderStatus.REFUNDED];
+// 3PLs no longer see PENDING orders at all (a manager must make that first move), so they only
+// ever self-advance PROCESSING -> SHIPPED.
 const THREE_PL_ALLOWED_FORWARD: Partial<Record<OrderStatus, OrderStatus>> = {
-  [OrderStatus.PENDING]: OrderStatus.PROCESSING,
   [OrderStatus.PROCESSING]: OrderStatus.SHIPPED,
 };
 const MANAGER_ROLES = [Role.ADMIN, Role.STAFF, Role.SUPER_ADMIN, Role.PLATFORM_STAFF];
@@ -48,16 +49,22 @@ export class OrdersService {
     const where: Record<string, unknown> = { companyId };
     const isManager = requester.roles.some((r) => MANAGER_ROLES.includes(r));
 
+    const isThreePl = requester.roles.includes(Role.THREE_PL);
     if (!isManager) {
       if (requester.roles.includes(Role.ACCOUNT_HOLDER)) where.accountHolderId = requester.sub;
       else if (requester.roles.includes(Role.STOCK_OWNER)) where.stockOwnerId = requester.sub;
-      else if (requester.roles.includes(Role.THREE_PL)) where.threePlId = requester.sub;
+      else if (isThreePl) where.threePlId = requester.sub;
     } else {
       if (filters.accountHolderId) where.accountHolderId = filters.accountHolderId;
       if (filters.threePlId) where.threePlId = filters.threePlId;
     }
 
     if (filters.status) where.status = filters.status;
+    // 3PLs only ever see an order once it's been assigned to them and has left PENDING — a manager
+    // makes the initial PENDING -> PROCESSING move.
+    if (isThreePl && !isManager) {
+      where.status = filters.status && filters.status !== OrderStatus.PENDING ? filters.status : { [Op.ne]: OrderStatus.PENDING };
+    }
     if (filters.startDate || filters.endDate) {
       const orderDate: Record<symbol, string> = {};
       if (filters.startDate) orderDate[Op.gte] = filters.startDate;
@@ -99,7 +106,7 @@ export class OrdersService {
     if (await this.billingService.isSeatBlocked(dto.accountHolderId)) {
       throw new ForbiddenException("This Account Holder's seat is blocked pending payment");
     }
-    if (await this.billingService.isSeatBlocked(product.stockOwnerId)) {
+    if (product.stockOwnerId && (await this.billingService.isSeatBlocked(product.stockOwnerId))) {
       throw new ForbiddenException("This Stock Owner's seat is blocked pending payment");
     }
 
@@ -120,8 +127,11 @@ export class OrdersService {
     if (!accountHolderProfile) {
       throw new BadRequestException("Account Holder profile not found");
     }
-    const stockOwnerProfile = await this.stockOwnerProfileModel.findByPk(product.stockOwnerId);
-    if (!stockOwnerProfile) {
+    // DROPSHIP products carry no Stock Owner — there's nothing to snapshot for that side of the order.
+    const stockOwnerProfile = product.stockOwnerId
+      ? await this.stockOwnerProfileModel.findByPk(product.stockOwnerId)
+      : null;
+    if (product.stockOwnerId && !stockOwnerProfile) {
       throw new BadRequestException("Stock Owner profile not found");
     }
 
@@ -154,18 +164,24 @@ export class OrdersService {
       buyerDetails: dto.buyerDetails,
       ebayNetProceeds: dto.ebayNetProceeds,
       shippingCost: dto.shippingCost ?? 0,
+      supplierUrl: dto.supplierUrl ?? null,
+      // DROPSHIP: no product-level price to snapshot yet — the assigned 3PL enters the buy price
+      // once they pick up the order (see setDropshipBuyPrice below).
       sellPriceSnapshot: product.sellPrice,
       buyPriceSnapshot: product.buyPrice,
       stockOwnerCostSnapshot: product.stockOwnerCost,
       threePlPriceChargedSnapshot,
       threePlPayoutSnapshot,
       accountHolderSharePercentSnapshot: accountHolderProfile.sharePercent,
-      stockOwnerPayoutModeSnapshot: stockOwnerProfile.payoutMode,
-      stockOwnerSharePercentSnapshot: stockOwnerProfile.sharePercent,
+      stockOwnerPayoutModeSnapshot: stockOwnerProfile?.payoutMode ?? null,
+      stockOwnerSharePercentSnapshot: stockOwnerProfile?.sharePercent ?? null,
     });
 
-    product.stockQuantity -= dto.quantity;
-    await product.save();
+    // DROPSHIP products hold no stock to decrement.
+    if (product.fulfillmentType === ProductFulfillmentType.STOCK) {
+      product.stockQuantity -= dto.quantity;
+      await product.save();
+    }
 
     return order;
   }
@@ -180,7 +196,30 @@ export class OrdersService {
     if (dto.buyerDetails !== undefined) order.buyerDetails = dto.buyerDetails;
     if (dto.ebayNetProceeds !== undefined) order.ebayNetProceeds = dto.ebayNetProceeds;
     if (dto.shippingCost !== undefined) order.shippingCost = dto.shippingCost;
+    if (dto.supplierUrl !== undefined) order.supplierUrl = dto.supplierUrl;
 
+    await order.save();
+    return order;
+  }
+
+  /** Lets the assigned 3PL fill in the buy price for a DROPSHIP order once they can see it (status past PENDING). */
+  async setDropshipBuyPrice(companyId: string, requester: JwtPayload, id: string, buyPrice: number) {
+    const order = await this.get(companyId, id);
+    if (order.threePlId !== requester.sub) {
+      throw new ForbiddenException("This order is not assigned to you");
+    }
+    if (order.status === OrderStatus.PENDING) {
+      throw new ForbiddenException("This order is not visible to 3PL users yet");
+    }
+
+    const product = await this.productModel.findByPk(order.productId);
+    if (!product || product.fulfillmentType !== ProductFulfillmentType.DROPSHIP) {
+      throw new BadRequestException("Buy price can only be entered for DROPSHIP orders");
+    }
+
+    order.buyPriceSnapshot = buyPrice;
+    // The buy price the 3PL enters IS their payout for a DROPSHIP order — no separate rate.
+    order.threePlPayoutSnapshot = buyPrice;
     await order.save();
     return order;
   }
@@ -204,7 +243,7 @@ export class OrdersService {
 
     if (TERMINAL_RESTOCK_STATUSES.includes(dto.status) && !order.restocked) {
       const product = await this.productModel.findByPk(order.productId);
-      if (product) {
+      if (product && product.fulfillmentType === ProductFulfillmentType.STOCK) {
         product.stockQuantity += order.quantity;
         await product.save();
       }

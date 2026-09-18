@@ -263,6 +263,8 @@ export class DashboardService {
     const products = await this.productModel.findAll({ where: { companyId } });
     const productsPerStockOwnerMap = new Map<string, { stockOwnerId: string; productCount: number; totalStockQuantity: number }>();
     for (const product of products) {
+      // DROPSHIP products carry no Stock Owner — they don't participate in this breakdown.
+      if (!product.stockOwnerId) continue;
       const entry = productsPerStockOwnerMap.get(product.stockOwnerId) ?? {
         stockOwnerId: product.stockOwnerId,
         productCount: 0,
@@ -292,7 +294,7 @@ export class DashboardService {
         productId: o.productId,
         daysInStatus: daysInStatus(o.statusChangedAt, now),
         accountHolderName: nameOf(o.accountHolderId),
-        stockOwnerName: nameOf(o.stockOwnerId),
+        stockOwnerName: o.stockOwnerId ? nameOf(o.stockOwnerId) : null,
         threePlName: o.threePlId ? nameOf(o.threePlId) : null,
       }));
 
@@ -316,7 +318,7 @@ export class DashboardService {
     };
     for (const o of allOrders) {
       addRow(o.accountHolderId, Role.ACCOUNT_HOLDER, o.status);
-      addRow(o.stockOwnerId, Role.STOCK_OWNER, o.status);
+      if (o.stockOwnerId) addRow(o.stockOwnerId, Role.STOCK_OWNER, o.status);
       if (o.threePlId) addRow(o.threePlId, Role.THREE_PL, o.status);
     }
 

@@ -21,6 +21,7 @@ const emptyForm = {
   buyerDetails: "",
   ebayNetProceeds: "0",
   shippingCost: "0",
+  supplierUrl: "",
 };
 
 export default function EditOrderPage() {
@@ -64,6 +65,7 @@ export default function EditOrderPage() {
           buyerDetails: found.buyerDetails,
           ebayNetProceeds: String(found.ebayNetProceeds),
           shippingCost: String(found.shippingCost),
+          supplierUrl: found.supplierUrl ?? "",
         });
       })
       .catch((err) => setLoadError(err instanceof Error ? err.message : "Failed to load order"));
@@ -85,6 +87,7 @@ export default function EditOrderPage() {
         buyerDetails: form.buyerDetails,
         ebayNetProceeds: Number(form.ebayNetProceeds),
         shippingCost: Number(form.shippingCost),
+        supplierUrl: form.supplierUrl || undefined,
       });
       if (shippingLabel) {
         await uploadOrderShippingLabel(orderId, shippingLabel);
@@ -206,6 +209,16 @@ export default function EditOrderPage() {
                 />
               </label>
             </div>
+
+            <label>
+              Supplier/product listing URL (optional)
+              <input
+                placeholder="https://…"
+                value={form.supplierUrl}
+                onChange={(e) => setField("supplierUrl", e.target.value)}
+                className="mt-1 w-full rounded border px-2 py-1"
+              />
+            </label>
 
             <label>
               Shipping label (PDF)

@@ -11,6 +11,7 @@ import {
   IsString,
   Max,
   Min,
+  ValidateIf,
   ValidateNested,
 } from "class-validator";
 import { ProductFulfillmentType, Role, StockOwnerPayoutMode } from "@ebay-order-management/shared";
@@ -38,7 +39,11 @@ export class StockOwnerProfileInput {
 }
 
 export class ThreePlProfileInput {
-  @IsNumber() payoutPerOrder!: number;
+  // Required for STOCK 3PLs; omitted for DROPSHIP 3PLs, who are instead paid the buy price they
+  // enter per order (see OrdersService.setDropshipBuyPrice).
+  @ValidateIf((o) => o.fulfillmentType === ProductFulfillmentType.STOCK)
+  @IsNumber()
+  payoutPerOrder?: number;
   @IsInt() @Min(1) @Max(28) billingCycleStartDay!: number;
   @IsEnum(ProductFulfillmentType) fulfillmentType!: ProductFulfillmentType;
 }

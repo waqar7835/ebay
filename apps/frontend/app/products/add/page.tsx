@@ -54,21 +54,23 @@ export default function AddProductPage() {
   const stockOwners = users.filter((u) => u.roles.includes("STOCK_OWNER"));
   const threePls = users.filter((u) => u.roles.includes("THREE_PL"));
 
+  const isStock = fulfillmentType === ("STOCK" as ProductFulfillmentType);
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
     setSubmitting(true);
     try {
       const created = await createProduct({
-        stockOwnerId,
+        stockOwnerId: isStock ? stockOwnerId : undefined,
         fulfillmentType,
-        threePlId: fulfillmentType === ("STOCK" as ProductFulfillmentType) ? threePlId : undefined,
+        threePlId: isStock ? threePlId : undefined,
         sku,
         title,
-        stockOwnerCost: Number(stockOwnerCost),
-        buyPrice: Number(buyPrice),
-        sellPrice: Number(sellPrice),
-        stockQuantity: Number(stockQuantity),
+        stockOwnerCost: isStock ? Number(stockOwnerCost) : undefined,
+        buyPrice: isStock ? Number(buyPrice) : undefined,
+        sellPrice: isStock ? Number(sellPrice) : undefined,
+        stockQuantity: isStock ? Number(stockQuantity) : undefined,
       });
       if (image) {
         await uploadProductImage(created.id, image);
@@ -102,17 +104,19 @@ export default function AddProductPage() {
             <input placeholder="Title" required value={title} onChange={(e) => setTitle(e.target.value)} className="flex-1 rounded border px-2 py-1" />
           </div>
 
-          <label>
-            Stock Owner
-            <select required value={stockOwnerId} onChange={(e) => setStockOwnerId(e.target.value)} className="mt-1 w-full rounded border px-2 py-1">
-              <option value="">Select…</option>
-              {stockOwners.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.email}
-                </option>
-              ))}
-            </select>
-          </label>
+          {isStock && (
+            <label>
+              Stock Owner
+              <select required value={stockOwnerId} onChange={(e) => setStockOwnerId(e.target.value)} className="mt-1 w-full rounded border px-2 py-1">
+                <option value="">Select…</option>
+                {stockOwners.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.email}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <label>
             Fulfillment type
@@ -140,24 +144,26 @@ export default function AddProductPage() {
             </label>
           )}
 
-          <div className="flex gap-3">
-            <label className="flex-1">
-              Stock Owner cost
-              <input value={stockOwnerCost} onChange={(e) => setStockOwnerCost(e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
-            </label>
-            <label className="flex-1">
-              Buy price (paid to Stock Owner)
-              <input value={buyPrice} onChange={(e) => setBuyPrice(e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
-            </label>
-            <label className="flex-1">
-              Sell price (charged to Account Holder)
-              <input value={sellPrice} onChange={(e) => setSellPrice(e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
-            </label>
-            <label className="flex-1">
-              Stock quantity
-              <input value={stockQuantity} onChange={(e) => setStockQuantity(e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
-            </label>
-          </div>
+          {isStock && (
+            <div className="flex gap-3">
+              <label className="flex-1">
+                Stock Owner cost
+                <input value={stockOwnerCost} onChange={(e) => setStockOwnerCost(e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
+              </label>
+              <label className="flex-1">
+                Buy price (paid to Stock Owner)
+                <input value={buyPrice} onChange={(e) => setBuyPrice(e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
+              </label>
+              <label className="flex-1">
+                Sell price (charged to Account Holder)
+                <input value={sellPrice} onChange={(e) => setSellPrice(e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
+              </label>
+              <label className="flex-1">
+                Stock quantity
+                <input value={stockQuantity} onChange={(e) => setStockQuantity(e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
+              </label>
+            </div>
+          )}
 
           <label>
             Product image (optional)

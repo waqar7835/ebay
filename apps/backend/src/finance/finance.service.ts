@@ -4,17 +4,24 @@ import { Order } from "../database/models/order.model";
 
 @Injectable()
 export class FinanceService {
-  /** Pure calculation over an order's snapshotted values — never re-reads live rates. */
+  /**
+   * Pure calculation over an order's snapshotted values — never re-reads live rates.
+   * DROPSHIP orders have no Stock Owner and may not have buy/sell prices snapshotted yet (the
+   * assigned 3PL fills the buy price in later) — those pieces are treated as 0 until then. The
+   * exact revenue-share formula for DROPSHIP orders is still to be finalized; this just keeps the
+   * calculation from crashing on nulls in the meantime.
+   */
   compute(order: Order): OrderFinancials {
     const qty = order.quantity;
+    const sellPriceSnapshot = order.sellPriceSnapshot ?? 0;
+    const buyPriceSnapshot = order.buyPriceSnapshot ?? 0;
+    const stockOwnerCostSnapshot = order.stockOwnerCostSnapshot ?? 0;
 
-    const productMarkup = (order.sellPriceSnapshot - order.buyPriceSnapshot) * qty;
-    const stockOwnerGross = order.buyPriceSnapshot * qty;
+    const productMarkup = (sellPriceSnapshot - buyPriceSnapshot) * qty;
+    const stockOwnerGross = buyPriceSnapshot * qty;
     const stockOwnerShareCut =
       order.stockOwnerPayoutModeSnapshot === StockOwnerPayoutMode.PROFIT_SHARE
-        ? ((order.stockOwnerSharePercentSnapshot ?? 0) / 100) *
-          (order.buyPriceSnapshot - order.stockOwnerCostSnapshot) *
-          qty
+        ? ((order.stockOwnerSharePercentSnapshot ?? 0) / 100) * (buyPriceSnapshot - stockOwnerCostSnapshot) * qty
         : 0;
     const stockOwnerNet = stockOwnerGross - stockOwnerShareCut;
 
@@ -22,8 +29,7 @@ export class FinanceService {
     const threePlPriceCharged = order.threePlPriceChargedSnapshot ?? 0;
     const threePlMarkup = order.threePlId ? threePlPriceCharged - threePlPayout : 0;
 
-    const accountHolderProfit =
-      order.ebayNetProceeds - order.shippingCost - order.sellPriceSnapshot * qty - threePlPriceCharged;
+    const accountHolderProfit = order.ebayNetProceeds - order.shippingCost - sellPriceSnapshot * qty - threePlPriceCharged;
     const accountHolderPayout = accountHolderProfit * (order.accountHolderSharePercentSnapshot / 100);
     const companyRemainderFromOrder = accountHolderProfit - accountHolderPayout;
 

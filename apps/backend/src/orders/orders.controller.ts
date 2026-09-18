@@ -26,6 +26,7 @@ import { OrdersService } from "./orders.service";
 import { CreateOrderDto } from "./dto/create-order.dto";
 import { UpdateOrderDto } from "./dto/update-order.dto";
 import { UpdateOrderStatusDto } from "./dto/update-status.dto";
+import { DropshipBuyPriceDto } from "./dto/dropship-buy-price.dto";
 
 @ApiTags("orders")
 @ApiBearerAuth()
@@ -73,6 +74,16 @@ export class OrdersController {
     @Query("companyId") companyId?: string,
   ) {
     return this.ordersService.update(resolveCompanyId(user, companyId), id, dto);
+  }
+
+  @Patch(":id/dropship-buy-price")
+  setDropshipBuyPrice(
+    @CurrentUser() user: JwtPayload,
+    @Param("id") id: string,
+    @Body() dto: DropshipBuyPriceDto,
+    @Query("companyId") companyId?: string,
+  ) {
+    return this.ordersService.setDropshipBuyPrice(resolveCompanyId(user, companyId), user, id, dto.buyPrice);
   }
 
   @Patch(":id/status")

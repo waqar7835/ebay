@@ -42,4 +42,8 @@ export class UpdateOrderDto {
   @IsNumber()
   @Min(0)
   shippingCost?: number;
+
+  @IsOptional()
+  @IsString()
+  supplierUrl?: string;
 }

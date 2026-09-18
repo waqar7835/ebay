@@ -22,8 +22,8 @@ export class Order extends Model {
   declare accountHolder: User;
 
   @ForeignKey(() => User)
-  @Column({ type: DataType.UUID, allowNull: false, field: "stock_owner_id" })
-  declare stockOwnerId: string;
+  @Column({ type: DataType.UUID, allowNull: true, field: "stock_owner_id" })
+  declare stockOwnerId: string | null;
 
   @BelongsTo(() => User, "stockOwnerId")
   declare stockOwner: User;
@@ -90,33 +90,33 @@ export class Order extends Model {
 
   @Column({
     type: DataType.DECIMAL(12, 2),
-    allowNull: false,
+    allowNull: true,
     field: "sell_price_snapshot",
     get(this: Order) {
-      return toDecimal(this.getDataValue("sellPriceSnapshot" as keyof Order));
+      return toNullableDecimal(this.getDataValue("sellPriceSnapshot" as keyof Order));
     },
   })
-  declare sellPriceSnapshot: number;
+  declare sellPriceSnapshot: number | null;
 
   @Column({
     type: DataType.DECIMAL(12, 2),
-    allowNull: false,
+    allowNull: true,
     field: "buy_price_snapshot",
     get(this: Order) {
-      return toDecimal(this.getDataValue("buyPriceSnapshot" as keyof Order));
+      return toNullableDecimal(this.getDataValue("buyPriceSnapshot" as keyof Order));
     },
   })
-  declare buyPriceSnapshot: number;
+  declare buyPriceSnapshot: number | null;
 
   @Column({
     type: DataType.DECIMAL(12, 2),
-    allowNull: false,
+    allowNull: true,
     field: "stock_owner_cost_snapshot",
     get(this: Order) {
-      return toDecimal(this.getDataValue("stockOwnerCostSnapshot" as keyof Order));
+      return toNullableDecimal(this.getDataValue("stockOwnerCostSnapshot" as keyof Order));
     },
   })
-  declare stockOwnerCostSnapshot: number;
+  declare stockOwnerCostSnapshot: number | null;
 
   @Column({
     type: DataType.DECIMAL(12, 2),
@@ -150,10 +150,13 @@ export class Order extends Model {
 
   @Column({
     type: DataType.ENUM(...Object.values(StockOwnerPayoutMode)),
-    allowNull: false,
+    allowNull: true,
     field: "stock_owner_payout_mode_snapshot",
   })
-  declare stockOwnerPayoutModeSnapshot: StockOwnerPayoutMode;
+  declare stockOwnerPayoutModeSnapshot: StockOwnerPayoutMode | null;
+
+  @Column({ type: DataType.STRING, allowNull: true, field: "supplier_url" })
+  declare supplierUrl: string | null;
 
   @Column({
     type: DataType.DECIMAL(5, 2),

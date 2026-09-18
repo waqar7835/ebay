@@ -42,6 +42,7 @@ const emptyForm = {
   buyerDetails: "",
   ebayNetProceeds: "0",
   shippingCost: "0",
+  supplierUrl: "",
 };
 
 export default function OrdersPage() {
@@ -98,6 +99,7 @@ export default function OrdersPage() {
       buyerDetails: order.buyerDetails,
       ebayNetProceeds: String(order.ebayNetProceeds),
       shippingCost: String(order.shippingCost),
+      supplierUrl: order.supplierUrl ?? "",
     });
     setFormError(null);
     setShowForm(true);
@@ -121,6 +123,7 @@ export default function OrdersPage() {
           buyerDetails: form.buyerDetails,
           ebayNetProceeds: Number(form.ebayNetProceeds),
           shippingCost: Number(form.shippingCost),
+          supplierUrl: form.supplierUrl || undefined,
         });
       } else {
         await createOrder({
@@ -133,6 +136,7 @@ export default function OrdersPage() {
           buyerDetails: form.buyerDetails,
           ebayNetProceeds: Number(form.ebayNetProceeds),
           shippingCost: Number(form.shippingCost),
+          supplierUrl: form.supplierUrl || undefined,
         });
       }
       closeForm();
@@ -285,6 +289,16 @@ export default function OrdersPage() {
               </label>
             </div>
 
+            <label>
+              Supplier/product listing URL (optional)
+              <input
+                placeholder="https://…"
+                value={form.supplierUrl}
+                onChange={(e) => setField("supplierUrl", e.target.value)}
+                className="mt-1 w-full rounded border px-2 py-1"
+              />
+            </label>
+
             {formError && <p className="text-red-600">{formError}</p>}
             <button type="submit" className="self-start rounded bg-gray-900 px-3 py-2 text-white">
               {editingOrderId ? "Save changes" : "Create order"}
@@ -304,6 +318,7 @@ export default function OrdersPage() {
               <th className="py-2">Tracking #</th>
               <th className="py-2">Qty</th>
               <th className="py-2">Payout</th>
+              <th className="py-2">Buy Price</th>
               <th className="py-2">Status</th>
               <th className="py-2"></th>
             </tr>
@@ -331,6 +346,7 @@ export default function OrdersPage() {
                   <td className="py-2">{order.trackingNumber ?? "—"}</td>
                   <td className="py-2">{order.quantity}</td>
                   <td className="py-2">${order.ebayNetProceeds.toFixed(2)}</td>
+                  <td className="py-2">{order.buyPriceSnapshot != null ? `$${order.buyPriceSnapshot.toFixed(2)}` : "Pending"}</td>
                   <td className="py-2">
                     <select
                       value={order.status}
