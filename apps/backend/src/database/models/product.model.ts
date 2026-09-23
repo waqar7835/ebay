@@ -41,6 +41,10 @@ export class Product extends Model {
   @Column({ type: DataType.STRING, allowNull: false })
   declare title: string;
 
+  // Free-text size/variant label (e.g. "M", "10.5", "12x8 in"); optional.
+  @Column({ type: DataType.STRING, allowNull: true })
+  declare size: string | null;
+
   @Column({ type: DataType.STRING, allowNull: true, field: "image_url" })
   declare imageUrl: string | null;
 

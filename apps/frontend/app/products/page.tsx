@@ -11,6 +11,7 @@ interface ProductRow {
   id: string;
   sku: string;
   title: string;
+  size: string | null;
   fulfillmentType: ProductFulfillmentType;
   stockOwnerId: string | null;
   threePlId: string | null;
@@ -82,10 +83,12 @@ export default function ProductsPage() {
               <th className="py-2">Image</th>
               <th className="py-2">SKU</th>
               <th className="py-2">Title</th>
+              <th className="py-2">Size</th>
               <th className="py-2">Type</th>
               <th className="py-2">Buy</th>
               <th className="py-2">Sell</th>
               <th className="py-2">Stock</th>
+              <th className="py-2"></th>
             </tr>
           </thead>
           <tbody>
@@ -126,15 +129,21 @@ export default function ProductsPage() {
                 </td>
                 <td className="py-2">{p.sku}</td>
                 <td className="py-2">{p.title}</td>
+                <td className="py-2">{p.size || "—"}</td>
                 <td className="py-2">{p.fulfillmentType}</td>
                 <td className="py-2">{p.buyPrice != null ? `$${p.buyPrice.toFixed(2)}` : "—"}</td>
                 <td className="py-2">{p.sellPrice != null ? `$${p.sellPrice.toFixed(2)}` : "—"}</td>
                 <td className="py-2">{p.fulfillmentType === "DROPSHIP" ? "—" : p.stockQuantity}</td>
+                <td className="py-2">
+                  <button onClick={() => router.push(`/products/${p.id}/edit`)} className="text-xs underline">
+                    Edit
+                  </button>
+                </td>
               </tr>
             ))}
             {products.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-4 text-gray-500">
+                <td colSpan={9} className="py-4 text-gray-500">
                   No products yet.
                 </td>
               </tr>

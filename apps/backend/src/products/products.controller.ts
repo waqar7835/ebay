@@ -21,7 +21,7 @@ import { resolveCompanyId } from "../common/company-scope.util";
 import { multerUploadOptions, publicUploadUrl } from "../uploads/uploads.util";
 import type { JwtPayload } from "../auth/jwt.strategy";
 import { ProductsService } from "./products.service";
-import { CreateProductDto, UpdateStockDto } from "./dto/product.dto";
+import { CreateProductDto, UpdateProductDto, UpdateStockDto } from "./dto/product.dto";
 
 @ApiTags("products")
 @ApiBearerAuth()
@@ -44,6 +44,17 @@ export class ProductsController {
   @RequirePermission("canManageStock")
   create(@CurrentUser() user: JwtPayload, @Body() dto: CreateProductDto, @Query("companyId") companyId?: string) {
     return this.productsService.create(resolveCompanyId(user, companyId), dto);
+  }
+
+  @Patch(":id")
+  @RequirePermission("canManageStock")
+  update(
+    @CurrentUser() user: JwtPayload,
+    @Param("id") id: string,
+    @Body() dto: UpdateProductDto,
+    @Query("companyId") companyId?: string,
+  ) {
+    return this.productsService.update(resolveCompanyId(user, companyId), id, dto);
   }
 
   @Patch(":id/stock")

@@ -5,15 +5,17 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import ImageCropModal from "@/components/ImageCropModal";
-import { API_URL, createProduct, getToken, listProducts, listUsers, uploadProductImage } from "@/lib/api";
+import { API_URL, createProduct, getToken, listProducts, listUsers, updateProduct, uploadProductImage } from "@/lib/api";
 
 interface ProductRow {
   id: string;
   sku: string;
   title: string;
+  size: string | null;
   fulfillmentType: ProductFulfillmentType;
   stockOwnerId: string | null;
   threePlId: string | null;
+  stockOwnerCost: number | null;
   buyPrice: number | null;
   sellPrice: number | null;
   stockQuantity: number;
@@ -44,10 +46,12 @@ export default function ProductsPage() {
   const [threePlId, setThreePlId] = useState("");
   const [sku, setSku] = useState("");
   const [title, setTitle] = useState("");
+  const [size, setSize] = useState("");
   const [stockOwnerCost, setStockOwnerCost] = useState("0");
   const [buyPrice, setBuyPrice] = useState("0");
   const [sellPrice, setSellPrice] = useState("0");
   const [stockQuantity, setStockQuantity] = useState("0");
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [image, setImage] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
 
@@ -79,33 +83,59 @@ export default function ProductsPage() {
   const stockOwners = users.filter((u) => u.roles.includes("STOCK_OWNER"));
   const threePls = users.filter((u) => u.roles.includes("THREE_PL"));
 
+  const editingProduct = editingId ? products.find((p) => p.id === editingId) : undefined;
+  const shownImageUrl = imagePreviewUrl ?? (editingProduct?.imageUrl ? `${API_URL}${editingProduct.imageUrl}` : null);
+
   const isStock = fulfillmentType === ("STOCK" as ProductFulfillmentType);
 
-  async function handleCreate(e: React.FormEvent) {
+  // Loads a row into the create form (or blanks it for a new product) — one form serves both.
+  function fillForm(p: ProductRow | null) {
+    setEditingId(p?.id ?? null);
+    setFulfillmentType(p?.fulfillmentType ?? ("STOCK" as ProductFulfillmentType));
+    setStockOwnerId(p?.stockOwnerId ?? "");
+    setThreePlId(p?.threePlId ?? "");
+    setSku(p?.sku ?? "");
+    setTitle(p?.title ?? "");
+    setSize(p?.size ?? "");
+    setStockOwnerCost(String(p?.stockOwnerCost ?? 0));
+    setBuyPrice(String(p?.buyPrice ?? 0));
+    setSellPrice(String(p?.sellPrice ?? 0));
+    setStockQuantity(String(p?.stockQuantity ?? 0));
+    setImage(null);
+    setFormError(null);
+  }
+
+  function startEdit(p: ProductRow) {
+    fillForm(p);
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
+    const payload = {
+      stockOwnerId: isStock ? stockOwnerId : undefined,
+      fulfillmentType,
+      threePlId: isStock ? threePlId : undefined,
+      sku,
+      title,
+      size: size.trim() || undefined,
+      stockOwnerCost: isStock ? Number(stockOwnerCost) : undefined,
+      buyPrice: isStock ? Number(buyPrice) : undefined,
+      sellPrice: isStock ? Number(sellPrice) : undefined,
+      stockQuantity: isStock ? Number(stockQuantity) : undefined,
+    };
     try {
-      const created = await createProduct({
-        stockOwnerId: isStock ? stockOwnerId : undefined,
-        fulfillmentType,
-        threePlId: isStock ? threePlId : undefined,
-        sku,
-        title,
-        stockOwnerCost: isStock ? Number(stockOwnerCost) : undefined,
-        buyPrice: isStock ? Number(buyPrice) : undefined,
-        sellPrice: isStock ? Number(sellPrice) : undefined,
-        stockQuantity: isStock ? Number(stockQuantity) : undefined,
-      });
+      const saved = editingId ? await updateProduct(editingId, payload) : await createProduct(payload);
       if (image) {
-        await uploadProductImage(created.id, image);
+        await uploadProductImage(saved.id, image);
       }
       setShowForm(false);
-      setSku("");
-      setTitle("");
-      setImage(null);
+      fillForm(null);
       refresh();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to create product");
+      setFormError(err instanceof Error ? err.message : editingId ? "Failed to update product" : "Failed to create product");
     }
   }
 
@@ -137,7 +167,13 @@ export default function ProductsPage() {
       <main className="ml-56 max-w-4xl p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Products</h1>
-          <button onClick={() => setShowForm((v) => !v)} className="rounded bg-gray-900 px-3 py-2 text-sm text-white">
+          <button
+            onClick={() => {
+              if (!showForm) fillForm(null);
+              setShowForm((v) => !v);
+            }}
+            className="rounded bg-gray-900 px-3 py-2 text-sm text-white"
+          >
             {showForm ? "Cancel" : "Add product"}
           </button>
         </div>
@@ -145,10 +181,12 @@ export default function ProductsPage() {
         {error && <p className="mt-4 text-red-600">{error}</p>}
 
         {showForm && (
-          <form onSubmit={handleCreate} className="mt-6 flex flex-col gap-3 rounded border bg-white p-4 text-sm">
+          <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-3 rounded border bg-white p-4 text-sm">
+            {editingProduct && <p className="font-medium">Editing {editingProduct.sku}</p>}
             <div className="flex gap-3">
               <input placeholder="SKU" required value={sku} onChange={(e) => setSku(e.target.value)} className="flex-1 rounded border px-2 py-1" />
               <input placeholder="Title" required value={title} onChange={(e) => setTitle(e.target.value)} className="flex-1 rounded border px-2 py-1" />
+              <input placeholder="Size (optional)" value={size} onChange={(e) => setSize(e.target.value)} className="w-40 rounded border px-2 py-1" />
             </div>
 
             <label>
@@ -220,9 +258,9 @@ export default function ProductsPage() {
                   onClick={() => newProductFileInput.current?.click()}
                   className="h-14 w-14 overflow-hidden rounded border bg-gray-50"
                 >
-                  {imagePreviewUrl ? (
+                  {shownImageUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={imagePreviewUrl} alt="" className="h-full w-full object-cover" />
+                    <img src={shownImageUrl} alt="" className="h-full w-full object-cover" />
                   ) : (
                     <span className="flex h-full w-full items-center justify-center text-[10px] text-gray-400">Add</span>
                   )}
@@ -251,7 +289,7 @@ export default function ProductsPage() {
 
             {formError && <p className="text-red-600">{formError}</p>}
             <button type="submit" className="self-start rounded bg-gray-900 px-3 py-2 text-white">
-              Create
+              {editingId ? "Save changes" : "Create"}
             </button>
           </form>
         )}
@@ -262,10 +300,12 @@ export default function ProductsPage() {
               <th className="py-2">Image</th>
               <th className="py-2">SKU</th>
               <th className="py-2">Title</th>
+              <th className="py-2">Size</th>
               <th className="py-2">Type</th>
               <th className="py-2">Buy</th>
               <th className="py-2">Sell</th>
               <th className="py-2">Stock</th>
+              <th className="py-2"></th>
             </tr>
           </thead>
           <tbody>
@@ -306,15 +346,21 @@ export default function ProductsPage() {
                 </td>
                 <td className="py-2">{p.sku}</td>
                 <td className="py-2">{p.title}</td>
+                <td className="py-2">{p.size || "—"}</td>
                 <td className="py-2">{p.fulfillmentType}</td>
                 <td className="py-2">{p.buyPrice != null ? `$${p.buyPrice.toFixed(2)}` : "—"}</td>
                 <td className="py-2">{p.sellPrice != null ? `$${p.sellPrice.toFixed(2)}` : "—"}</td>
                 <td className="py-2">{p.fulfillmentType === "DROPSHIP" ? "—" : p.stockQuantity}</td>
+                <td className="py-2 text-xs">
+                  <button onClick={() => startEdit(p)} className="underline">
+                    Edit
+                  </button>
+                </td>
               </tr>
             ))}
             {products.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-4 text-gray-500">
+                <td colSpan={9} className="py-4 text-gray-500">
                   No products yet.
                 </td>
               </tr>

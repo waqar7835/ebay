@@ -20,6 +20,10 @@ export class CreateProductDto {
   @IsString()
   title!: string;
 
+  @IsOptional()
+  @IsString()
+  size?: string;
+
   @ValidateIf((o) => o.fulfillmentType === ProductFulfillmentType.STOCK)
   @IsNumber()
   @Min(0)
@@ -45,3 +49,6 @@ export class UpdateStockDto {
   @IsInt()
   stockQuantity!: number;
 }
+
+// Full replacement: the edit form resubmits every field, validated by the same rules as create.
+export class UpdateProductDto extends CreateProductDto {}

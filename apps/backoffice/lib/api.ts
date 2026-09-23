@@ -150,6 +150,7 @@ export interface CreateProductPayload {
   threePlId?: string;
   sku: string;
   title: string;
+  size?: string;
   stockOwnerCost?: number;
   buyPrice?: number;
   sellPrice?: number;
@@ -158,6 +159,11 @@ export interface CreateProductPayload {
 
 export function createProduct(payload: CreateProductPayload) {
   return request<ProductDto>("/products", { method: "POST", body: JSON.stringify(payload) });
+}
+
+// Full replacement — send every field, same shape as create.
+export function updateProduct(productId: string, payload: CreateProductPayload) {
+  return request<ProductDto>(`/products/${productId}`, { method: "PATCH", body: JSON.stringify(payload) });
 }
 
 export function updateStock(productId: string, stockQuantity: number) {

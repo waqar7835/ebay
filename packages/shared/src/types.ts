@@ -105,6 +105,7 @@ export interface ProductDto {
   threePlId: string | null;
   sku: string;
   title: string;
+  size: string | null;
   imageUrl: string | null;
   stockOwnerCost: number | null;
   buyPrice: number | null;
