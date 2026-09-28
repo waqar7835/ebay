@@ -1,5 +1,7 @@
 "use client";
 
+import { LogoutOutlined } from "@ant-design/icons";
+import { Button, Menu } from "antd";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -34,29 +36,24 @@ export default function Nav() {
     router.push("/");
   }
 
+  const selectedKey = links.find((link) => pathname?.startsWith(link.href))?.href;
+
   return (
     <nav className="fixed inset-y-0 left-0 z-10 flex w-56 flex-col border-r bg-white py-5">
-      <div className="flex-1 overflow-y-auto px-4">
-        <p className="mb-6 px-2 text-sm font-semibold text-gray-900">Partner Portal</p>
-        <div className="flex flex-col gap-1 text-sm">
-          {links.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className={`rounded px-2 py-2 hover:bg-gray-100 ${
-                pathname?.startsWith(link.href) ? "bg-gray-100 font-medium text-gray-900" : "text-gray-700"
-              }`}
-            >
-              {link.label}
-            </Link>
-          ))}
-        </div>
+      <div className="flex-1 overflow-y-auto px-2">
+        <p className="mb-4 px-4 text-sm font-semibold text-gray-900">Partner Portal</p>
+        <Menu
+          mode="inline"
+          className="border-e-0"
+          selectedKeys={selectedKey ? [selectedKey] : []}
+          items={links.map((link) => ({ key: link.href, label: <Link href={link.href}>{link.label}</Link> }))}
+        />
       </div>
       <div className="shrink-0 border-t px-4 pt-4 text-xs text-gray-500">
         <p className="truncate px-2 pb-2">{user?.email}</p>
-        <button onClick={logout} className="w-full rounded border px-2 py-1.5 text-gray-700 hover:bg-gray-50">
+        <Button block icon={<LogoutOutlined />} onClick={logout}>
           Log out
-        </button>
+        </Button>
       </div>
     </nav>
   );

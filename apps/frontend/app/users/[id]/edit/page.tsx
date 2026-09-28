@@ -1,6 +1,7 @@
 "use client";
 
 import type { ProductFulfillmentType, StockOwnerPayoutMode, UserDto } from "@ebay-order-management/shared";
+import { Alert, Button, Card, Checkbox, Form, Input, InputNumber, Select, Tag } from "antd";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
@@ -24,9 +25,6 @@ const STAFF_PERMISSIONS = [
 
 type StaffPermissionKey = (typeof STAFF_PERMISSIONS)[number]["key"];
 type StaffPermissionsState = Record<StaffPermissionKey, boolean>;
-
-const inputClass = "mt-1 w-full rounded border px-2 py-1";
-const disabledInputClass = `${inputClass} bg-gray-50 text-gray-500`;
 
 export default function EditUserPage() {
   const router = useRouter();
@@ -103,8 +101,7 @@ export default function EditUserPage() {
       .catch((err) => setLoadError(err instanceof Error ? err.message : "Failed to load user"));
   }, [router, userId]);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit() {
     if (!user) return;
     setFormError(null);
     setSubmitting(true);
@@ -147,177 +144,142 @@ export default function EditUserPage() {
     }
   }
 
+  const numProps = (value: string, set: (v: string) => void) => ({
+    value: value === "" ? null : value,
+    onChange: (v: string | number | null) => set(v == null ? "" : String(v)),
+  });
+
   return (
     <>
       <Nav />
       <main className="ml-56 max-w-2xl p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Edit user</h1>
-          <button onClick={() => router.push("/users")} className="rounded border px-3 py-2 text-sm">
-            Back to users
-          </button>
+          <Button onClick={() => router.push("/users")}>Back to users</Button>
         </div>
 
-        {loadError && <p className="mt-4 text-red-600">{loadError}</p>}
+        {loadError && <Alert type="error" title={loadError} className="mt-4" showIcon />}
 
         {user && (
-          <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4 rounded border bg-white p-4 text-sm">
-            <div className="flex gap-3">
-              <label className="flex-1">
-                Name
-                <input value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
-              </label>
-              <label className="flex-1">
-                Email
-                <input value={user.email} disabled className={disabledInputClass} />
-              </label>
-            </div>
+          <Card className="mt-6">
+            <Form layout="vertical" onFinish={handleSubmit}>
+              <div className="flex gap-3">
+                <Form.Item label="Name" className="flex-1">
+                  <Input value={name} onChange={(e) => setName(e.target.value)} />
+                </Form.Item>
+                <Form.Item label="Email" className="flex-1">
+                  <Input value={user.email} disabled />
+                </Form.Item>
+              </div>
 
-            <p className="text-gray-600">Roles: {user.roles.join(", ")}</p>
+              <p className="mb-4 text-gray-600">
+                Roles:{" "}
+                {user.roles.map((r) => (
+                  <Tag key={r}>{r}</Tag>
+                ))}
+              </p>
 
-            {user.staffProfile && (
-              <div className="rounded bg-gray-50 p-3">
-                <p className="mb-2 font-medium">Staff permissions</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {STAFF_PERMISSIONS.map(({ key, label }) => (
-                    <label key={key} className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
+              {user.staffProfile && (
+                <Card size="small" title="Staff permissions" className="mb-4">
+                  <div className="grid grid-cols-2 gap-2">
+                    {STAFF_PERMISSIONS.map(({ key, label }) => (
+                      <Checkbox
+                        key={key}
                         checked={staffPermissions[key]}
                         onChange={(e) => setStaffPermissions((prev) => ({ ...prev, [key]: e.target.checked }))}
+                      >
+                        {label}
+                      </Checkbox>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex items-center gap-3">
+                    <Checkbox checked={hasRevenueShare} onChange={(e) => setHasRevenueShare(e.target.checked)}>
+                      Revenue share
+                    </Checkbox>
+                    {hasRevenueShare && (
+                      <InputNumber suffix="%" min={0} max={100} className="w-28" {...numProps(staffSharePercent, setStaffSharePercent)} />
+                    )}
+                  </div>
+                </Card>
+              )}
+
+              {user.accountHolderProfile && (
+                <Card size="small" title="Account Holder settings" className="mb-4">
+                  <div className="flex gap-3">
+                    <Form.Item label="Share % of profit" className="flex-1">
+                      <InputNumber suffix="%" min={0} max={100} className="w-full" {...numProps(ahSharePercent, setAhSharePercent)} />
+                    </Form.Item>
+                    <Form.Item label="3PL price charged (optional)" className="flex-1">
+                      <InputNumber prefix="$" min={0} step={0.01} className="w-full" {...numProps(ahThreePlPriceCharged, setAhThreePlPriceCharged)} />
+                    </Form.Item>
+                  </div>
+                  <Form.Item label="Billing cycle start day (1–28)" className="mb-0">
+                    <InputNumber min={1} max={28} precision={0} className="w-full" {...numProps(ahBillingCycleStartDay, setAhBillingCycleStartDay)} />
+                  </Form.Item>
+                </Card>
+              )}
+
+              {user.stockOwnerProfile && (
+                <Card size="small" title="Stock Owner settings" className="mb-4">
+                  <div className="flex gap-3">
+                    <Form.Item label="Payout mode" className="flex-1">
+                      <Select
+                        value={payoutMode}
+                        onChange={(v) => setPayoutMode(v)}
+                        options={[
+                          { value: "FIXED", label: "Fixed" },
+                          { value: "PROFIT_SHARE", label: "Profit share" },
+                        ]}
                       />
-                      {label}
-                    </label>
-                  ))}
-                </div>
-                <div className="mt-3 flex items-center gap-3">
-                  <label className="flex items-center gap-2">
-                    <input type="checkbox" checked={hasRevenueShare} onChange={(e) => setHasRevenueShare(e.target.checked)} />
-                    Revenue share
-                  </label>
-                  {hasRevenueShare && (
-                    <label className="flex items-center gap-2">
-                      Share %
-                      <input
-                        value={staffSharePercent}
-                        onChange={(e) => setStaffSharePercent(e.target.value)}
-                        className="w-20 rounded border px-2 py-1"
+                    </Form.Item>
+                    {payoutMode === ("PROFIT_SHARE" as StockOwnerPayoutMode) && (
+                      <Form.Item label="Share % of their margin" className="flex-1">
+                        <InputNumber suffix="%" min={0} max={100} className="w-full" {...numProps(soSharePercent, setSoSharePercent)} />
+                      </Form.Item>
+                    )}
+                  </div>
+                  <Form.Item label="Billing cycle start day (1–28)" className="mb-0">
+                    <InputNumber min={1} max={28} precision={0} className="w-full" {...numProps(soBillingCycleStartDay, setSoBillingCycleStartDay)} />
+                  </Form.Item>
+                </Card>
+              )}
+
+              {user.threePlProfile && (
+                <Card size="small" title="3PL settings" className="mb-4">
+                  <div className="flex gap-3">
+                    <Form.Item label="Type" className="flex-1">
+                      <Select
+                        value={fulfillmentType}
+                        onChange={(v) => setFulfillmentType(v)}
+                        options={[
+                          { value: "STOCK", label: "Stock" },
+                          { value: "DROPSHIP", label: "Dropshipping" },
+                        ]}
                       />
-                    </label>
+                    </Form.Item>
+                    {fulfillmentType === ("STOCK" as ProductFulfillmentType) && (
+                      <Form.Item label="Payout per order fulfilled" className="flex-1">
+                        <InputNumber prefix="$" min={0} step={0.01} className="w-full" {...numProps(payoutPerOrder, setPayoutPerOrder)} />
+                      </Form.Item>
+                    )}
+                  </div>
+                  {fulfillmentType === ("DROPSHIP" as ProductFulfillmentType) && (
+                    <p className="mb-3 text-xs text-gray-500">
+                      Dropshipping 3PLs have no fixed rate — they&apos;re paid the buy price they enter against each order.
+                    </p>
                   )}
-                </div>
-              </div>
-            )}
+                  <Form.Item label="Billing cycle start day (1–28)" className="mb-0">
+                    <InputNumber min={1} max={28} precision={0} className="w-full" {...numProps(tpBillingCycleStartDay, setTpBillingCycleStartDay)} />
+                  </Form.Item>
+                </Card>
+              )}
 
-            {user.accountHolderProfile && (
-              <div className="rounded bg-gray-50 p-3">
-                <p className="mb-2 font-medium">Account Holder settings</p>
-                <div className="flex gap-3">
-                  <label className="flex-1">
-                    Share % of profit
-                    <input value={ahSharePercent} onChange={(e) => setAhSharePercent(e.target.value)} className={inputClass} />
-                  </label>
-                  <label className="flex-1">
-                    3PL price charged (optional)
-                    <input
-                      value={ahThreePlPriceCharged}
-                      onChange={(e) => setAhThreePlPriceCharged(e.target.value)}
-                      className={inputClass}
-                    />
-                  </label>
-                </div>
-                <label className="mt-3 block">
-                  Billing cycle start day (1–28)
-                  <input
-                    value={ahBillingCycleStartDay}
-                    onChange={(e) => setAhBillingCycleStartDay(e.target.value)}
-                    className={inputClass}
-                  />
-                </label>
-              </div>
-            )}
-
-            {user.stockOwnerProfile && (
-              <div className="rounded bg-gray-50 p-3">
-                <p className="mb-2 font-medium">Stock Owner settings</p>
-                <div className="flex gap-3">
-                  <label className="flex-1">
-                    Payout mode
-                    <select
-                      value={payoutMode}
-                      onChange={(e) => setPayoutMode(e.target.value as StockOwnerPayoutMode)}
-                      className={inputClass}
-                    >
-                      <option value="FIXED">Fixed</option>
-                      <option value="PROFIT_SHARE">Profit share</option>
-                    </select>
-                  </label>
-                  {payoutMode === ("PROFIT_SHARE" as StockOwnerPayoutMode) && (
-                    <label className="flex-1">
-                      Share % of their margin
-                      <input value={soSharePercent} onChange={(e) => setSoSharePercent(e.target.value)} className={inputClass} />
-                    </label>
-                  )}
-                </div>
-                <label className="mt-3 block">
-                  Billing cycle start day (1–28)
-                  <input
-                    value={soBillingCycleStartDay}
-                    onChange={(e) => setSoBillingCycleStartDay(e.target.value)}
-                    className={inputClass}
-                  />
-                </label>
-              </div>
-            )}
-
-            {user.threePlProfile && (
-              <div className="rounded bg-gray-50 p-3">
-                <p className="mb-2 font-medium">3PL settings</p>
-                <div className="flex gap-3">
-                  <label className="flex-1">
-                    Type
-                    <select
-                      value={fulfillmentType}
-                      onChange={(e) => setFulfillmentType(e.target.value as ProductFulfillmentType)}
-                      className={inputClass}
-                    >
-                      <option value="STOCK">Stock</option>
-                      <option value="DROPSHIP">Dropshipping</option>
-                    </select>
-                  </label>
-                  {fulfillmentType === ("STOCK" as ProductFulfillmentType) && (
-                    <label className="flex-1">
-                      Payout per order fulfilled
-                      <input value={payoutPerOrder} onChange={(e) => setPayoutPerOrder(e.target.value)} className={inputClass} />
-                    </label>
-                  )}
-                </div>
-                {fulfillmentType === ("DROPSHIP" as ProductFulfillmentType) && (
-                  <p className="mt-2 text-xs text-gray-500">
-                    Dropshipping 3PLs have no fixed rate — they're paid the buy price they enter against each order.
-                  </p>
-                )}
-                <label className="mt-3 block">
-                  Billing cycle start day (1–28)
-                  <input
-                    value={tpBillingCycleStartDay}
-                    onChange={(e) => setTpBillingCycleStartDay(e.target.value)}
-                    className={inputClass}
-                  />
-                </label>
-              </div>
-            )}
-
-            {formError && <p className="text-red-600">{formError}</p>}
-            <button
-              type="submit"
-              disabled={submitting}
-              className="flex items-center gap-2 self-start rounded bg-gray-900 px-3 py-2 text-white disabled:opacity-70"
-            >
-              {submitting && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />}
-              {submitting ? "Saving..." : "Save changes"}
-            </button>
-          </form>
+              {formError && <Alert type="error" title={formError} className="mb-4" showIcon />}
+              <Button type="primary" htmlType="submit" loading={submitting}>
+                {submitting ? "Saving..." : "Save changes"}
+              </Button>
+            </Form>
+          </Card>
         )}
       </main>
     </>

@@ -1,5 +1,6 @@
 "use client";
 
+import { Alert, Spin } from "antd";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
@@ -35,7 +36,7 @@ function VerifyEmailStatus() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center p-8 text-center">
-      {status === "loading" && <p>Verifying...</p>}
+      {status === "loading" && <Spin tip="Verifying..."><div className="h-16" /></Spin>}
       {status === "ok" && (
         <>
           <h1 className="mb-2 text-xl font-semibold">Email verified</h1>
@@ -44,7 +45,7 @@ function VerifyEmailStatus() {
           </Link>
         </>
       )}
-      {status === "error" && <p className="text-sm text-red-600">{message}</p>}
+      {status === "error" && <Alert type="error" title={message} showIcon />}
     </main>
   );
 }

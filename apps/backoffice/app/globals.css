@@ -1,3 +1,9 @@
-@tailwind base;
+/* Tailwind's preflight lives in its own low-priority layer so antd component styles (injected into
+ * the "antd" layer by AntdRegistry) win over it, while Tailwind utilities still override antd. */
+@layer tailwind-base, antd;
+
+@layer tailwind-base {
+  @tailwind base;
+}
 @tailwind components;
 @tailwind utilities;

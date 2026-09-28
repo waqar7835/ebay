@@ -1,6 +1,7 @@
 "use client";
 
 import type { ProductFulfillmentType, Role, StockOwnerPayoutMode } from "@ebay-order-management/shared";
+import { Alert, Button, Card, Checkbox, Form, Input, InputNumber, Select, Table, Tag, type TableColumnsType } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
@@ -56,11 +57,15 @@ export default function UsersPage() {
   const [hasRevenueShare, setHasRevenueShare] = useState(false);
   const [staffSharePercent, setStaffSharePercent] = useState("0");
   const [formError, setFormError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [inviteForm] = Form.useForm();
 
   function refresh() {
     listUsers()
       .then(setUsers)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"))
+      .finally(() => setLoading(false));
   }
 
   useEffect(() => {
@@ -85,9 +90,9 @@ export default function UsersPage() {
     });
   }
 
-  async function handleInvite(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleInvite() {
     setFormError(null);
+    setSubmitting(true);
     try {
       await inviteUser({
         name: name || undefined,
@@ -129,9 +134,12 @@ export default function UsersPage() {
       setStaffPermissions(DEFAULT_STAFF_PERMISSIONS);
       setHasRevenueShare(false);
       setStaffSharePercent("0");
+      inviteForm.resetFields();
       refresh();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to invite user");
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -140,208 +148,188 @@ export default function UsersPage() {
     refresh();
   }
 
+  const numProps = (value: string, set: (v: string) => void) => ({
+    value: value === "" ? null : value,
+    onChange: (v: string | number | null) => set(v == null ? "" : String(v)),
+  });
+
+  const columns: TableColumnsType<UserRow> = [
+    { title: "Name", dataIndex: "name", render: (v) => v ?? "—", sorter: (a, b) => (a.name ?? "").localeCompare(b.name ?? "") },
+    { title: "Email", dataIndex: "email", sorter: (a, b) => a.email.localeCompare(b.email) },
+    { title: "Roles", dataIndex: "roles", render: (rs: Role[]) => rs.map((r) => <Tag key={r}>{r}</Tag>) },
+    {
+      title: "Status",
+      dataIndex: "status",
+      render: (s: string) => <Tag color={s === "ACTIVE" ? "green" : s === "DISABLED" ? "red" : "default"}>{s}</Tag>,
+    },
+    {
+      key: "actions",
+      render: (_, u) => (
+        <Button size="small" danger={u.status === "ACTIVE"} onClick={() => toggleStatus(u)}>
+          {u.status === "ACTIVE" ? "Disable" : "Enable"}
+        </Button>
+      ),
+    },
+  ];
+
   return (
     <>
       <Nav />
       <main className="ml-56 max-w-4xl p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Users</h1>
-          <button
-            onClick={() => setShowForm((v) => !v)}
-            disabled={needsCompanySelection}
-            className="rounded bg-gray-900 px-3 py-2 text-sm text-white disabled:opacity-50"
-          >
+          <Button type={showForm ? "default" : "primary"} onClick={() => setShowForm((v) => !v)} disabled={needsCompanySelection}>
             {showForm ? "Cancel" : "Invite user"}
-          </button>
+          </Button>
         </div>
 
         {needsCompanySelection && (
-          <p className="mt-4 text-sm text-amber-600">Select a company from the sidebar first to manage its users.</p>
+          <Alert type="warning" title="Select a company from the sidebar first to manage its users." className="mt-4" showIcon />
         )}
 
-        {error && <p className="mt-4 text-red-600">{error}</p>}
+        {error && <Alert type="error" title={error} className="mt-4" showIcon />}
 
         {showForm && !needsCompanySelection && (
-          <form onSubmit={handleInvite} className="mt-6 flex flex-col gap-4 rounded border bg-white p-4">
-            <div className="flex gap-3">
-              <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} className="flex-1 rounded border px-3 py-2" />
-              <input
-                type="email"
-                placeholder="Email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="flex-1 rounded border px-3 py-2"
-              />
-            </div>
+          <Card className="mt-6" title="Invite user">
+            <Form form={inviteForm} layout="vertical" onFinish={handleInvite}>
+              <div className="flex gap-3">
+                <Form.Item label="Name" className="flex-1">
+                  <Input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+                </Form.Item>
+                <Form.Item
+                  label="Email"
+                  name="email"
+                  rules={[{ required: true, type: "email", message: "Enter a valid email" }]}
+                  className="flex-1"
+                >
+                  <Input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+                </Form.Item>
+              </div>
 
-            <div className="flex gap-4 text-sm">
-              {ALL_ROLES.map((role) => {
-                const isStaff = role === ("STAFF" as Role);
-                const disabled = isStaff
-                  ? roles.some((r) => PORTAL_ROLES.includes(r))
-                  : roles.includes("STAFF" as Role);
-                return (
-                  <label key={role} className={`flex items-center gap-2 ${disabled ? "text-gray-400" : ""}`}>
-                    <input type="checkbox" checked={roles.includes(role)} disabled={disabled} onChange={() => toggleRole(role)} />
-                    {role}
-                  </label>
-                );
-              })}
-            </div>
-            <p className="-mt-2 text-xs text-gray-500">
-              Staff is a backoffice-only role and cannot be combined with partner portal roles (Account Holder, Stock Owner, 3PL).
-            </p>
+              <Form.Item
+                label="Roles"
+                extra="Staff is a backoffice-only role and cannot be combined with partner portal roles (Account Holder, Stock Owner, 3PL)."
+              >
+                <div className="flex gap-4">
+                  {ALL_ROLES.map((role) => {
+                    const isStaff = role === ("STAFF" as Role);
+                    const disabled = isStaff ? roles.some((r) => PORTAL_ROLES.includes(r)) : roles.includes("STAFF" as Role);
+                    return (
+                      <Checkbox key={role} checked={roles.includes(role)} disabled={disabled} onChange={() => toggleRole(role)}>
+                        {role}
+                      </Checkbox>
+                    );
+                  })}
+                </div>
+              </Form.Item>
 
-            {roles.includes("STAFF" as Role) && (
-              <div className="rounded bg-gray-50 p-3 text-sm">
-                <p className="mb-2 font-medium">Backoffice permissions</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {STAFF_PERMISSIONS.map(({ key, label }) => (
-                    <label key={key} className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
+              {roles.includes("STAFF" as Role) && (
+                <Card size="small" title="Backoffice permissions" className="mb-4">
+                  <div className="grid grid-cols-2 gap-2">
+                    {STAFF_PERMISSIONS.map(({ key, label }) => (
+                      <Checkbox
+                        key={key}
                         checked={staffPermissions[key]}
                         onChange={(e) => setStaffPermissions((prev) => ({ ...prev, [key]: e.target.checked }))}
+                      >
+                        {label}
+                      </Checkbox>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex items-center gap-3">
+                    <Checkbox checked={hasRevenueShare} onChange={(e) => setHasRevenueShare(e.target.checked)}>
+                      Revenue share
+                    </Checkbox>
+                    {hasRevenueShare && (
+                      <InputNumber suffix="%" min={0} max={100} className="w-28" {...numProps(staffSharePercent, setStaffSharePercent)} />
+                    )}
+                  </div>
+                </Card>
+              )}
+
+              {roles.includes("ACCOUNT_HOLDER" as Role) && (
+                <Card size="small" title="Account Holder settings" className="mb-4">
+                  <div className="flex gap-3">
+                    <Form.Item label="Share % of profit" className="mb-0 flex-1">
+                      <InputNumber suffix="%" min={0} max={100} className="w-full" {...numProps(sharePercent, setSharePercent)} />
+                    </Form.Item>
+                    <Form.Item label="3PL price charged (optional)" className="mb-0 flex-1">
+                      <InputNumber prefix="$" min={0} step={0.01} className="w-full" {...numProps(threePlPriceCharged, setThreePlPriceCharged)} />
+                    </Form.Item>
+                  </div>
+                </Card>
+              )}
+
+              {roles.includes("STOCK_OWNER" as Role) && (
+                <Card size="small" title="Stock Owner settings" className="mb-4">
+                  <div className="flex gap-3">
+                    <Form.Item label="Payout mode" className="mb-0 flex-1">
+                      <Select
+                        value={payoutMode}
+                        onChange={(v) => setPayoutMode(v)}
+                        options={[
+                          { value: "FIXED", label: "Fixed (no cut)" },
+                          { value: "PROFIT_SHARE", label: "Profit share" },
+                        ]}
                       />
-                      {label}
-                    </label>
-                  ))}
-                </div>
-                <div className="mt-3 flex items-center gap-3">
-                  <label className="flex items-center gap-2">
-                    <input type="checkbox" checked={hasRevenueShare} onChange={(e) => setHasRevenueShare(e.target.checked)} />
-                    Revenue share
-                  </label>
-                  {hasRevenueShare && (
-                    <label className="flex items-center gap-2">
-                      Share %
-                      <input
-                        value={staffSharePercent}
-                        onChange={(e) => setStaffSharePercent(e.target.value)}
-                        className="w-20 rounded border px-2 py-1"
-                      />
-                    </label>
+                    </Form.Item>
+                    {payoutMode === ("PROFIT_SHARE" as StockOwnerPayoutMode) && (
+                      <Form.Item label="Share % of their margin" className="mb-0 flex-1">
+                        <InputNumber suffix="%" min={0} max={100} className="w-full" {...numProps(stockOwnerSharePercent, setStockOwnerSharePercent)} />
+                      </Form.Item>
+                    )}
+                  </div>
+                </Card>
+              )}
+
+              {roles.includes("THREE_PL" as Role) && (
+                <Card size="small" title="3PL settings" className="mb-4">
+                  <Form.Item label="Type">
+                    <Select
+                      value={threePlFulfillmentType}
+                      onChange={(v) => setThreePlFulfillmentType(v)}
+                      options={[
+                        { value: "STOCK", label: "Stock" },
+                        { value: "DROPSHIP", label: "Dropshipping" },
+                      ]}
+                    />
+                  </Form.Item>
+                  {threePlFulfillmentType === ("STOCK" as ProductFulfillmentType) ? (
+                    <Form.Item label="Payout per order fulfilled" className="mb-0">
+                      <InputNumber prefix="$" min={0} step={0.01} className="w-full" {...numProps(payoutPerOrder, setPayoutPerOrder)} />
+                    </Form.Item>
+                  ) : (
+                    <p className="text-xs text-gray-500">
+                      Dropshipping 3PLs have no fixed rate — they&apos;re paid the buy price they enter against each order.
+                    </p>
                   )}
-                </div>
-              </div>
-            )}
+                </Card>
+              )}
 
-            {roles.includes("ACCOUNT_HOLDER" as Role) && (
-              <div className="rounded bg-gray-50 p-3 text-sm">
-                <p className="mb-2 font-medium">Account Holder settings</p>
-                <div className="flex gap-3">
-                  <label className="flex-1">
-                    Share % of profit
-                    <input value={sharePercent} onChange={(e) => setSharePercent(e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
-                  </label>
-                  <label className="flex-1">
-                    3PL price charged (optional)
-                    <input value={threePlPriceCharged} onChange={(e) => setThreePlPriceCharged(e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
-                  </label>
-                </div>
-              </div>
-            )}
+              {(roles.includes("ACCOUNT_HOLDER" as Role) || roles.includes("STOCK_OWNER" as Role) || roles.includes("THREE_PL" as Role)) && (
+                <Form.Item label="Billing cycle start day (1–28)">
+                  <InputNumber min={1} max={28} precision={0} className="w-full" {...numProps(billingCycleStartDay, setBillingCycleStartDay)} />
+                </Form.Item>
+              )}
 
-            {roles.includes("STOCK_OWNER" as Role) && (
-              <div className="rounded bg-gray-50 p-3 text-sm">
-                <p className="mb-2 font-medium">Stock Owner settings</p>
-                <div className="flex gap-3">
-                  <label className="flex-1">
-                    Payout mode
-                    <select
-                      value={payoutMode}
-                      onChange={(e) => setPayoutMode(e.target.value as StockOwnerPayoutMode)}
-                      className="mt-1 w-full rounded border px-2 py-1"
-                    >
-                      <option value="FIXED">Fixed (no cut)</option>
-                      <option value="PROFIT_SHARE">Profit share</option>
-                    </select>
-                  </label>
-                  {payoutMode === ("PROFIT_SHARE" as StockOwnerPayoutMode) && (
-                    <label className="flex-1">
-                      Share % of their margin
-                      <input value={stockOwnerSharePercent} onChange={(e) => setStockOwnerSharePercent(e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
-                    </label>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {roles.includes("THREE_PL" as Role) && (
-              <div className="rounded bg-gray-50 p-3 text-sm">
-                <p className="mb-2 font-medium">3PL settings</p>
-                <label>
-                  Type
-                  <select
-                    value={threePlFulfillmentType}
-                    onChange={(e) => setThreePlFulfillmentType(e.target.value as ProductFulfillmentType)}
-                    className="mt-1 w-full rounded border px-2 py-1"
-                  >
-                    <option value="STOCK">Stock</option>
-                    <option value="DROPSHIP">Dropshipping</option>
-                  </select>
-                </label>
-                {threePlFulfillmentType === ("STOCK" as ProductFulfillmentType) ? (
-                  <label className="mt-3 block">
-                    Payout per order fulfilled
-                    <input value={payoutPerOrder} onChange={(e) => setPayoutPerOrder(e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
-                  </label>
-                ) : (
-                  <p className="mt-2 text-xs text-gray-500">
-                    Dropshipping 3PLs have no fixed rate — they're paid the buy price they enter against each order.
-                  </p>
-                )}
-              </div>
-            )}
-
-            {(roles.includes("ACCOUNT_HOLDER" as Role) || roles.includes("STOCK_OWNER" as Role) || roles.includes("THREE_PL" as Role)) && (
-              <label className="text-sm">
-                Billing cycle start day (1–28)
-                <input value={billingCycleStartDay} onChange={(e) => setBillingCycleStartDay(e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
-              </label>
-            )}
-
-            {formError && <p className="text-sm text-red-600">{formError}</p>}
-            <button type="submit" disabled={roles.length === 0} className="self-start rounded bg-gray-900 px-3 py-2 text-sm text-white disabled:opacity-50">
-              Send invite
-            </button>
-          </form>
+              {formError && <Alert type="error" title={formError} className="mb-4" showIcon />}
+              <Button type="primary" htmlType="submit" disabled={roles.length === 0} loading={submitting}>
+                Send invite
+              </Button>
+            </Form>
+          </Card>
         )}
 
-        <table className="mt-6 w-full border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b">
-              <th className="py-2">Name</th>
-              <th className="py-2">Email</th>
-              <th className="py-2">Roles</th>
-              <th className="py-2">Status</th>
-              <th className="py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => (
-              <tr key={u.id} className="border-b">
-                <td className="py-2">{u.name ?? "—"}</td>
-                <td className="py-2">{u.email}</td>
-                <td className="py-2">{u.roles.join(", ")}</td>
-                <td className="py-2">{u.status}</td>
-                <td className="py-2">
-                  <button onClick={() => toggleStatus(u)} className="text-xs text-gray-600 underline">
-                    {u.status === "ACTIVE" ? "Disable" : "Enable"}
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {users.length === 0 && (
-              <tr>
-                <td colSpan={5} className="py-4 text-gray-500">
-                  No users yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <Table<UserRow>
+          className="mt-6"
+          rowKey="id"
+          size="small"
+          loading={loading}
+          columns={columns}
+          dataSource={users}
+          pagination={false}
+          locale={{ emptyText: "No users yet." }}
+        />
       </main>
     </>
   );

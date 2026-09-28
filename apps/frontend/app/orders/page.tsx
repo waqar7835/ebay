@@ -1,9 +1,25 @@
 "use client";
 
 import { Role, type OrderDto, type OrderStatus, type ProductDto } from "@ebay-order-management/shared";
+import { PrinterOutlined } from "@ant-design/icons";
+import {
+  Alert,
+  Avatar,
+  Button,
+  Card,
+  Image,
+  InputNumber,
+  Select,
+  Space,
+  Table,
+  Tag,
+  Tooltip,
+  type TableColumnsType,
+} from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
+import DateField from "@/components/DateField";
 import {
   computeCurrentCycle,
   getMyCompany,
@@ -16,6 +32,7 @@ import {
   submitDropshipBuyPrice,
   updateOrderStatus,
 } from "@/lib/api";
+import { searchable, userLabel, userOptions } from "@/lib/selectOptions";
 
 interface UserOption {
   id: string;
@@ -30,11 +47,6 @@ const SOURCE_LABEL: Record<string, string> = {
   STOCK: "Stock",
   DROPSHIP: "AliExpress",
 };
-
-function userLabel(u: UserOption | undefined) {
-  if (!u) return "—";
-  return u.name || u.email;
-}
 
 export default function OrdersPage() {
   const router = useRouter();
@@ -133,228 +145,206 @@ export default function OrdersPage() {
     }
   }
 
+  const money = (v: number | null | undefined, empty = "—") => (v != null ? `$${v.toFixed(2)}` : empty);
+
+  const columns: TableColumnsType<OrderDto> = [
+    {
+      title: "Image",
+      key: "image",
+      render: (_, order) => {
+        const product = productById.get(order.productId);
+        return product?.imageUrl ? (
+          <Image src={mediaUrl(product.imageUrl)} alt={product.title} width={40} height={40} className="rounded object-cover" />
+        ) : (
+          <Avatar shape="square" size={40}>
+            —
+          </Avatar>
+        );
+      },
+    },
+    { title: "SKU", key: "sku", render: (_, o) => productById.get(o.productId)?.sku ?? "—" },
+    { title: "Product", key: "product", render: (_, o) => productById.get(o.productId)?.title ?? "—" },
+    {
+      title: "Source",
+      key: "source",
+      render: (_, o) => {
+        const product = productById.get(o.productId);
+        return product ? (SOURCE_LABEL[product.fulfillmentType] ?? product.fulfillmentType) : "—";
+      },
+    },
+    ...(isManager
+      ? [{ title: "Account Holder", key: "accountHolder", render: (_: unknown, o: OrderDto) => userLabel(userById.get(o.accountHolderId)) }]
+      : []),
+    { title: "Date", dataIndex: "orderDate", sorter: (a, b) => a.orderDate.localeCompare(b.orderDate) },
+    { title: "Order #", dataIndex: "ebayOrderRef" },
+    { title: "Tracking #", dataIndex: "trackingNumber", render: (v) => v ?? "—" },
+    { title: "Qty", dataIndex: "quantity" },
+    ...(!isThreePl ? [{ title: "Payout", key: "payout", render: (_: unknown, o: OrderDto) => money(o.ebayNetProceeds) }] : []),
+    ...(isManager
+      ? [
+          { title: "Buy Price", key: "buyPrice", render: (_: unknown, o: OrderDto) => money(o.buyPriceSnapshot, "Pending") },
+          { title: "3PL Fee", key: "threePlFee", render: (_: unknown, o: OrderDto) => money(o.threePlPayoutSnapshot) },
+          { title: "Profit", key: "profit", render: (_: unknown, o: OrderDto) => money(o.companyProfit) },
+        ]
+      : []),
+    ...(isThreePl
+      ? [
+          {
+            title: "Buy Price",
+            key: "buyPrice",
+            render: (_: unknown, order: OrderDto) => {
+              const product = productById.get(order.productId);
+              if (product?.fulfillmentType !== "DROPSHIP") return "—";
+              if (order.buyPriceSnapshot != null) return money(order.buyPriceSnapshot);
+              return (
+                <Space.Compact size="small">
+                  <InputNumber
+                    value={buyPriceDrafts[order.id] ? Number(buyPriceDrafts[order.id]) : null}
+                    onChange={(v) => setBuyPriceDrafts((d) => ({ ...d, [order.id]: v == null ? "" : String(v) }))}
+                    placeholder="0.00"
+                    min={0}
+                    step={0.01}
+                    className="w-20"
+                  />
+                  <Button onClick={() => handleSubmitBuyPrice(order.id)} loading={buyPriceSaving === order.id}>
+                    Save
+                  </Button>
+                </Space.Compact>
+              );
+            },
+          },
+        ]
+      : []),
+    {
+      title: "Status",
+      key: "status",
+      render: (_, order) => (
+        <Space size="small">
+          <Select
+            size="small"
+            value={order.status}
+            onChange={(v) => handleStatusChange(order.id, v)}
+            options={STATUSES.map((s) => ({ value: s, label: s }))}
+            className="w-32"
+          />
+          {isThreePl && order.stale && (
+            <Tooltip title={`In this status for ${order.daysInStatus} days`}>
+              <Tag color="red">⚠ {order.daysInStatus}d</Tag>
+            </Tooltip>
+          )}
+        </Space>
+      ),
+    },
+    ...(isThreePl
+      ? [
+          {
+            title: "Label",
+            key: "label",
+            render: (_: unknown, order: OrderDto) =>
+              order.status === "PROCESSING" && order.shippingLabelUrl ? (
+                <Button
+                  size="small"
+                  icon={<PrinterOutlined />}
+                  onClick={() => handlePrintLabel(order.shippingLabelUrl as string)}
+                  title="Print shipping label"
+                >
+                  Print
+                </Button>
+              ) : (
+                "—"
+              ),
+          },
+        ]
+      : []),
+    ...(isManager
+      ? [
+          {
+            key: "actions",
+            render: (_: unknown, order: OrderDto) => (
+              <Button size="small" onClick={() => router.push(`/orders/${order.id}/edit`)}>
+                Edit
+              </Button>
+            ),
+          },
+        ]
+      : []),
+  ];
+
   return (
     <>
       <Nav />
       <main className="ml-56 max-w-6xl p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Orders</h1>
-          <button onClick={() => router.push("/orders/new")} className="rounded bg-gray-900 px-3 py-2 text-sm text-white">
+          <Button type="primary" onClick={() => router.push("/orders/new")}>
             New order
-          </button>
+          </Button>
         </div>
 
-        {error && <p className="mt-4 text-red-600">{error}</p>}
+        {error && <Alert type="error" title={error} className="mt-4" showIcon />}
 
-        <div className="mt-4 flex flex-wrap items-end gap-3 rounded border bg-white p-3 text-xs">
-          {isManager && (
-            <>
-              <label>
-                Account Holder
-                <select
-                  value={filter.accountHolderId}
-                  onChange={(e) => setFilter((f) => ({ ...f, accountHolderId: e.target.value }))}
-                  className="mt-1 block rounded border px-2 py-1"
-                >
-                  <option value="">All</option>
-                  {accountHolders.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {userLabel(u)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                3PL
-                <select
-                  value={filter.threePlId}
-                  onChange={(e) => setFilter((f) => ({ ...f, threePlId: e.target.value }))}
-                  className="mt-1 block rounded border px-2 py-1"
-                >
-                  <option value="">All</option>
-                  {threePls.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {userLabel(u)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </>
-          )}
-          <label>
-            Status
-            <select
-              value={filter.status}
-              onChange={(e) => setFilter((f) => ({ ...f, status: e.target.value }))}
-              className="mt-1 block rounded border px-2 py-1"
-            >
-              <option value="">All</option>
-              {STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Start date
-            <input
-              type="date"
-              value={filter.startDate}
-              onChange={(e) => setFilter((f) => ({ ...f, startDate: e.target.value }))}
-              className="mt-1 block rounded border px-2 py-1"
-            />
-          </label>
-          <label>
-            End date
-            <input
-              type="date"
-              value={filter.endDate}
-              onChange={(e) => setFilter((f) => ({ ...f, endDate: e.target.value }))}
-              className="mt-1 block rounded border px-2 py-1"
-            />
-          </label>
-        </div>
-
-        <table className="mt-6 w-full border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b">
-              <th className="py-2">Image</th>
-              <th className="py-2">SKU</th>
-              <th className="py-2">Product</th>
-              <th className="py-2">Source</th>
-              {isManager && <th className="py-2">Account Holder</th>}
-              <th className="py-2">Date</th>
-              <th className="py-2">Order #</th>
-              <th className="py-2">Tracking #</th>
-              <th className="py-2">Qty</th>
-              {!isThreePl && <th className="py-2">Payout</th>}
-              {isManager && <th className="py-2">Buy Price</th>}
-              {isManager && <th className="py-2">3PL Fee</th>}
-              {isManager && <th className="py-2">Profit</th>}
-              {isThreePl && <th className="py-2">Buy Price</th>}
-              <th className="py-2">Status</th>
-              {isThreePl && <th className="py-2">Label</th>}
-              {isManager && <th className="py-2"></th>}
-            </tr>
-          </thead>
-          <tbody>
-            {orders.map((order) => {
-              const product = productById.get(order.productId);
-              return (
-                <tr key={order.id} className="border-b align-top">
-                  <td className="py-2">
-                    <div className="h-10 w-10 overflow-hidden rounded border bg-gray-50">
-                      {product?.imageUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={mediaUrl(product.imageUrl)} alt={product.title} className="h-full w-full object-cover" />
-                      ) : (
-                        <span className="flex h-full w-full items-center justify-center text-[10px] text-gray-400">—</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="py-2">{product?.sku ?? "—"}</td>
-                  <td className="py-2">{product?.title ?? "—"}</td>
-                  <td className="py-2">{product ? (SOURCE_LABEL[product.fulfillmentType] ?? product.fulfillmentType) : "—"}</td>
-                  {isManager && <td className="py-2">{userLabel(userById.get(order.accountHolderId))}</td>}
-                  <td className="py-2">{order.orderDate}</td>
-                  <td className="py-2">{order.ebayOrderRef}</td>
-                  <td className="py-2">{order.trackingNumber ?? "—"}</td>
-                  <td className="py-2">{order.quantity}</td>
-                  {!isThreePl && <td className="py-2">${order.ebayNetProceeds.toFixed(2)}</td>}
-                  {isManager && (
-                    <td className="py-2">{order.buyPriceSnapshot != null ? `$${order.buyPriceSnapshot.toFixed(2)}` : "Pending"}</td>
-                  )}
-                  {isManager && (
-                    <td className="py-2">
-                      {order.threePlPayoutSnapshot != null ? `$${order.threePlPayoutSnapshot.toFixed(2)}` : "—"}
-                    </td>
-                  )}
-                  {isManager && (
-                    <td className="py-2">{order.companyProfit != null ? `$${order.companyProfit.toFixed(2)}` : "—"}</td>
-                  )}
-                  {isThreePl && (
-                    <td className="py-2">
-                      {product?.fulfillmentType !== "DROPSHIP" ? (
-                        "—"
-                      ) : order.buyPriceSnapshot != null ? (
-                        `$${order.buyPriceSnapshot.toFixed(2)}`
-                      ) : (
-                        <div className="flex items-center gap-1">
-                          <input
-                            value={buyPriceDrafts[order.id] ?? ""}
-                            onChange={(e) => setBuyPriceDrafts((d) => ({ ...d, [order.id]: e.target.value }))}
-                            placeholder="0.00"
-                            className="w-16 rounded border px-1 py-0.5 text-xs"
-                          />
-                          <button
-                            onClick={() => handleSubmitBuyPrice(order.id)}
-                            disabled={buyPriceSaving === order.id}
-                            className="rounded border px-1.5 py-0.5 text-xs disabled:opacity-50"
-                          >
-                            Save
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  )}
-                  <td className="py-2">
-                    <div className="flex items-center gap-2">
-                      <select
-                        value={order.status}
-                        onChange={(e) => handleStatusChange(order.id, e.target.value as OrderStatus)}
-                        className="rounded border px-2 py-1"
-                      >
-                        {STATUSES.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                      {isThreePl && order.stale && (
-                        <span
-                          title={`In this status for ${order.daysInStatus} days`}
-                          className="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700"
-                        >
-                          ⚠ {order.daysInStatus}d
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  {isThreePl && (
-                    <td className="py-2">
-                      {order.status === "PROCESSING" && order.shippingLabelUrl ? (
-                        <button
-                          onClick={() => handlePrintLabel(order.shippingLabelUrl as string)}
-                          title="Print shipping label"
-                          className="rounded border px-2 py-1 text-xs"
-                        >
-                          🖨️ Print
-                        </button>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                  )}
-                  {isManager && (
-                    <td className="py-2">
-                      <button onClick={() => router.push(`/orders/${order.id}/edit`)} className="rounded border px-2 py-1 text-xs">
-                        Edit
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              );
-            })}
-            {orders.length === 0 && (
-              <tr>
-                <td colSpan={15} className="py-4 text-gray-500">
-                  No orders match these filters.
-                </td>
-              </tr>
+        <Card size="small" className="mt-4">
+          <div className="flex flex-wrap items-end gap-3 text-xs">
+            {isManager && (
+              <>
+                <label>
+                  Account Holder
+                  <Select
+                    showSearch={searchable}
+                    allowClear
+                    placeholder="All"
+                    value={filter.accountHolderId || undefined}
+                    onChange={(v) => setFilter((f) => ({ ...f, accountHolderId: v ?? "" }))}
+                    options={userOptions(accountHolders)}
+                    className="mt-1 block w-56"
+                  />
+                </label>
+                <label>
+                  3PL
+                  <Select
+                    showSearch={searchable}
+                    allowClear
+                    placeholder="All"
+                    value={filter.threePlId || undefined}
+                    onChange={(v) => setFilter((f) => ({ ...f, threePlId: v ?? "" }))}
+                    options={userOptions(threePls)}
+                    className="mt-1 block w-56"
+                  />
+                </label>
+              </>
             )}
-          </tbody>
-        </table>
+            <label>
+              Status
+              <Select
+                allowClear
+                placeholder="All"
+                value={filter.status || undefined}
+                onChange={(v) => setFilter((f) => ({ ...f, status: v ?? "" }))}
+                options={STATUSES.map((s) => ({ value: s, label: s }))}
+                className="mt-1 block w-36"
+              />
+            </label>
+            <label>
+              Start date
+              <DateField value={filter.startDate} onChange={(v) => setFilter((f) => ({ ...f, startDate: v }))} className="mt-1 block" />
+            </label>
+            <label>
+              End date
+              <DateField value={filter.endDate} onChange={(v) => setFilter((f) => ({ ...f, endDate: v }))} className="mt-1 block" />
+            </label>
+          </div>
+        </Card>
+
+        <Table<OrderDto>
+          className="mt-6"
+          rowKey="id"
+          size="small"
+          columns={columns}
+          dataSource={orders}
+          pagination={{ pageSize: 50, hideOnSinglePage: true }}
+          scroll={{ x: "max-content" }}
+          locale={{ emptyText: "No orders match these filters." }}
+        />
       </main>
     </>
   );

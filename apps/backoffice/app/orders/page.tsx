@@ -1,9 +1,23 @@
 "use client";
 
 import type { OrderDto, OrderStatus, ProductDto } from "@ebay-order-management/shared";
+import {
+  Alert,
+  Avatar,
+  Button,
+  Card,
+  Form,
+  Image,
+  Input,
+  InputNumber,
+  Select,
+  Table,
+  type TableColumnsType,
+} from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
+import DateField from "@/components/DateField";
 import {
   API_URL,
   createOrder,
@@ -14,6 +28,7 @@ import {
   updateOrder,
   updateOrderStatus,
 } from "@/lib/api";
+import { productOptions, searchable, userOptions } from "@/lib/selectOptions";
 
 const STATUSES: OrderStatus[] = ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "REFUNDED"] as OrderStatus[];
 
@@ -24,6 +39,7 @@ const SOURCE_LABEL: Record<string, string> = {
 
 interface UserOption {
   id: string;
+  name: string | null;
   email: string;
   roles: string[];
 }
@@ -32,39 +48,50 @@ function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
-const emptyForm = {
-  accountHolderId: "",
-  productId: "",
-  quantity: "1",
+interface OrderFormValues {
+  accountHolderId?: string;
+  productId?: string;
+  quantity: number;
+  orderDate: string;
+  ebayOrderRef: string;
+  trackingNumber?: string;
+  buyerDetails: string;
+  ebayNetProceeds: number;
+  shippingCost: number;
+  supplierUrl?: string;
+}
+
+const emptyForm = (): OrderFormValues => ({
+  accountHolderId: undefined,
+  productId: undefined,
+  quantity: 1,
   orderDate: todayIsoDate(),
   ebayOrderRef: "",
   trackingNumber: "",
   buyerDetails: "",
-  ebayNetProceeds: "0",
-  shippingCost: "0",
+  ebayNetProceeds: 0,
+  shippingCost: 0,
   supplierUrl: "",
-};
+});
 
 export default function OrdersPage() {
   const router = useRouter();
+  const [form] = Form.useForm<OrderFormValues>();
   const [orders, setOrders] = useState<OrderDto[]>([]);
   const [products, setProducts] = useState<ProductDto[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-
-  const [form, setForm] = useState(emptyForm);
-
-  function setField<K extends keyof typeof emptyForm>(key: K, value: string) {
-    setForm((f) => ({ ...f, [key]: value }));
-  }
+  const [submitting, setSubmitting] = useState(false);
 
   function refresh() {
     listOrders()
       .then(setOrders)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"))
+      .finally(() => setLoading(false));
   }
 
   useEffect(() => {
@@ -79,30 +106,38 @@ export default function OrdersPage() {
 
   const accountHolders = users.filter((u) => u.roles.includes("ACCOUNT_HOLDER"));
   const productById = new Map(products.map((p) => [p.id, p]));
+  const formProductId = Form.useWatch("productId", form);
+  const formProduct = formProductId ? productById.get(formProductId) : undefined;
 
-  function openCreateForm() {
-    setEditingOrderId(null);
-    setForm(emptyForm);
+  function openForm(values: OrderFormValues, orderId: string | null) {
+    setEditingOrderId(orderId);
     setFormError(null);
     setShowForm(true);
+    // Form mounts on the same tick it's shown; defer so setFieldsValue hits the mounted fields.
+    setTimeout(() => form.setFieldsValue(values));
+  }
+
+  function openCreateForm() {
+    openForm(emptyForm(), null);
   }
 
   function openEditForm(order: OrderDto) {
-    setEditingOrderId(order.id);
-    setForm({
-      accountHolderId: order.accountHolderId,
-      productId: order.productId,
-      quantity: String(order.quantity),
-      orderDate: order.orderDate,
-      ebayOrderRef: order.ebayOrderRef,
-      trackingNumber: order.trackingNumber ?? "",
-      buyerDetails: order.buyerDetails,
-      ebayNetProceeds: String(order.ebayNetProceeds),
-      shippingCost: String(order.shippingCost),
-      supplierUrl: order.supplierUrl ?? "",
-    });
-    setFormError(null);
-    setShowForm(true);
+    openForm(
+      {
+        accountHolderId: order.accountHolderId,
+        productId: order.productId,
+        quantity: order.quantity,
+        orderDate: order.orderDate,
+        ebayOrderRef: order.ebayOrderRef,
+        trackingNumber: order.trackingNumber ?? "",
+        buyerDetails: order.buyerDetails,
+        ebayNetProceeds: order.ebayNetProceeds,
+        shippingCost: order.shippingCost,
+        supplierUrl: order.supplierUrl ?? "",
+      },
+      order.id,
+    );
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function closeForm() {
@@ -110,39 +145,31 @@ export default function OrdersPage() {
     setEditingOrderId(null);
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleFinish(values: OrderFormValues) {
     setFormError(null);
+    setSubmitting(true);
+    const common = {
+      accountHolderId: values.accountHolderId as string,
+      orderDate: values.orderDate,
+      ebayOrderRef: values.ebayOrderRef,
+      trackingNumber: values.trackingNumber || undefined,
+      buyerDetails: values.buyerDetails,
+      ebayNetProceeds: Number(values.ebayNetProceeds ?? 0),
+      shippingCost: Number(values.shippingCost ?? 0),
+      supplierUrl: values.supplierUrl || undefined,
+    };
     try {
       if (editingOrderId) {
-        await updateOrder(editingOrderId, {
-          accountHolderId: form.accountHolderId,
-          orderDate: form.orderDate,
-          ebayOrderRef: form.ebayOrderRef,
-          trackingNumber: form.trackingNumber || undefined,
-          buyerDetails: form.buyerDetails,
-          ebayNetProceeds: Number(form.ebayNetProceeds),
-          shippingCost: Number(form.shippingCost),
-          supplierUrl: form.supplierUrl || undefined,
-        });
+        await updateOrder(editingOrderId, common);
       } else {
-        await createOrder({
-          accountHolderId: form.accountHolderId,
-          productId: form.productId,
-          quantity: Number(form.quantity),
-          orderDate: form.orderDate,
-          ebayOrderRef: form.ebayOrderRef,
-          trackingNumber: form.trackingNumber || undefined,
-          buyerDetails: form.buyerDetails,
-          ebayNetProceeds: Number(form.ebayNetProceeds),
-          shippingCost: Number(form.shippingCost),
-          supplierUrl: form.supplierUrl || undefined,
-        });
+        await createOrder({ ...common, productId: values.productId as string, quantity: Number(values.quantity) });
       }
       closeForm();
       refresh();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to save order");
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -151,234 +178,153 @@ export default function OrdersPage() {
     refresh();
   }
 
+  const columns: TableColumnsType<OrderDto> = [
+    {
+      title: "Image",
+      key: "image",
+      render: (_, order) => {
+        const product = productById.get(order.productId);
+        return product?.imageUrl ? (
+          <Image src={`${API_URL}${product.imageUrl}`} alt={product.title} width={40} height={40} className="rounded object-cover" />
+        ) : (
+          <Avatar shape="square" size={40}>
+            —
+          </Avatar>
+        );
+      },
+    },
+    { title: "SKU", key: "sku", render: (_, o) => productById.get(o.productId)?.sku ?? "—" },
+    { title: "Product", key: "product", render: (_, o) => productById.get(o.productId)?.title ?? "—" },
+    {
+      title: "Source",
+      key: "source",
+      render: (_, o) => {
+        const product = productById.get(o.productId);
+        return product ? (SOURCE_LABEL[product.fulfillmentType] ?? product.fulfillmentType) : "—";
+      },
+    },
+    { title: "Date", dataIndex: "orderDate", sorter: (a, b) => a.orderDate.localeCompare(b.orderDate) },
+    { title: "Order #", dataIndex: "ebayOrderRef" },
+    { title: "Tracking #", dataIndex: "trackingNumber", render: (v) => v ?? "—" },
+    { title: "Qty", dataIndex: "quantity" },
+    { title: "Payout", dataIndex: "ebayNetProceeds", render: (v: number) => `$${v.toFixed(2)}` },
+    {
+      title: "Buy Price",
+      dataIndex: "buyPriceSnapshot",
+      render: (v: number | null) => (v != null ? `$${v.toFixed(2)}` : "Pending"),
+    },
+    {
+      title: "Status",
+      key: "status",
+      render: (_, order) => (
+        <Select
+          size="small"
+          value={order.status}
+          onChange={(v) => handleStatusChange(order.id, v)}
+          options={STATUSES.map((s) => ({ value: s, label: s }))}
+          className="w-32"
+        />
+      ),
+    },
+    {
+      key: "actions",
+      render: (_, order) => (
+        <Button size="small" onClick={() => openEditForm(order)}>
+          Edit
+        </Button>
+      ),
+    },
+  ];
+
   return (
     <>
       <Nav />
-      <main className="ml-56 max-w-5xl p-8">
+      <main className="ml-56 max-w-6xl p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Orders</h1>
-          <button onClick={() => (showForm ? closeForm() : openCreateForm())} className="rounded bg-gray-900 px-3 py-2 text-sm text-white">
+          <Button type={showForm ? "default" : "primary"} onClick={() => (showForm ? closeForm() : openCreateForm())}>
             {showForm ? "Cancel" : "New order"}
-          </button>
+          </Button>
         </div>
 
-        {error && <p className="mt-4 text-red-600">{error}</p>}
+        {error && <Alert type="error" title={error} className="mt-4" showIcon />}
 
         {showForm && (
-          <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-3 rounded border bg-white p-4 text-sm">
-            <h2 className="font-medium">{editingOrderId ? "Edit order" : "New order"}</h2>
-
-            <div className="flex gap-3">
-              <label className="w-40">
-                Order date
-                <input
-                  type="date"
-                  required
-                  value={form.orderDate}
-                  onChange={(e) => setField("orderDate", e.target.value)}
-                  className="mt-1 w-full rounded border px-2 py-1"
-                />
-              </label>
-              <label className="flex-1">
-                Client (Account Holder)
-                <select
-                  required
-                  value={form.accountHolderId}
-                  onChange={(e) => setField("accountHolderId", e.target.value)}
-                  className="mt-1 w-full rounded border px-2 py-1"
+          <Card className="mt-6" title={editingOrderId ? "Edit order" : "New order"}>
+            <Form<OrderFormValues> form={form} layout="vertical" onFinish={handleFinish} initialValues={emptyForm()}>
+              <div className="flex gap-3">
+                <Form.Item name="orderDate" label="Order date" rules={[{ required: true }]} className="w-40">
+                  <DateField allowClear={false} className="w-full" />
+                </Form.Item>
+                <Form.Item
+                  name="accountHolderId"
+                  label="Client (Account Holder)"
+                  rules={[{ required: true, message: "Select a client" }]}
+                  className="flex-1"
                 >
-                  <option value="">Select…</option>
-                  {accountHolders.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.email}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
+                  <Select showSearch={searchable} placeholder="Select…" options={userOptions(accountHolders)} />
+                </Form.Item>
+              </div>
 
-            <div className="flex gap-3">
-              <label className="flex-1">
-                Product
-                <select
-                  required
-                  disabled={!!editingOrderId}
-                  value={form.productId}
-                  onChange={(e) => setField("productId", e.target.value)}
-                  className="mt-1 w-full rounded border px-2 py-1 disabled:bg-gray-100"
-                >
-                  <option value="">Select…</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.sku} — {p.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="w-24">
-                Qty
-                <input
-                  disabled={!!editingOrderId}
-                  value={form.quantity}
-                  onChange={(e) => setField("quantity", e.target.value)}
-                  className="mt-1 w-full rounded border px-2 py-1 disabled:bg-gray-100"
-                />
-              </label>
-              {productById.get(form.productId)?.imageUrl && (
-                <div className="mt-6 h-9 w-9 shrink-0 overflow-hidden rounded border bg-gray-50">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={`${API_URL}${productById.get(form.productId)?.imageUrl}`}
-                    alt=""
-                    className="h-full w-full object-cover"
-                  />
-                </div>
+              <div className="flex items-start gap-3">
+                <Form.Item name="productId" label="Product" rules={[{ required: true, message: "Select a product" }]} className="flex-1">
+                  <Select showSearch={searchable} disabled={!!editingOrderId} placeholder="Select…" options={productOptions(products)} />
+                </Form.Item>
+                <Form.Item name="quantity" label="Qty" rules={[{ required: true }]} className="w-24">
+                  <InputNumber disabled={!!editingOrderId} min={1} precision={0} className="w-full" />
+                </Form.Item>
+                {formProduct?.imageUrl && (
+                  <Avatar shape="square" size={40} src={`${API_URL}${formProduct.imageUrl}`} className="mt-7 shrink-0" />
+                )}
+              </div>
+
+              <div className="flex gap-3">
+                <Form.Item name="ebayOrderRef" label="eBay order number" rules={[{ required: true }]} className="flex-1">
+                  <Input placeholder="eBay order number" />
+                </Form.Item>
+                <Form.Item name="trackingNumber" label="Tracking number" className="flex-1">
+                  <Input placeholder="Tracking number" />
+                </Form.Item>
+              </div>
+
+              <Form.Item name="buyerDetails" label="Buyer details (name, address, phone number)" rules={[{ required: true }]}>
+                <Input.TextArea rows={4} placeholder={"Name\nAddress\nPhone number"} />
+              </Form.Item>
+
+              <div className="flex gap-3">
+                <Form.Item name="ebayNetProceeds" label="Payout (net profit from eBay)" className="flex-1">
+                  <InputNumber prefix="$" step={0.01} className="w-full" />
+                </Form.Item>
+                <Form.Item name="shippingCost" label="Shipping label cost (optional)" className="flex-1">
+                  <InputNumber prefix="$" min={0} step={0.01} className="w-full" />
+                </Form.Item>
+              </div>
+
+              {formProduct?.fulfillmentType === "DROPSHIP" && (
+                <Form.Item name="supplierUrl" label="Supplier/product listing URL (optional)">
+                  <Input placeholder="https://…" />
+                </Form.Item>
               )}
-            </div>
 
-            <div className="flex gap-3">
-              <label className="flex-1">
-                eBay order number
-                <input
-                  placeholder="eBay order number"
-                  required
-                  value={form.ebayOrderRef}
-                  onChange={(e) => setField("ebayOrderRef", e.target.value)}
-                  className="mt-1 w-full rounded border px-2 py-1"
-                />
-              </label>
-              <label className="flex-1">
-                Tracking number
-                <input
-                  placeholder="Tracking number"
-                  value={form.trackingNumber}
-                  onChange={(e) => setField("trackingNumber", e.target.value)}
-                  className="mt-1 w-full rounded border px-2 py-1"
-                />
-              </label>
-            </div>
-
-            <label>
-              Buyer details (name, address, phone number)
-              <textarea
-                required
-                rows={4}
-                placeholder={"Name\nAddress\nPhone number"}
-                value={form.buyerDetails}
-                onChange={(e) => setField("buyerDetails", e.target.value)}
-                className="mt-1 w-full rounded border px-2 py-1"
-              />
-            </label>
-
-            <div className="flex gap-3">
-              <label className="flex-1">
-                Payout (net profit from eBay)
-                <input
-                  value={form.ebayNetProceeds}
-                  onChange={(e) => setField("ebayNetProceeds", e.target.value)}
-                  className="mt-1 w-full rounded border px-2 py-1"
-                />
-              </label>
-              <label className="flex-1">
-                Shipping label cost (optional)
-                <input
-                  value={form.shippingCost}
-                  onChange={(e) => setField("shippingCost", e.target.value)}
-                  className="mt-1 w-full rounded border px-2 py-1"
-                />
-              </label>
-            </div>
-
-            {productById.get(form.productId)?.fulfillmentType === "DROPSHIP" && (
-              <label>
-                Supplier/product listing URL (optional)
-                <input
-                  placeholder="https://…"
-                  value={form.supplierUrl}
-                  onChange={(e) => setField("supplierUrl", e.target.value)}
-                  className="mt-1 w-full rounded border px-2 py-1"
-                />
-              </label>
-            )}
-
-            {formError && <p className="text-red-600">{formError}</p>}
-            <button type="submit" className="self-start rounded bg-gray-900 px-3 py-2 text-white">
-              {editingOrderId ? "Save changes" : "Create order"}
-            </button>
-          </form>
+              {formError && <Alert type="error" title={formError} className="mb-4" showIcon />}
+              <Button type="primary" htmlType="submit" loading={submitting}>
+                {editingOrderId ? "Save changes" : "Create order"}
+              </Button>
+            </Form>
+          </Card>
         )}
 
-        <table className="mt-6 w-full border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b">
-              <th className="py-2">Image</th>
-              <th className="py-2">SKU</th>
-              <th className="py-2">Product</th>
-              <th className="py-2">Source</th>
-              <th className="py-2">Date</th>
-              <th className="py-2">Order #</th>
-              <th className="py-2">Tracking #</th>
-              <th className="py-2">Qty</th>
-              <th className="py-2">Payout</th>
-              <th className="py-2">Buy Price</th>
-              <th className="py-2">Status</th>
-              <th className="py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {orders.map((order) => {
-              const product = productById.get(order.productId);
-              return (
-                <tr key={order.id} className="border-b align-top">
-                  <td className="py-2">
-                    <div className="h-10 w-10 overflow-hidden rounded border bg-gray-50">
-                      {product?.imageUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={`${API_URL}${product.imageUrl}`} alt={product.title} className="h-full w-full object-cover" />
-                      ) : (
-                        <span className="flex h-full w-full items-center justify-center text-[10px] text-gray-400">—</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="py-2">{product?.sku ?? "—"}</td>
-                  <td className="py-2">{product?.title ?? "—"}</td>
-                  <td className="py-2">{product ? (SOURCE_LABEL[product.fulfillmentType] ?? product.fulfillmentType) : "—"}</td>
-                  <td className="py-2">{order.orderDate}</td>
-                  <td className="py-2">{order.ebayOrderRef}</td>
-                  <td className="py-2">{order.trackingNumber ?? "—"}</td>
-                  <td className="py-2">{order.quantity}</td>
-                  <td className="py-2">${order.ebayNetProceeds.toFixed(2)}</td>
-                  <td className="py-2">{order.buyPriceSnapshot != null ? `$${order.buyPriceSnapshot.toFixed(2)}` : "Pending"}</td>
-                  <td className="py-2">
-                    <select
-                      value={order.status}
-                      onChange={(e) => handleStatusChange(order.id, e.target.value as OrderStatus)}
-                      className="rounded border px-2 py-1"
-                    >
-                      {STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="py-2">
-                    <button onClick={() => openEditForm(order)} className="rounded border px-2 py-1 text-xs">
-                      Edit
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-            {orders.length === 0 && (
-              <tr>
-                <td colSpan={11} className="py-4 text-gray-500">
-                  No orders yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <Table<OrderDto>
+          className="mt-6"
+          rowKey="id"
+          size="small"
+          loading={loading}
+          columns={columns}
+          dataSource={orders}
+          pagination={{ pageSize: 50, hideOnSinglePage: true }}
+          scroll={{ x: "max-content" }}
+          locale={{ emptyText: "No orders yet." }}
+        />
       </main>
     </>
   );

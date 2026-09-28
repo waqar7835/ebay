@@ -1,41 +1,41 @@
 "use client";
 
 import type { ProductDto, UserDto } from "@ebay-order-management/shared";
+import { Alert, Avatar, Button, Card, Form, Input, InputNumber, Select } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
+import DateField from "@/components/DateField";
+import FileUpload from "@/components/FileUpload";
 import { createOrder, getToken, listProducts, listUsers, mediaUrl, uploadOrderShippingLabel } from "@/lib/api";
+import { productOptions, searchable, userOptions } from "@/lib/selectOptions";
 
 function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
-const emptyForm = {
-  accountHolderId: "",
-  productId: "",
-  quantity: "1",
-  threePlId: "",
-  orderDate: todayIsoDate(),
-  ebayOrderRef: "",
-  trackingNumber: "",
-  buyerDetails: "",
-  ebayNetProceeds: "0",
-  shippingCost: "0",
-  supplierUrl: "",
-};
+interface NewOrderValues {
+  accountHolderId: string;
+  productId: string;
+  quantity: number;
+  threePlId?: string;
+  orderDate: string;
+  ebayOrderRef: string;
+  trackingNumber?: string;
+  buyerDetails: string;
+  ebayNetProceeds: number;
+  shippingCost: number;
+  supplierUrl?: string;
+}
 
 export default function NewOrderPage() {
   const router = useRouter();
+  const [form] = Form.useForm<NewOrderValues>();
   const [products, setProducts] = useState<ProductDto[]>([]);
   const [users, setUsers] = useState<UserDto[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [form, setForm] = useState(emptyForm);
   const [shippingLabel, setShippingLabel] = useState<File | null>(null);
-
-  function setField<K extends keyof typeof emptyForm>(key: K, value: string) {
-    setForm((f) => ({ ...f, [key]: value }));
-  }
 
   useEffect(() => {
     if (!getToken()) {
@@ -46,39 +46,34 @@ export default function NewOrderPage() {
     listUsers().then(setUsers).catch(() => undefined);
   }, [router]);
 
+  const productId = Form.useWatch("productId", form);
   const accountHolders = users.filter((u) => u.roles.includes("ACCOUNT_HOLDER" as never));
   const productById = new Map(products.map((p) => [p.id, p]));
-  const selectedProduct = productById.get(form.productId);
+  const selectedProduct = productId ? productById.get(productId) : undefined;
   const eligibleThreePls = users.filter(
     (u) => u.roles.includes("THREE_PL" as never) && u.threePlProfile?.fulfillmentType === selectedProduct?.fulfillmentType,
   );
 
-  function handleProductChange(productId: string) {
-    const product = productById.get(productId);
-    setForm((f) => ({
-      ...f,
-      productId,
-      threePlId: product?.threePlId ?? "",
-    }));
+  function handleProductChange(id: string) {
+    form.setFieldValue("threePlId", productById.get(id)?.threePlId ?? undefined);
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleFinish(values: NewOrderValues) {
     setFormError(null);
     setSubmitting(true);
     try {
       const order = await createOrder({
-        accountHolderId: form.accountHolderId,
-        productId: form.productId,
-        quantity: Number(form.quantity),
-        threePlId: form.threePlId || undefined,
-        orderDate: form.orderDate,
-        ebayOrderRef: form.ebayOrderRef,
-        trackingNumber: form.trackingNumber || undefined,
-        buyerDetails: form.buyerDetails,
-        ebayNetProceeds: Number(form.ebayNetProceeds),
-        shippingCost: Number(form.shippingCost),
-        supplierUrl: form.supplierUrl || undefined,
+        accountHolderId: values.accountHolderId,
+        productId: values.productId,
+        quantity: Number(values.quantity),
+        threePlId: values.threePlId || undefined,
+        orderDate: values.orderDate,
+        ebayOrderRef: values.ebayOrderRef,
+        trackingNumber: values.trackingNumber || undefined,
+        buyerDetails: values.buyerDetails,
+        ebayNetProceeds: Number(values.ebayNetProceeds ?? 0),
+        shippingCost: Number(values.shippingCost ?? 0),
+        supplierUrl: values.supplierUrl || undefined,
       });
       if (shippingLabel) {
         await uploadOrderShippingLabel(order.id, shippingLabel);
@@ -96,179 +91,100 @@ export default function NewOrderPage() {
       <main className="ml-56 max-w-3xl p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">New order</h1>
-          <button onClick={() => router.push("/orders")} className="rounded border px-3 py-2 text-sm">
-            Back to orders
-          </button>
+          <Button onClick={() => router.push("/orders")}>Back to orders</Button>
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-3 rounded border bg-white p-4 text-sm">
-          <div className="flex gap-3">
-            <label className="w-40">
-              Order date
-              <input
-                type="date"
-                required
-                value={form.orderDate}
-                onChange={(e) => setField("orderDate", e.target.value)}
-                className="mt-1 w-full rounded border px-2 py-1"
-              />
-            </label>
-            <label className="flex-1">
-              Client (Account Holder)
-              <select
-                required
-                value={form.accountHolderId}
-                onChange={(e) => setField("accountHolderId", e.target.value)}
-                className="mt-1 w-full rounded border px-2 py-1"
-              >
-                <option value="">Select…</option>
-                {accountHolders.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name || u.email}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <div className="flex gap-3">
-            <label className="flex-1">
-              Product
-              <select
-                required
-                value={form.productId}
-                onChange={(e) => handleProductChange(e.target.value)}
-                className="mt-1 w-full rounded border px-2 py-1"
-              >
-                <option value="">Select…</option>
-                {products.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.sku} — {p.title} ({p.fulfillmentType === "DROPSHIP" ? "Dropshipping" : "Stock"})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="w-24">
-              Qty
-              <input value={form.quantity} onChange={(e) => setField("quantity", e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
-            </label>
-            {productById.get(form.productId)?.imageUrl && (
-              <div className="mt-6 h-9 w-9 shrink-0 overflow-hidden rounded border bg-gray-50">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={mediaUrl(productById.get(form.productId)?.imageUrl)} alt="" className="h-full w-full object-cover" />
-              </div>
-            )}
-          </div>
-
-          {selectedProduct && (
-            <label>
-              3PL {selectedProduct.fulfillmentType === "STOCK" ? "" : "(optional)"}
-              <select
-                required={selectedProduct.fulfillmentType === "STOCK"}
-                value={form.threePlId}
-                onChange={(e) => setField("threePlId", e.target.value)}
-                className="mt-1 w-full rounded border px-2 py-1"
-              >
-                <option value="">{selectedProduct.fulfillmentType === "STOCK" ? "Select…" : "None"}</option>
-                {eligibleThreePls.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name || u.email}
-                  </option>
-                ))}
-              </select>
-              {eligibleThreePls.length === 0 && (
-                <span className="mt-1 block text-xs text-gray-500">
-                  No 3PL users are set up for {selectedProduct.fulfillmentType === "STOCK" ? "Stock" : "Dropshipping"} fulfillment yet.
-                </span>
-              )}
-            </label>
-          )}
-
-          {selectedProduct?.fulfillmentType === "DROPSHIP" && (
-            <label>
-              Supplier/product listing URL (optional)
-              <input
-                placeholder="https://…"
-                value={form.supplierUrl}
-                onChange={(e) => setField("supplierUrl", e.target.value)}
-                className="mt-1 w-full rounded border px-2 py-1"
-              />
-            </label>
-          )}
-
-          <div className="flex gap-3">
-            <label className="flex-1">
-              eBay order number
-              <input
-                placeholder="eBay order number"
-                required
-                value={form.ebayOrderRef}
-                onChange={(e) => setField("ebayOrderRef", e.target.value)}
-                className="mt-1 w-full rounded border px-2 py-1"
-              />
-            </label>
-            <label className="flex-1">
-              Tracking number
-              <input
-                placeholder="Tracking number"
-                value={form.trackingNumber}
-                onChange={(e) => setField("trackingNumber", e.target.value)}
-                className="mt-1 w-full rounded border px-2 py-1"
-              />
-            </label>
-          </div>
-
-          <label>
-            Buyer details (name, address, phone number)
-            <textarea
-              required
-              rows={4}
-              placeholder={"Name\nAddress\nPhone number"}
-              value={form.buyerDetails}
-              onChange={(e) => setField("buyerDetails", e.target.value)}
-              className="mt-1 w-full rounded border px-2 py-1"
-            />
-          </label>
-
-          <div className="flex gap-3">
-            <label className="flex-1">
-              Payout (net profit from eBay)
-              <input
-                value={form.ebayNetProceeds}
-                onChange={(e) => setField("ebayNetProceeds", e.target.value)}
-                className="mt-1 w-full rounded border px-2 py-1"
-              />
-            </label>
-            <label className="flex-1">
-              Shipping label cost (optional)
-              <input
-                value={form.shippingCost}
-                onChange={(e) => setField("shippingCost", e.target.value)}
-                className="mt-1 w-full rounded border px-2 py-1"
-              />
-            </label>
-          </div>
-
-          <label>
-            Shipping label (PDF)
-            <input
-              type="file"
-              accept="application/pdf"
-              onChange={(e) => setShippingLabel(e.target.files?.[0] ?? null)}
-              className="mt-1 block w-full text-sm"
-            />
-          </label>
-
-          {formError && <p className="text-red-600">{formError}</p>}
-          <button
-            type="submit"
-            disabled={submitting}
-            className="flex items-center gap-2 self-start rounded bg-gray-900 px-3 py-2 text-white disabled:opacity-70"
+        <Card className="mt-6">
+          <Form<NewOrderValues>
+            form={form}
+            layout="vertical"
+            onFinish={handleFinish}
+            initialValues={{ quantity: 1, orderDate: todayIsoDate(), ebayNetProceeds: 0, shippingCost: 0 }}
           >
-            {submitting && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />}
-            {submitting ? "Creating..." : "Create order"}
-          </button>
-        </form>
+            <div className="flex gap-3">
+              <Form.Item name="orderDate" label="Order date" rules={[{ required: true }]} className="w-40">
+                <DateField allowClear={false} className="w-full" />
+              </Form.Item>
+              <Form.Item
+                name="accountHolderId"
+                label="Client (Account Holder)"
+                rules={[{ required: true, message: "Select a client" }]}
+                className="flex-1"
+              >
+                <Select showSearch={searchable} placeholder="Select…" options={userOptions(accountHolders)} />
+              </Form.Item>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <Form.Item name="productId" label="Product" rules={[{ required: true, message: "Select a product" }]} className="flex-1">
+                <Select showSearch={searchable} placeholder="Select…" options={productOptions(products)} onChange={handleProductChange} />
+              </Form.Item>
+              <Form.Item name="quantity" label="Qty" rules={[{ required: true }]} className="w-24">
+                <InputNumber min={1} precision={0} className="w-full" />
+              </Form.Item>
+              {selectedProduct?.imageUrl && (
+                <Avatar shape="square" size={40} src={mediaUrl(selectedProduct.imageUrl)} className="mt-7 shrink-0" />
+              )}
+            </div>
+
+            {selectedProduct && (
+              <Form.Item
+                name="threePlId"
+                label={`3PL ${selectedProduct.fulfillmentType === "STOCK" ? "" : "(optional)"}`}
+                rules={[{ required: selectedProduct.fulfillmentType === "STOCK", message: "Select a 3PL" }]}
+                extra={
+                  eligibleThreePls.length === 0
+                    ? `No 3PL users are set up for ${selectedProduct.fulfillmentType === "STOCK" ? "Stock" : "Dropshipping"} fulfillment yet.`
+                    : undefined
+                }
+              >
+                <Select
+                  showSearch={searchable}
+                  allowClear={selectedProduct.fulfillmentType !== "STOCK"}
+                  placeholder={selectedProduct.fulfillmentType === "STOCK" ? "Select…" : "None"}
+                  options={userOptions(eligibleThreePls)}
+                />
+              </Form.Item>
+            )}
+
+            {selectedProduct?.fulfillmentType === "DROPSHIP" && (
+              <Form.Item name="supplierUrl" label="Supplier/product listing URL (optional)">
+                <Input placeholder="https://…" />
+              </Form.Item>
+            )}
+
+            <div className="flex gap-3">
+              <Form.Item name="ebayOrderRef" label="eBay order number" rules={[{ required: true }]} className="flex-1">
+                <Input placeholder="eBay order number" />
+              </Form.Item>
+              <Form.Item name="trackingNumber" label="Tracking number" className="flex-1">
+                <Input placeholder="Tracking number" />
+              </Form.Item>
+            </div>
+
+            <Form.Item name="buyerDetails" label="Buyer details (name, address, phone number)" rules={[{ required: true }]}>
+              <Input.TextArea rows={4} placeholder={"Name\nAddress\nPhone number"} />
+            </Form.Item>
+
+            <div className="flex gap-3">
+              <Form.Item name="ebayNetProceeds" label="Payout (net profit from eBay)" className="flex-1">
+                <InputNumber prefix="$" step={0.01} className="w-full" />
+              </Form.Item>
+              <Form.Item name="shippingCost" label="Shipping label cost (optional)" className="flex-1">
+                <InputNumber prefix="$" min={0} step={0.01} className="w-full" />
+              </Form.Item>
+            </div>
+
+            <Form.Item label="Shipping label (PDF)">
+              <FileUpload value={shippingLabel} onChange={setShippingLabel} accept="application/pdf" label="Select PDF" />
+            </Form.Item>
+
+            {formError && <Alert type="error" title={formError} className="mb-4" showIcon />}
+            <Button type="primary" htmlType="submit" loading={submitting}>
+              {submitting ? "Creating..." : "Create order"}
+            </Button>
+          </Form>
+        </Card>
       </main>
     </>
   );

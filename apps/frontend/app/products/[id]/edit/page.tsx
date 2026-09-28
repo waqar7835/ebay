@@ -1,6 +1,7 @@
 "use client";
 
 import type { ProductDto } from "@ebay-order-management/shared";
+import { Alert, Button } from "antd";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
@@ -29,12 +30,10 @@ export default function EditProductPage() {
       <main className="ml-56 max-w-3xl p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Edit product</h1>
-          <button onClick={() => router.push("/products")} className="rounded border px-3 py-2 text-sm">
-            Back to products
-          </button>
+          <Button onClick={() => router.push("/products")}>Back to products</Button>
         </div>
 
-        {error && <p className="mt-4 text-red-600">{error}</p>}
+        {error && <Alert type="error" title={error} className="mt-4" showIcon />}
 
         {product && (
           <ProductForm

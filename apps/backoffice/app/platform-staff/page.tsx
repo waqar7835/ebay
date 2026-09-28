@@ -1,5 +1,6 @@
 "use client";
 
+import { Alert, Button, Card, Checkbox, Form, Input, Table, Tag, type TableColumnsType } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
@@ -42,11 +43,15 @@ export default function PlatformStaffPage() {
   const [email, setEmail] = useState("");
   const [permissions, setPermissions] = useState<PermissionsState>(DEFAULT_PERMISSIONS);
   const [formError, setFormError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [inviteForm] = Form.useForm();
 
   function refresh() {
     listBackofficeUsers()
       .then(setUsers)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"))
+      .finally(() => setLoading(false));
   }
 
   useEffect(() => {
@@ -59,18 +64,21 @@ export default function PlatformStaffPage() {
     refresh();
   }, [router]);
 
-  async function handleInvite(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleInvite() {
     setFormError(null);
+    setSubmitting(true);
     try {
       await inviteBackofficeUser({ name: name || undefined, email, permissions });
       setShowForm(false);
       setName("");
       setEmail("");
       setPermissions(DEFAULT_PERMISSIONS);
+      inviteForm.resetFields();
       refresh();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to invite platform staff");
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -79,92 +87,90 @@ export default function PlatformStaffPage() {
     refresh();
   }
 
+  const columns: TableColumnsType<BackofficeUserRow> = [
+    { title: "Name", dataIndex: "name", render: (v) => v ?? "—" },
+    { title: "Email", dataIndex: "email" },
+    { title: "Role", dataIndex: "role", render: (r: string) => <Tag>{r}</Tag> },
+    {
+      title: "Status",
+      dataIndex: "status",
+      render: (s: string) => <Tag color={s === "ACTIVE" ? "green" : s === "DISABLED" ? "red" : "default"}>{s}</Tag>,
+    },
+    {
+      key: "actions",
+      render: (_, u) => (
+        <Button size="small" danger={u.status === "ACTIVE"} onClick={() => toggleStatus(u)}>
+          {u.status === "ACTIVE" ? "Disable" : "Enable"}
+        </Button>
+      ),
+    },
+  ];
+
   return (
     <>
       <Nav />
       <main className="ml-56 max-w-4xl p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Platform Staff</h1>
-          <button onClick={() => setShowForm((v) => !v)} className="rounded bg-gray-900 px-3 py-2 text-sm text-white">
+          <Button type={showForm ? "default" : "primary"} onClick={() => setShowForm((v) => !v)}>
             {showForm ? "Cancel" : "Invite platform staff"}
-          </button>
+          </Button>
         </div>
         <p className="mt-2 text-sm text-gray-500">
           Internal ops staff who can act on any company&apos;s data, gated by the permissions below.
         </p>
 
-        {error && <p className="mt-4 text-red-600">{error}</p>}
+        {error && <Alert type="error" title={error} className="mt-4" showIcon />}
 
         {showForm && (
-          <form onSubmit={handleInvite} className="mt-6 flex flex-col gap-4 rounded border bg-white p-4">
-            <div className="flex gap-3">
-              <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} className="flex-1 rounded border px-3 py-2" />
-              <input
-                type="email"
-                placeholder="Email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="flex-1 rounded border px-3 py-2"
-              />
-            </div>
+          <Card className="mt-6" title="Invite platform staff">
+            <Form form={inviteForm} layout="vertical" onFinish={handleInvite}>
+              <div className="flex gap-3">
+                <Form.Item label="Name" className="flex-1">
+                  <Input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+                </Form.Item>
+                <Form.Item
+                  label="Email"
+                  name="email"
+                  rules={[{ required: true, type: "email", message: "Enter a valid email" }]}
+                  className="flex-1"
+                >
+                  <Input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+                </Form.Item>
+              </div>
 
-            <div className="rounded bg-gray-50 p-3 text-sm">
-              <p className="mb-2 font-medium">Permissions</p>
-              <div className="grid grid-cols-2 gap-2">
-                {PERMISSIONS.map(({ key, label }) => (
-                  <label key={key} className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
+              <Card size="small" title="Permissions" className="mb-4">
+                <div className="grid grid-cols-2 gap-2">
+                  {PERMISSIONS.map(({ key, label }) => (
+                    <Checkbox
+                      key={key}
                       checked={permissions[key]}
                       onChange={(e) => setPermissions((prev) => ({ ...prev, [key]: e.target.checked }))}
-                    />
-                    {label}
-                  </label>
-                ))}
-              </div>
-            </div>
+                    >
+                      {label}
+                    </Checkbox>
+                  ))}
+                </div>
+              </Card>
 
-            {formError && <p className="text-sm text-red-600">{formError}</p>}
-            <button type="submit" className="self-start rounded bg-gray-900 px-3 py-2 text-sm text-white">
-              Send invite
-            </button>
-          </form>
+              {formError && <Alert type="error" title={formError} className="mb-4" showIcon />}
+              <Button type="primary" htmlType="submit" loading={submitting}>
+                Send invite
+              </Button>
+            </Form>
+          </Card>
         )}
 
-        <table className="mt-6 w-full border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b">
-              <th className="py-2">Name</th>
-              <th className="py-2">Email</th>
-              <th className="py-2">Role</th>
-              <th className="py-2">Status</th>
-              <th className="py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => (
-              <tr key={u.id} className="border-b">
-                <td className="py-2">{u.name ?? "—"}</td>
-                <td className="py-2">{u.email}</td>
-                <td className="py-2">{u.role}</td>
-                <td className="py-2">{u.status}</td>
-                <td className="py-2">
-                  <button onClick={() => toggleStatus(u)} className="text-xs text-gray-600 underline">
-                    {u.status === "ACTIVE" ? "Disable" : "Enable"}
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {users.length === 0 && (
-              <tr>
-                <td colSpan={5} className="py-4 text-gray-500">
-                  No platform staff yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <Table<BackofficeUserRow>
+          className="mt-6"
+          rowKey="id"
+          size="small"
+          loading={loading}
+          columns={columns}
+          dataSource={users}
+          pagination={false}
+          locale={{ emptyText: "No platform staff yet." }}
+        />
       </main>
     </>
   );

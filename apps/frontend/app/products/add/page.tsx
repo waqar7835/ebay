@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "antd";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
@@ -21,9 +22,7 @@ export default function AddProductPage() {
       <main className="ml-56 max-w-3xl p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Add product</h1>
-          <button onClick={() => router.push("/products")} className="rounded border px-3 py-2 text-sm">
-            Back to products
-          </button>
+          <Button onClick={() => router.push("/products")}>Back to products</Button>
         </div>
 
         <ProductForm

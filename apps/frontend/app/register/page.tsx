@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Alert, Button, Form, Input } from "antd";
 import { register, verifyEmailCode } from "@/lib/api";
 
 export default function RegisterPage() {
@@ -20,8 +21,7 @@ export default function RegisterPage() {
   const [verifying, setVerifying] = useState(false);
   const [verified, setVerified] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit() {
     setError(null);
     setLoading(true);
     try {
@@ -34,8 +34,7 @@ export default function RegisterPage() {
     }
   }
 
-  async function handleVerify(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleVerify() {
     setCodeError(null);
     setVerifying(true);
     try {
@@ -69,27 +68,19 @@ export default function RegisterPage() {
   if (registered) {
     return (
       <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center p-8">
-        <h1 className="mb-2 text-xl font-semibold text-center">Check your email</h1>
+        <h1 className="mb-2 text-center text-xl font-semibold">Check your email</h1>
         <p className="mb-6 text-center text-sm text-gray-600">
           We sent a verification code to {email}. Enter it below to activate your company.
         </p>
-        <form onSubmit={handleVerify} className="flex flex-col gap-4">
-          <input
-            placeholder="Verification code"
-            required
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            className="rounded border px-3 py-2 text-center tracking-widest"
-          />
-          {codeError && <p className="text-sm text-red-600">{codeError}</p>}
-          <button
-            type="submit"
-            disabled={verifying}
-            className="rounded bg-gray-900 px-3 py-2 text-white disabled:opacity-50"
-          >
+        <Form layout="vertical" onFinish={handleVerify}>
+          <Form.Item name="code" rules={[{ required: true, message: "Enter the code from your email" }]}>
+            <Input.OTP length={6} value={code} onChange={setCode} />
+          </Form.Item>
+          {codeError && <Alert type="error" title={codeError} className="mb-4" showIcon />}
+          <Button type="primary" htmlType="submit" loading={verifying} block>
             {verifying ? "Verifying..." : "Verify email"}
-          </button>
-        </form>
+          </Button>
+        </Form>
       </main>
     );
   }
@@ -97,43 +88,24 @@ export default function RegisterPage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center p-8">
       <h1 className="mb-6 text-2xl font-semibold">Register your company</h1>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <input
-          placeholder="Company name"
-          required
-          value={companyName}
-          onChange={(e) => setCompanyName(e.target.value)}
-          className="rounded border px-3 py-2"
-        />
-        <input
-          type="email"
-          placeholder="Email"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="rounded border px-3 py-2"
-        />
-        <input
-          type="password"
-          placeholder="Password"
-          required
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="rounded border px-3 py-2"
-        />
-        <input
-          type="password"
-          placeholder="Confirm password"
-          required
-          value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-          className="rounded border px-3 py-2"
-        />
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <button type="submit" disabled={loading} className="rounded bg-gray-900 px-3 py-2 text-white disabled:opacity-50">
+      <Form layout="vertical" onFinish={handleSubmit}>
+        <Form.Item name="companyName" rules={[{ required: true, message: "Enter your company name" }]}>
+          <Input placeholder="Company name" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+        </Form.Item>
+        <Form.Item name="email" rules={[{ required: true, type: "email", message: "Enter a valid email" }]}>
+          <Input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        </Form.Item>
+        <Form.Item name="password" rules={[{ required: true, message: "Enter a password" }]}>
+          <Input.Password placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        </Form.Item>
+        <Form.Item name="confirmPassword" rules={[{ required: true, message: "Confirm your password" }]}>
+          <Input.Password placeholder="Confirm password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+        </Form.Item>
+        {error && <Alert type="error" title={error} className="mb-4" showIcon />}
+        <Button type="primary" htmlType="submit" loading={loading} block>
           {loading ? "Creating..." : "Create company"}
-        </button>
-      </form>
+        </Button>
+      </Form>
       <Link href="/" className="mt-4 text-sm text-gray-600">
         Already have an account? Log in
       </Link>

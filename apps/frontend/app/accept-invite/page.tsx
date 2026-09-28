@@ -1,5 +1,6 @@
 "use client";
 
+import { Alert, Button, Form, Input } from "antd";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
@@ -21,15 +22,18 @@ function AcceptInviteForm() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit() {
     setError(null);
+    setSubmitting(true);
     try {
       await acceptInvite(token, password, confirmPassword);
       setDone(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -54,28 +58,18 @@ function AcceptInviteForm() {
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center p-8">
       <h1 className="mb-6 text-2xl font-semibold">Set your password</h1>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <input
-          type="password"
-          placeholder="Password"
-          required
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="rounded border px-3 py-2"
-        />
-        <input
-          type="password"
-          placeholder="Confirm password"
-          required
-          value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-          className="rounded border px-3 py-2"
-        />
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <button type="submit" className="rounded bg-gray-900 px-3 py-2 text-white">
+      <Form layout="vertical" onFinish={handleSubmit}>
+        <Form.Item name="password" rules={[{ required: true, message: "Enter a password" }]}>
+          <Input.Password placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        </Form.Item>
+        <Form.Item name="confirmPassword" rules={[{ required: true, message: "Confirm your password" }]}>
+          <Input.Password placeholder="Confirm password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+        </Form.Item>
+        {error && <Alert type="error" title={error} className="mb-4" showIcon />}
+        <Button type="primary" htmlType="submit" loading={submitting} block>
           Activate account
-        </button>
-      </form>
+        </Button>
+      </Form>
     </main>
   );
 }

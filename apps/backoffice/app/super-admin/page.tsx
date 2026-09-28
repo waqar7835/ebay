@@ -1,5 +1,7 @@
 "use client";
 
+import { CheckOutlined, CloseOutlined } from "@ant-design/icons";
+import { Alert, Button, Popconfirm, Space, Table, Tag } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
@@ -30,78 +32,76 @@ export default function SuperAdminPage() {
     refresh();
   }
 
+  const companyName = new Map(companies.map((c: any) => [c.id, c.name as string]));
+
   return (
     <>
       <Nav />
       <main className="ml-56 max-w-5xl p-8">
         <h1 className="text-2xl font-semibold">Super Admin</h1>
-        {error && <p className="mt-4 text-red-600">{error}</p>}
+        {error && <Alert type="error" title={error} className="mt-4" showIcon />}
 
         <h2 className="mt-8 text-lg font-medium">Pending seat payment orders</h2>
-        <table className="mt-4 w-full border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b">
-              <th className="py-2">Company</th>
-              <th className="py-2">Submitted</th>
-              <th className="py-2">Total</th>
-              <th className="py-2">Receipt</th>
-              <th className="py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {pending.map((o: any) => (
-              <tr key={o.id} className="border-b">
-                <td className="py-2">{o.companyId}</td>
-                <td className="py-2">{new Date(o.createdAt).toLocaleString()}</td>
-                <td className="py-2">${Number(o.totalAmount).toFixed(2)}</td>
-                <td className="py-2">
-                  {o.receiptFileUrl ? (
-                    <a href={`${process.env.NEXT_PUBLIC_API_URL}${o.receiptFileUrl}`} target="_blank" rel="noreferrer" className="underline">
-                      View
-                    </a>
-                  ) : (
-                    "—"
-                  )}
-                </td>
-                <td className="flex gap-2 py-2">
-                  <button onClick={() => handleReview(o.id, true)} className="rounded bg-green-600 px-2 py-1 text-xs text-white">
-                    Approve
-                  </button>
-                  <button onClick={() => handleReview(o.id, false)} className="rounded bg-red-600 px-2 py-1 text-xs text-white">
-                    Reject
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {pending.length === 0 && (
-              <tr>
-                <td colSpan={5} className="py-4 text-gray-500">
-                  Nothing pending review.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <Table
+          className="mt-4"
+          rowKey="id"
+          size="small"
+          pagination={false}
+          dataSource={pending}
+          locale={{ emptyText: "Nothing pending review." }}
+          columns={[
+            { title: "Company", dataIndex: "companyId", render: (id: string) => companyName.get(id) ?? id },
+            { title: "Submitted", dataIndex: "createdAt", render: (v: string) => new Date(v).toLocaleString() },
+            { title: "Total", dataIndex: "totalAmount", render: (v: number) => `$${Number(v).toFixed(2)}` },
+            {
+              title: "Receipt",
+              dataIndex: "receiptFileUrl",
+              render: (url: string | null) =>
+                url ? (
+                  <a href={`${process.env.NEXT_PUBLIC_API_URL}${url}`} target="_blank" rel="noreferrer">
+                    View
+                  </a>
+                ) : (
+                  "—"
+                ),
+            },
+            {
+              key: "actions",
+              render: (_: unknown, o: any) => (
+                <Space size="small">
+                  <Popconfirm title="Approve this payment and activate the seat(s)?" onConfirm={() => handleReview(o.id, true)}>
+                    <Button size="small" type="primary" icon={<CheckOutlined />}>
+                      Approve
+                    </Button>
+                  </Popconfirm>
+                  <Popconfirm title="Reject this payment order?" onConfirm={() => handleReview(o.id, false)}>
+                    <Button size="small" danger icon={<CloseOutlined />}>
+                      Reject
+                    </Button>
+                  </Popconfirm>
+                </Space>
+              ),
+            },
+          ]}
+        />
 
         <h2 className="mt-8 text-lg font-medium">All companies</h2>
-        <table className="mt-4 w-full border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b">
-              <th className="py-2">Name</th>
-              <th className="py-2">Verified</th>
-              <th className="py-2">Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {companies.map((c: any) => (
-              <tr key={c.id} className="border-b">
-                <td className="py-2">{c.name}</td>
-                <td className="py-2">{c.emailVerifiedAt ? "Yes" : "No"}</td>
-                <td className="py-2">{new Date(c.createdAt).toLocaleDateString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Table
+          className="mt-4"
+          rowKey="id"
+          size="small"
+          pagination={{ pageSize: 50, hideOnSinglePage: true }}
+          dataSource={companies}
+          columns={[
+            { title: "Name", dataIndex: "name", sorter: (a: any, b: any) => a.name.localeCompare(b.name) },
+            {
+              title: "Verified",
+              dataIndex: "emailVerifiedAt",
+              render: (v: string | null) => (v ? <Tag color="green">Yes</Tag> : <Tag>No</Tag>),
+            },
+            { title: "Created", dataIndex: "createdAt", render: (v: string) => new Date(v).toLocaleDateString() },
+          ]}
+        />
       </main>
     </>
   );

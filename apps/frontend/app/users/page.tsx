@@ -1,6 +1,7 @@
 "use client";
 
 import type { Role } from "@ebay-order-management/shared";
+import { Alert, Button, Space, Table, Tag, type TableColumnsType } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
@@ -17,12 +18,14 @@ interface UserRow {
 export default function UsersPage() {
   const router = useRouter();
   const [users, setUsers] = useState<UserRow[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   function refresh() {
     listUsers()
       .then(setUsers)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"))
+      .finally(() => setLoading(false));
   }
 
   useEffect(() => {
@@ -38,59 +41,55 @@ export default function UsersPage() {
     refresh();
   }
 
+  const columns: TableColumnsType<UserRow> = [
+    { title: "Name", dataIndex: "name", render: (v) => v ?? "—", sorter: (a, b) => (a.name ?? "").localeCompare(b.name ?? "") },
+    { title: "Email", dataIndex: "email", sorter: (a, b) => a.email.localeCompare(b.email) },
+    { title: "Roles", dataIndex: "roles", render: (roles: Role[]) => roles.map((r) => <Tag key={r}>{r}</Tag>) },
+    {
+      title: "Status",
+      dataIndex: "status",
+      render: (s: string) => <Tag color={s === "ACTIVE" ? "green" : s === "DISABLED" ? "red" : "default"}>{s}</Tag>,
+    },
+    {
+      key: "actions",
+      render: (_, u) => (
+        <Space size="small">
+          <Button size="small" onClick={() => router.push(`/users/${u.id}/edit`)}>
+            Edit
+          </Button>
+          {!u.roles.includes("ADMIN" as Role) && (
+            <Button size="small" danger={u.status === "ACTIVE"} onClick={() => toggleStatus(u)}>
+              {u.status === "ACTIVE" ? "Disable" : "Enable"}
+            </Button>
+          )}
+        </Space>
+      ),
+    },
+  ];
+
   return (
     <>
       <Nav />
       <main className="ml-56 max-w-4xl p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Users</h1>
-          <button onClick={() => router.push("/users/invite")} className="rounded bg-gray-900 px-3 py-2 text-sm text-white">
+          <Button type="primary" onClick={() => router.push("/users/invite")}>
             Invite user
-          </button>
+          </Button>
         </div>
 
-        {error && <p className="mt-4 text-red-600">{error}</p>}
+        {error && <Alert type="error" title={error} className="mt-4" showIcon />}
 
-        <table className="mt-6 w-full border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b">
-              <th className="py-2">Name</th>
-              <th className="py-2">Email</th>
-              <th className="py-2">Roles</th>
-              <th className="py-2">Status</th>
-              <th className="py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => (
-              <tr key={u.id} className="border-b">
-                <td className="py-2">{u.name ?? "—"}</td>
-                <td className="py-2">{u.email}</td>
-                <td className="py-2">{u.roles.join(", ")}</td>
-                <td className="py-2">{u.status}</td>
-                <td className="py-2">
-                  <div className="flex items-center gap-3">
-                    <button onClick={() => router.push(`/users/${u.id}/edit`)} className="text-xs text-gray-600 underline">
-                      Edit
-                    </button>
-                    {!u.roles.includes("ADMIN" as Role) && (
-                      <button onClick={() => toggleStatus(u)} className="text-xs text-gray-600 underline">
-                        {u.status === "ACTIVE" ? "Disable" : "Enable"}
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {users.length === 0 && (
-              <tr>
-                <td colSpan={5} className="py-4 text-gray-500">
-                  No users yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <Table<UserRow>
+          className="mt-6"
+          rowKey="id"
+          size="small"
+          loading={loading}
+          columns={columns}
+          dataSource={users}
+          pagination={false}
+          locale={{ emptyText: "No users yet." }}
+        />
       </main>
     </>
   );

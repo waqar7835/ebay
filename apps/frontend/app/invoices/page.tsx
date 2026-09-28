@@ -1,6 +1,7 @@
 "use client";
 
 import type { InvoiceDto, Role } from "@ebay-order-management/shared";
+import { Alert, Button, Card, Popconfirm, Select, Table, Tag, type TableColumnsType } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
@@ -14,11 +15,13 @@ import {
   listUsers,
   markInvoicePaid,
 } from "@/lib/api";
+import { searchable, userLabel, userOptions } from "@/lib/selectOptions";
 
 const EARNER_ROLES: Role[] = ["ACCOUNT_HOLDER", "STOCK_OWNER", "THREE_PL"] as Role[];
 
 interface UserOption {
   id: string;
+  name: string | null;
   email: string;
   roles: Role[];
 }
@@ -87,8 +90,7 @@ export default function InvoicesPage() {
     }
   }
 
-  async function handleGenerateForUser(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleGenerateForUser() {
     setFormError(null);
     try {
       await generateInvoice(genUserId, genRole);
@@ -103,6 +105,30 @@ export default function InvoicesPage() {
     refreshAdmin();
   }
 
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const statusTag = (status: string) => <Tag color={status === "PAID" ? "green" : "orange"}>{status}</Tag>;
+
+  const myColumns: TableColumnsType<InvoiceDto> = [
+    { title: "Role", dataIndex: "role" },
+    { title: "Period", key: "period", render: (_, inv) => `${inv.periodStart} – ${inv.periodEnd}` },
+    { title: "Total", dataIndex: "totalAmount", render: (v: number) => `$${v.toFixed(2)}` },
+    { title: "Status", dataIndex: "status", render: statusTag },
+  ];
+
+  const companyColumns: TableColumnsType<InvoiceDto> = [
+    { title: "User", dataIndex: "userId", render: (id: string) => (userById.has(id) ? userLabel(userById.get(id)) : id) },
+    ...myColumns,
+    {
+      key: "actions",
+      render: (_, inv) =>
+        inv.status === "UNPAID" && (
+          <Popconfirm title="Mark this invoice as paid?" onConfirm={() => handleMarkPaid(inv.id)}>
+            <Button size="small">Mark paid</Button>
+          </Popconfirm>
+        ),
+    },
+  ];
+
   return (
     <>
       <Nav />
@@ -110,130 +136,86 @@ export default function InvoicesPage() {
         <h1 className="text-2xl font-semibold">My Invoices</h1>
 
         {myRoles.length > 0 && (
-          <div className="mt-6 flex items-end gap-3 rounded border bg-white p-4 text-sm">
-            {myRoles.length > 1 && (
-              <label>
-                Role
-                <select value={role} onChange={(e) => setRole(e.target.value as Role)} className="mt-1 block rounded border px-2 py-1">
-                  {myRoles.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <button onClick={handleGenerateMine} className="rounded bg-gray-900 px-3 py-2 text-white">
-              Generate invoice for last completed cycle
-            </button>
-          </div>
+          <Card size="small" className="mt-6">
+            <div className="flex items-end gap-3 text-sm">
+              {myRoles.length > 1 && (
+                <label>
+                  Role
+                  <Select
+                    value={role}
+                    onChange={(v) => setRole(v)}
+                    options={myRoles.map((r) => ({ value: r, label: r }))}
+                    className="mt-1 block w-44"
+                  />
+                </label>
+              )}
+              <Button type="primary" onClick={handleGenerateMine}>
+                Generate invoice for last completed cycle
+              </Button>
+            </div>
+          </Card>
         )}
 
-        {myError && <p className="mt-4 text-red-600">{myError}</p>}
-        {message && <p className="mt-4 text-green-700">{message}</p>}
+        {myError && <Alert type="error" title={myError} className="mt-4" showIcon />}
+        {message && <Alert type="success" title={message} className="mt-4" showIcon />}
 
-        <table className="mt-6 w-full border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b">
-              <th className="py-2">Role</th>
-              <th className="py-2">Period</th>
-              <th className="py-2">Total</th>
-              <th className="py-2">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {myInvoices.map((inv) => (
-              <tr key={inv.id} className="border-b">
-                <td className="py-2">{inv.role}</td>
-                <td className="py-2">
-                  {inv.periodStart} – {inv.periodEnd}
-                </td>
-                <td className="py-2">${inv.totalAmount.toFixed(2)}</td>
-                <td className="py-2">{inv.status}</td>
-              </tr>
-            ))}
-            {myInvoices.length === 0 && (
-              <tr>
-                <td colSpan={4} className="py-4 text-gray-500">
-                  No invoices yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <Table<InvoiceDto>
+          className="mt-6"
+          rowKey="id"
+          size="small"
+          columns={myColumns}
+          dataSource={myInvoices}
+          pagination={false}
+          locale={{ emptyText: "No invoices yet." }}
+        />
 
         {canManageInvoices && (
           <>
             <h2 className="mt-12 text-xl font-semibold">Company Invoices</h2>
-            {adminError && <p className="mt-4 text-red-600">{adminError}</p>}
+            {adminError && <Alert type="error" title={adminError} className="mt-4" showIcon />}
 
-            <form onSubmit={handleGenerateForUser} className="mt-6 flex items-end gap-3 rounded border bg-white p-4 text-sm">
-              <label className="flex-1">
-                User
-                <select value={genUserId} onChange={(e) => setGenUserId(e.target.value)} className="mt-1 w-full rounded border px-2 py-1">
-                  <option value="">Select…</option>
-                  {users.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.email}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex-1">
-                Role
-                <select value={genRole} onChange={(e) => setGenRole(e.target.value as Role)} className="mt-1 w-full rounded border px-2 py-1">
-                  {availableRoles.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button type="submit" disabled={!genUserId} className="rounded bg-gray-900 px-3 py-2 text-white disabled:opacity-50">
-                Generate invoice
-              </button>
-            </form>
-            {formError && <p className="mt-2 text-sm text-red-600">{formError}</p>}
+            <Card size="small" className="mt-6">
+              <div className="flex items-end gap-3 text-sm">
+                <label className="flex-1">
+                  User
+                  <Select
+                    showSearch={searchable}
+                    placeholder="Select…"
+                    value={genUserId || undefined}
+                    onChange={(v) => {
+                      setGenUserId(v);
+                      const roles = users.find((u) => u.id === v)?.roles.filter((r) => r !== ("ADMIN" as Role)) ?? [];
+                      if (!roles.includes(genRole) && roles[0]) setGenRole(roles[0]);
+                    }}
+                    options={userOptions(users)}
+                    className="mt-1 block w-full"
+                  />
+                </label>
+                <label className="flex-1">
+                  Role
+                  <Select
+                    value={availableRoles.includes(genRole) ? genRole : undefined}
+                    onChange={(v) => setGenRole(v)}
+                    options={availableRoles.map((r) => ({ value: r, label: r }))}
+                    className="mt-1 block w-full"
+                  />
+                </label>
+                <Button type="primary" disabled={!genUserId} onClick={handleGenerateForUser}>
+                  Generate invoice
+                </Button>
+              </div>
+            </Card>
+            {formError && <Alert type="error" title={formError} className="mt-2" showIcon />}
 
-            <table className="mt-6 w-full border-collapse text-left text-sm">
-              <thead>
-                <tr className="border-b">
-                  <th className="py-2">User</th>
-                  <th className="py-2">Role</th>
-                  <th className="py-2">Period</th>
-                  <th className="py-2">Total</th>
-                  <th className="py-2">Status</th>
-                  <th className="py-2"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {invoices.map((inv) => (
-                  <tr key={inv.id} className="border-b">
-                    <td className="py-2">{inv.userId}</td>
-                    <td className="py-2">{inv.role}</td>
-                    <td className="py-2">
-                      {inv.periodStart} – {inv.periodEnd}
-                    </td>
-                    <td className="py-2">${inv.totalAmount.toFixed(2)}</td>
-                    <td className="py-2">{inv.status}</td>
-                    <td className="py-2">
-                      {inv.status === "UNPAID" && (
-                        <button onClick={() => handleMarkPaid(inv.id)} className="text-xs text-gray-600 underline">
-                          Mark paid
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {invoices.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="py-4 text-gray-500">
-                      No invoices yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+            <Table<InvoiceDto>
+              className="mt-6"
+              rowKey="id"
+              size="small"
+              columns={companyColumns}
+              dataSource={invoices}
+              pagination={{ pageSize: 50, hideOnSinglePage: true }}
+              locale={{ emptyText: "No invoices yet." }}
+            />
           </>
         )}
       </main>

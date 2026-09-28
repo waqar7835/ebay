@@ -1,10 +1,11 @@
 "use client";
 
 import type { ProductFulfillmentType } from "@ebay-order-management/shared";
-import { useEffect, useRef, useState } from "react";
+import { Alert, Button, Table, type TableColumnsType } from "antd";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
-import ImageCropModal from "@/components/ImageCropModal";
+import ImageUpload from "@/components/ImageUpload";
 import { getToken, listProducts, mediaUrl, uploadProductImage } from "@/lib/api";
 
 interface ProductRow {
@@ -24,16 +25,15 @@ interface ProductRow {
 export default function ProductsPage() {
   const router = useRouter();
   const [products, setProducts] = useState<ProductRow[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
-  const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
-  const [cropFile, setCropFile] = useState<File | null>(null);
-  const [cropTarget, setCropTarget] = useState<string | null>(null);
 
   function refresh() {
     listProducts()
       .then(setProducts)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"))
+      .finally(() => setLoading(false));
   }
 
   useEffect(() => {
@@ -56,112 +56,62 @@ export default function ProductsPage() {
     }
   }
 
-  function handleCropSave(file: File) {
-    if (cropTarget) {
-      uploadCroppedImage(cropTarget, file);
-    }
-    setCropFile(null);
-    setCropTarget(null);
-  }
+  const money = (v: number | null) => (v != null ? `$${v.toFixed(2)}` : "—");
+
+  const columns: TableColumnsType<ProductRow> = [
+    {
+      title: "Image",
+      key: "image",
+      render: (_, p) => (
+        <ImageUpload
+          value={null}
+          existingUrl={p.imageUrl ? mediaUrl(p.imageUrl) : null}
+          uploading={uploadingId === p.id}
+          onChange={(file) => file && uploadCroppedImage(p.id, file)}
+        />
+      ),
+    },
+    { title: "SKU", dataIndex: "sku", sorter: (a, b) => a.sku.localeCompare(b.sku) },
+    { title: "Title", dataIndex: "title", sorter: (a, b) => a.title.localeCompare(b.title) },
+    { title: "Size", dataIndex: "size", render: (v) => v || "—" },
+    { title: "Type", dataIndex: "fulfillmentType" },
+    { title: "Buy", dataIndex: "buyPrice", render: money },
+    { title: "Sell", dataIndex: "sellPrice", render: money },
+    { title: "Stock", key: "stock", render: (_, p) => (p.fulfillmentType === "DROPSHIP" ? "—" : p.stockQuantity) },
+    {
+      key: "actions",
+      render: (_, p) => (
+        <Button size="small" onClick={() => router.push(`/products/${p.id}/edit`)}>
+          Edit
+        </Button>
+      ),
+    },
+  ];
 
   return (
     <>
       <Nav />
-      <main className="ml-56 max-w-4xl p-8">
+      <main className="ml-56 max-w-5xl p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Products</h1>
-          <button onClick={() => router.push("/products/add")} className="rounded bg-gray-900 px-3 py-2 text-sm text-white">
+          <Button type="primary" onClick={() => router.push("/products/add")}>
             Add product
-          </button>
+          </Button>
         </div>
 
-        {error && <p className="mt-4 text-red-600">{error}</p>}
+        {error && <Alert type="error" title={error} className="mt-4" showIcon />}
 
-        <table className="mt-6 w-full border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b">
-              <th className="py-2">Image</th>
-              <th className="py-2">SKU</th>
-              <th className="py-2">Title</th>
-              <th className="py-2">Size</th>
-              <th className="py-2">Type</th>
-              <th className="py-2">Buy</th>
-              <th className="py-2">Sell</th>
-              <th className="py-2">Stock</th>
-              <th className="py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {products.map((p) => (
-              <tr key={p.id} className="border-b">
-                <td className="py-2">
-                  <button
-                    type="button"
-                    onClick={() => fileInputs.current[p.id]?.click()}
-                    className="block h-12 w-12 overflow-hidden rounded border bg-gray-50"
-                    title={p.imageUrl ? "Replace image" : "Add image"}
-                  >
-                    {p.imageUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={mediaUrl(p.imageUrl)} alt={p.title} className="h-full w-full object-cover" />
-                    ) : (
-                      <span className="flex h-full w-full items-center justify-center text-[10px] text-gray-400">
-                        {uploadingId === p.id ? "…" : "Add"}
-                      </span>
-                    )}
-                  </button>
-                  <input
-                    ref={(el) => {
-                      fileInputs.current[p.id] = el;
-                    }}
-                    type="file"
-                    accept="image/*"
-                    hidden
-                    onChange={(e) => {
-                      const file = e.target.files?.[0] ?? null;
-                      if (file) {
-                        setCropFile(file);
-                        setCropTarget(p.id);
-                      }
-                      e.target.value = "";
-                    }}
-                  />
-                </td>
-                <td className="py-2">{p.sku}</td>
-                <td className="py-2">{p.title}</td>
-                <td className="py-2">{p.size || "—"}</td>
-                <td className="py-2">{p.fulfillmentType}</td>
-                <td className="py-2">{p.buyPrice != null ? `$${p.buyPrice.toFixed(2)}` : "—"}</td>
-                <td className="py-2">{p.sellPrice != null ? `$${p.sellPrice.toFixed(2)}` : "—"}</td>
-                <td className="py-2">{p.fulfillmentType === "DROPSHIP" ? "—" : p.stockQuantity}</td>
-                <td className="py-2">
-                  <button onClick={() => router.push(`/products/${p.id}/edit`)} className="text-xs underline">
-                    Edit
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {products.length === 0 && (
-              <tr>
-                <td colSpan={9} className="py-4 text-gray-500">
-                  No products yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </main>
-
-      {cropFile && (
-        <ImageCropModal
-          file={cropFile}
-          onCancel={() => {
-            setCropFile(null);
-            setCropTarget(null);
-          }}
-          onSave={handleCropSave}
+        <Table<ProductRow>
+          className="mt-6"
+          rowKey="id"
+          size="small"
+          loading={loading}
+          columns={columns}
+          dataSource={products}
+          pagination={false}
+          locale={{ emptyText: "No products yet." }}
         />
-      )}
+      </main>
     </>
   );
 }

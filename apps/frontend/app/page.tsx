@@ -1,6 +1,7 @@
 "use client";
 
 import type { Role } from "@ebay-order-management/shared";
+import { Alert, Button, Form, Input, Select } from "antd";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -14,16 +15,18 @@ const USER_TYPES: { role: Role; label: string }[] = [
   { role: "THREE_PL" as Role, label: "3PL" },
 ];
 
+interface LoginValues {
+  userType: Role;
+  email: string;
+  password: string;
+}
+
 export default function LoginPage() {
   const router = useRouter();
-  const [userType, setUserType] = useState<Role>("ADMIN" as Role);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleFinish({ userType, email, password }: LoginValues) {
     setError(null);
     setLoading(true);
     try {
@@ -41,42 +44,21 @@ export default function LoginPage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center p-8">
       <h1 className="mb-6 text-2xl font-semibold">Partner Portal Login</h1>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <label className="text-sm text-gray-600">
-          User type
-          <select
-            value={userType}
-            onChange={(e) => setUserType(e.target.value as Role)}
-            className="mt-1 w-full rounded border px-3 py-2 text-black"
-          >
-            {USER_TYPES.map(({ role, label }) => (
-              <option key={role} value={role}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <input
-          type="email"
-          placeholder="Email"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="rounded border px-3 py-2"
-        />
-        <input
-          type="password"
-          placeholder="Password"
-          required
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="rounded border px-3 py-2"
-        />
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <button type="submit" disabled={loading} className="rounded bg-gray-900 px-3 py-2 text-white disabled:opacity-50">
+      <Form<LoginValues> layout="vertical" onFinish={handleFinish} initialValues={{ userType: "ADMIN" }}>
+        <Form.Item name="userType" label="User type">
+          <Select options={USER_TYPES.map(({ role, label }) => ({ value: role, label }))} />
+        </Form.Item>
+        <Form.Item name="email" rules={[{ required: true, type: "email", message: "Enter a valid email" }]}>
+          <Input placeholder="Email" />
+        </Form.Item>
+        <Form.Item name="password" rules={[{ required: true, message: "Enter your password" }]}>
+          <Input.Password placeholder="Password" />
+        </Form.Item>
+        {error && <Alert type="error" title={error} className="mb-4" showIcon />}
+        <Button type="primary" htmlType="submit" loading={loading} block>
           {loading ? "Signing in..." : "Sign in"}
-        </button>
-      </form>
+        </Button>
+      </Form>
       <Link href="/forgot-password" className="mt-4 text-sm text-gray-600">
         Forgot password?
       </Link>

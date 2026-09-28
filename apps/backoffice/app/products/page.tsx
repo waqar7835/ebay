@@ -1,11 +1,13 @@
 "use client";
 
 import type { ProductFulfillmentType } from "@ebay-order-management/shared";
-import { useEffect, useRef, useState } from "react";
+import { Alert, Button, Card, Form, Input, InputNumber, Select, Table, type TableColumnsType } from "antd";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
-import ImageCropModal from "@/components/ImageCropModal";
+import ImageUpload from "@/components/ImageUpload";
 import { API_URL, createProduct, getToken, listProducts, listUsers, updateProduct, uploadProductImage } from "@/lib/api";
+import { searchable, userOptions } from "@/lib/selectOptions";
 
 interface ProductRow {
   id: string;
@@ -24,51 +26,43 @@ interface ProductRow {
 
 interface UserOption {
   id: string;
+  name: string | null;
   email: string;
   roles: string[];
 }
 
+interface ProductFormValues {
+  sku: string;
+  title: string;
+  size?: string;
+  fulfillmentType: ProductFulfillmentType;
+  stockOwnerId?: string;
+  threePlId?: string;
+  stockOwnerCost?: number;
+  buyPrice?: number;
+  sellPrice?: number;
+  stockQuantity?: number;
+}
+
 export default function ProductsPage() {
   const router = useRouter();
+  const [form] = Form.useForm<ProductFormValues>();
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
-  const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
-  const newProductFileInput = useRef<HTMLInputElement | null>(null);
-  const [cropFile, setCropFile] = useState<File | null>(null);
-  const [cropTarget, setCropTarget] = useState<"create" | string | null>(null);
-
-  const [stockOwnerId, setStockOwnerId] = useState("");
-  const [fulfillmentType, setFulfillmentType] = useState<ProductFulfillmentType>("STOCK" as ProductFulfillmentType);
-  const [threePlId, setThreePlId] = useState("");
-  const [sku, setSku] = useState("");
-  const [title, setTitle] = useState("");
-  const [size, setSize] = useState("");
-  const [stockOwnerCost, setStockOwnerCost] = useState("0");
-  const [buyPrice, setBuyPrice] = useState("0");
-  const [sellPrice, setSellPrice] = useState("0");
-  const [stockQuantity, setStockQuantity] = useState("0");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [image, setImage] = useState<File | null>(null);
-  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!image) {
-      setImagePreviewUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(image);
-    setImagePreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [image]);
 
   function refresh() {
     listProducts()
       .then(setProducts)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"))
+      .finally(() => setLoading(false));
   }
 
   useEffect(() => {
@@ -84,50 +78,52 @@ export default function ProductsPage() {
   const threePls = users.filter((u) => u.roles.includes("THREE_PL"));
 
   const editingProduct = editingId ? products.find((p) => p.id === editingId) : undefined;
-  const shownImageUrl = imagePreviewUrl ?? (editingProduct?.imageUrl ? `${API_URL}${editingProduct.imageUrl}` : null);
-
+  const fulfillmentType = Form.useWatch("fulfillmentType", form) ?? ("STOCK" as ProductFulfillmentType);
   const isStock = fulfillmentType === ("STOCK" as ProductFulfillmentType);
 
   // Loads a row into the create form (or blanks it for a new product) — one form serves both.
   function fillForm(p: ProductRow | null) {
     setEditingId(p?.id ?? null);
-    setFulfillmentType(p?.fulfillmentType ?? ("STOCK" as ProductFulfillmentType));
-    setStockOwnerId(p?.stockOwnerId ?? "");
-    setThreePlId(p?.threePlId ?? "");
-    setSku(p?.sku ?? "");
-    setTitle(p?.title ?? "");
-    setSize(p?.size ?? "");
-    setStockOwnerCost(String(p?.stockOwnerCost ?? 0));
-    setBuyPrice(String(p?.buyPrice ?? 0));
-    setSellPrice(String(p?.sellPrice ?? 0));
-    setStockQuantity(String(p?.stockQuantity ?? 0));
+    form.setFieldsValue({
+      fulfillmentType: p?.fulfillmentType ?? ("STOCK" as ProductFulfillmentType),
+      stockOwnerId: p?.stockOwnerId ?? undefined,
+      threePlId: p?.threePlId ?? undefined,
+      sku: p?.sku ?? "",
+      title: p?.title ?? "",
+      size: p?.size ?? "",
+      stockOwnerCost: p?.stockOwnerCost ?? 0,
+      buyPrice: p?.buyPrice ?? 0,
+      sellPrice: p?.sellPrice ?? 0,
+      stockQuantity: p?.stockQuantity ?? 0,
+    });
     setImage(null);
     setFormError(null);
   }
 
   function startEdit(p: ProductRow) {
-    fillForm(p);
     setShowForm(true);
+    // Form mounts on the same tick it's shown; defer so setFieldsValue hits the mounted fields.
+    setTimeout(() => fillForm(p));
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleFinish(values: ProductFormValues) {
     setFormError(null);
+    setSubmitting(true);
     const payload = {
-      stockOwnerId: isStock ? stockOwnerId : undefined,
-      fulfillmentType,
-      threePlId: isStock ? threePlId : undefined,
-      sku,
-      title,
-      size: size.trim() || undefined,
-      stockOwnerCost: isStock ? Number(stockOwnerCost) : undefined,
-      buyPrice: isStock ? Number(buyPrice) : undefined,
-      sellPrice: isStock ? Number(sellPrice) : undefined,
-      stockQuantity: isStock ? Number(stockQuantity) : undefined,
+      stockOwnerId: isStock ? values.stockOwnerId : undefined,
+      fulfillmentType: values.fulfillmentType,
+      threePlId: isStock ? values.threePlId : undefined,
+      sku: values.sku,
+      title: values.title,
+      size: values.size?.trim() || undefined,
+      stockOwnerCost: isStock ? Number(values.stockOwnerCost ?? 0) : undefined,
+      buyPrice: isStock ? Number(values.buyPrice ?? 0) : undefined,
+      sellPrice: isStock ? Number(values.sellPrice ?? 0) : undefined,
+      stockQuantity: isStock ? Number(values.stockQuantity ?? 0) : undefined,
     };
     try {
-      const saved = editingId ? await updateProduct(editingId, payload) : await createProduct(payload);
+      const saved = editingId ? await updateProduct(editingId, payload as never) : await createProduct(payload as never);
       if (image) {
         await uploadProductImage(saved.id, image);
       }
@@ -136,6 +132,8 @@ export default function ProductsPage() {
       refresh();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : editingId ? "Failed to update product" : "Failed to create product");
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -151,234 +149,142 @@ export default function ProductsPage() {
     }
   }
 
-  function handleCropSave(file: File) {
-    if (cropTarget === "create") {
-      setImage(file);
-    } else if (cropTarget) {
-      uploadCroppedImage(cropTarget, file);
-    }
-    setCropFile(null);
-    setCropTarget(null);
-  }
+  const money = (v: number | null) => (v != null ? `$${v.toFixed(2)}` : "—");
+
+  const columns: TableColumnsType<ProductRow> = [
+    {
+      title: "Image",
+      key: "image",
+      render: (_, p) => (
+        <ImageUpload
+          value={null}
+          existingUrl={p.imageUrl ? `${API_URL}${p.imageUrl}` : null}
+          uploading={uploadingId === p.id}
+          onChange={(file) => file && uploadCroppedImage(p.id, file)}
+        />
+      ),
+    },
+    { title: "SKU", dataIndex: "sku", sorter: (a, b) => a.sku.localeCompare(b.sku) },
+    { title: "Title", dataIndex: "title", sorter: (a, b) => a.title.localeCompare(b.title) },
+    { title: "Size", dataIndex: "size", render: (v) => v || "—" },
+    { title: "Type", dataIndex: "fulfillmentType" },
+    { title: "Buy", dataIndex: "buyPrice", render: money },
+    { title: "Sell", dataIndex: "sellPrice", render: money },
+    { title: "Stock", key: "stock", render: (_, p) => (p.fulfillmentType === "DROPSHIP" ? "—" : p.stockQuantity) },
+    {
+      key: "actions",
+      render: (_, p) => (
+        <Button size="small" onClick={() => startEdit(p)}>
+          Edit
+        </Button>
+      ),
+    },
+  ];
 
   return (
     <>
       <Nav />
-      <main className="ml-56 max-w-4xl p-8">
+      <main className="ml-56 max-w-5xl p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Products</h1>
-          <button
+          <Button
+            type={showForm ? "default" : "primary"}
             onClick={() => {
-              if (!showForm) fillForm(null);
+              if (!showForm) setTimeout(() => fillForm(null));
               setShowForm((v) => !v);
             }}
-            className="rounded bg-gray-900 px-3 py-2 text-sm text-white"
           >
             {showForm ? "Cancel" : "Add product"}
-          </button>
+          </Button>
         </div>
 
-        {error && <p className="mt-4 text-red-600">{error}</p>}
+        {error && <Alert type="error" title={error} className="mt-4" showIcon />}
 
         {showForm && (
-          <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-3 rounded border bg-white p-4 text-sm">
-            {editingProduct && <p className="font-medium">Editing {editingProduct.sku}</p>}
-            <div className="flex gap-3">
-              <input placeholder="SKU" required value={sku} onChange={(e) => setSku(e.target.value)} className="flex-1 rounded border px-2 py-1" />
-              <input placeholder="Title" required value={title} onChange={(e) => setTitle(e.target.value)} className="flex-1 rounded border px-2 py-1" />
-              <input placeholder="Size (optional)" value={size} onChange={(e) => setSize(e.target.value)} className="w-40 rounded border px-2 py-1" />
-            </div>
-
-            <label>
-              Fulfillment type
-              <select
-                value={fulfillmentType}
-                onChange={(e) => setFulfillmentType(e.target.value as ProductFulfillmentType)}
-                className="mt-1 w-full rounded border px-2 py-1"
-              >
-                <option value="STOCK">Stock (held by a 3PL)</option>
-                <option value="DROPSHIP">Dropship</option>
-              </select>
-            </label>
-
-            {isStock && (
-              <label>
-                Stock Owner
-                <select required value={stockOwnerId} onChange={(e) => setStockOwnerId(e.target.value)} className="mt-1 w-full rounded border px-2 py-1">
-                  <option value="">Select…</option>
-                  {stockOwners.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.email}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-
-            {fulfillmentType === ("STOCK" as ProductFulfillmentType) && (
-              <label>
-                3PL warehouse
-                <select required value={threePlId} onChange={(e) => setThreePlId(e.target.value)} className="mt-1 w-full rounded border px-2 py-1">
-                  <option value="">Select…</option>
-                  {threePls.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.email}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-
-            {isStock && (
+          <Card className="mt-6" title={editingProduct ? `Editing ${editingProduct.sku}` : "New product"}>
+            <Form<ProductFormValues>
+              form={form}
+              layout="vertical"
+              onFinish={handleFinish}
+              initialValues={{ fulfillmentType: "STOCK", stockOwnerCost: 0, buyPrice: 0, sellPrice: 0, stockQuantity: 0 }}
+            >
               <div className="flex gap-3">
-                <label className="flex-1">
-                  Stock Owner cost
-                  <input value={stockOwnerCost} onChange={(e) => setStockOwnerCost(e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
-                </label>
-                <label className="flex-1">
-                  Buy price (paid to Stock Owner)
-                  <input value={buyPrice} onChange={(e) => setBuyPrice(e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
-                </label>
-                <label className="flex-1">
-                  Sell price (charged to Account Holder)
-                  <input value={sellPrice} onChange={(e) => setSellPrice(e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
-                </label>
-                <label className="flex-1">
-                  Stock quantity
-                  <input value={stockQuantity} onChange={(e) => setStockQuantity(e.target.value)} className="mt-1 w-full rounded border px-2 py-1" />
-                </label>
+                <Form.Item name="sku" label="SKU" rules={[{ required: true }]} className="flex-1">
+                  <Input />
+                </Form.Item>
+                <Form.Item name="title" label="Title" rules={[{ required: true }]} className="flex-1">
+                  <Input />
+                </Form.Item>
+                <Form.Item name="size" label="Size (optional)" className="w-40">
+                  <Input />
+                </Form.Item>
               </div>
-            )}
 
-            <label>
-              Product image (optional)
-              <div className="mt-1 flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => newProductFileInput.current?.click()}
-                  className="h-14 w-14 overflow-hidden rounded border bg-gray-50"
-                >
-                  {shownImageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={shownImageUrl} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <span className="flex h-full w-full items-center justify-center text-[10px] text-gray-400">Add</span>
-                  )}
-                </button>
-                {image && (
-                  <button type="button" onClick={() => setImage(null)} className="text-xs text-gray-500 underline">
-                    Remove
-                  </button>
-                )}
-                <input
-                  ref={newProductFileInput}
-                  type="file"
-                  accept="image/*"
-                  hidden
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] ?? null;
-                    if (file) {
-                      setCropFile(file);
-                      setCropTarget("create");
-                    }
-                    e.target.value = "";
-                  }}
+              <Form.Item name="fulfillmentType" label="Fulfillment type">
+                <Select
+                  options={[
+                    { value: "STOCK", label: "Stock (held by a 3PL)" },
+                    { value: "DROPSHIP", label: "Dropship" },
+                  ]}
                 />
-              </div>
-            </label>
+              </Form.Item>
 
-            {formError && <p className="text-red-600">{formError}</p>}
-            <button type="submit" className="self-start rounded bg-gray-900 px-3 py-2 text-white">
-              {editingId ? "Save changes" : "Create"}
-            </button>
-          </form>
+              {isStock && (
+                <Form.Item name="stockOwnerId" label="Stock Owner" rules={[{ required: true, message: "Select a Stock Owner" }]}>
+                  <Select showSearch={searchable} placeholder="Select…" options={userOptions(stockOwners)} />
+                </Form.Item>
+              )}
+
+              {isStock && (
+                <Form.Item name="threePlId" label="3PL warehouse" rules={[{ required: true, message: "Select a 3PL warehouse" }]}>
+                  <Select showSearch={searchable} placeholder="Select…" options={userOptions(threePls)} />
+                </Form.Item>
+              )}
+
+              {isStock && (
+                <div className="flex gap-3">
+                  <Form.Item name="stockOwnerCost" label="Stock Owner cost" className="flex-1">
+                    <InputNumber prefix="$" min={0} step={0.01} className="w-full" />
+                  </Form.Item>
+                  <Form.Item name="buyPrice" label="Buy price (paid to Stock Owner)" className="flex-1">
+                    <InputNumber prefix="$" min={0} step={0.01} className="w-full" />
+                  </Form.Item>
+                  <Form.Item name="sellPrice" label="Sell price (charged to Account Holder)" className="flex-1">
+                    <InputNumber prefix="$" min={0} step={0.01} className="w-full" />
+                  </Form.Item>
+                  <Form.Item name="stockQuantity" label="Stock quantity" className="flex-1">
+                    <InputNumber min={0} precision={0} className="w-full" />
+                  </Form.Item>
+                </div>
+              )}
+
+              <Form.Item label="Product image (optional)">
+                <ImageUpload
+                  value={image}
+                  existingUrl={editingProduct?.imageUrl ? `${API_URL}${editingProduct.imageUrl}` : null}
+                  onChange={setImage}
+                />
+              </Form.Item>
+
+              {formError && <Alert type="error" title={formError} className="mb-4" showIcon />}
+              <Button type="primary" htmlType="submit" loading={submitting}>
+                {editingId ? "Save changes" : "Create"}
+              </Button>
+            </Form>
+          </Card>
         )}
 
-        <table className="mt-6 w-full border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b">
-              <th className="py-2">Image</th>
-              <th className="py-2">SKU</th>
-              <th className="py-2">Title</th>
-              <th className="py-2">Size</th>
-              <th className="py-2">Type</th>
-              <th className="py-2">Buy</th>
-              <th className="py-2">Sell</th>
-              <th className="py-2">Stock</th>
-              <th className="py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {products.map((p) => (
-              <tr key={p.id} className="border-b">
-                <td className="py-2">
-                  <button
-                    type="button"
-                    onClick={() => fileInputs.current[p.id]?.click()}
-                    className="block h-12 w-12 overflow-hidden rounded border bg-gray-50"
-                    title={p.imageUrl ? "Replace image" : "Add image"}
-                  >
-                    {p.imageUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={`${API_URL}${p.imageUrl}`} alt={p.title} className="h-full w-full object-cover" />
-                    ) : (
-                      <span className="flex h-full w-full items-center justify-center text-[10px] text-gray-400">
-                        {uploadingId === p.id ? "…" : "Add"}
-                      </span>
-                    )}
-                  </button>
-                  <input
-                    ref={(el) => {
-                      fileInputs.current[p.id] = el;
-                    }}
-                    type="file"
-                    accept="image/*"
-                    hidden
-                    onChange={(e) => {
-                      const file = e.target.files?.[0] ?? null;
-                      if (file) {
-                        setCropFile(file);
-                        setCropTarget(p.id);
-                      }
-                      e.target.value = "";
-                    }}
-                  />
-                </td>
-                <td className="py-2">{p.sku}</td>
-                <td className="py-2">{p.title}</td>
-                <td className="py-2">{p.size || "—"}</td>
-                <td className="py-2">{p.fulfillmentType}</td>
-                <td className="py-2">{p.buyPrice != null ? `$${p.buyPrice.toFixed(2)}` : "—"}</td>
-                <td className="py-2">{p.sellPrice != null ? `$${p.sellPrice.toFixed(2)}` : "—"}</td>
-                <td className="py-2">{p.fulfillmentType === "DROPSHIP" ? "—" : p.stockQuantity}</td>
-                <td className="py-2 text-xs">
-                  <button onClick={() => startEdit(p)} className="underline">
-                    Edit
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {products.length === 0 && (
-              <tr>
-                <td colSpan={9} className="py-4 text-gray-500">
-                  No products yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </main>
-
-      {cropFile && (
-        <ImageCropModal
-          file={cropFile}
-          onCancel={() => {
-            setCropFile(null);
-            setCropTarget(null);
-          }}
-          onSave={handleCropSave}
+        <Table<ProductRow>
+          className="mt-6"
+          rowKey="id"
+          size="small"
+          loading={loading}
+          columns={columns}
+          dataSource={products}
+          pagination={false}
+          locale={{ emptyText: "No products yet." }}
         />
-      )}
+      </main>
     </>
   );
 }
