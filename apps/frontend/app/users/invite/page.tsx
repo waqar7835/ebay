@@ -1,26 +1,52 @@
 "use client";
 
 import type { ProductFulfillmentType, Role, StockOwnerPayoutMode } from "@ebay-order-management/shared";
-import { Alert, Button, Card, Checkbox, Form, Input, InputNumber, Select, Tabs } from "antd";
-import { useEffect, useState } from "react";
+import { CarOutlined, CheckCircleFilled, InboxOutlined, MailOutlined, TeamOutlined, UserOutlined } from "@ant-design/icons";
+import { Alert, Button, Card, Form, Input, InputNumber, Select, Switch, Tag } from "antd";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import BackLink from "@/components/BackLink";
 import Nav from "@/components/Nav";
 import { getToken, inviteUser } from "@/lib/api";
 
-const USER_TYPES: { role: Role; label: string; description: string }[] = [
-  { role: "STAFF" as Role, label: "Staff", description: "An employee who manages orders, stock, users or invoices on your behalf." },
-  { role: "ACCOUNT_HOLDER" as Role, label: "Account Holder", description: "Earns a share of profit and is billed on a recurring cycle." },
-  { role: "STOCK_OWNER" as Role, label: "Stock Owner", description: "Supplies stock and is paid a fixed amount or a share of margin." },
-  { role: "THREE_PL" as Role, label: "3PL", description: "A fulfillment partner paid per order fulfilled." },
+// Admin/Staff seats are free; the other roles are paid seats (first seat of each type gets a free month).
+const USER_TYPES: { role: Role; label: string; description: string; icon: ReactNode; paidSeat: boolean }[] = [
+  {
+    role: "STAFF" as Role,
+    label: "Staff",
+    description: "An employee who manages orders, stock, users or invoices on your behalf.",
+    icon: <TeamOutlined />,
+    paidSeat: false,
+  },
+  {
+    role: "ACCOUNT_HOLDER" as Role,
+    label: "Account Holder",
+    description: "Earns a share of profit and is billed on a recurring cycle.",
+    icon: <UserOutlined />,
+    paidSeat: true,
+  },
+  {
+    role: "STOCK_OWNER" as Role,
+    label: "Stock Owner",
+    description: "Supplies stock and is paid a fixed amount or a share of margin.",
+    icon: <InboxOutlined />,
+    paidSeat: true,
+  },
+  {
+    role: "THREE_PL" as Role,
+    label: "3PL",
+    description: "A fulfillment partner paid per order fulfilled.",
+    icon: <CarOutlined />,
+    paidSeat: true,
+  },
 ];
 
 const STAFF_PERMISSIONS = [
-  { key: "canManageOrders", label: "Manage orders" },
-  { key: "canManageStock", label: "Manage stock" },
-  { key: "canManageUsers", label: "Manage users" },
-  { key: "canGenerateInvoices", label: "Generate invoices" },
-  { key: "canViewFinancials", label: "View financials" },
+  { key: "canManageOrders", label: "Manage orders", hint: "Create, edit and update orders" },
+  { key: "canManageStock", label: "Manage stock", hint: "Add products and adjust stock levels" },
+  { key: "canManageUsers", label: "Manage users", hint: "Invite, edit and disable users" },
+  { key: "canGenerateInvoices", label: "Generate invoices", hint: "Create and delete invoices" },
+  { key: "canViewFinancials", label: "View financials", hint: "See profits, payouts and invoices" },
 ] as const;
 
 type StaffPermissionKey = (typeof STAFF_PERMISSIONS)[number]["key"];
@@ -111,7 +137,7 @@ export default function InviteUserPage() {
             : undefined,
       });
       const label = USER_TYPES.find((t) => t.role === activeType)?.label ?? activeType;
-      setSuccessMessage(`Invited ${email} as ${label}. Switch tabs above to invite the same person for another user type.`);
+      setSuccessMessage(`Invited ${email} as ${label}. Pick another type above to invite the same person for another user type.`);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to invite user");
     } finally {
@@ -126,138 +152,207 @@ export default function InviteUserPage() {
     onChange: (v: string | number | null) => set(v == null ? "" : String(v)),
   });
 
+  const billingDayField = (
+    <Form.Item label="Billing cycle start day" tooltip="Day of the month (1–28) their billing cycle starts" className="mb-0">
+      <InputNumber min={1} max={28} precision={0} prefix="Day" className="w-full" {...numProps(billingCycleStartDay, setBillingCycleStartDay)} />
+    </Form.Item>
+  );
+  const enabledPermissions = STAFF_PERMISSIONS.filter(({ key }) => staffPermissions[key]).map(({ label }) => label);
+
   return (
     <>
       <Nav />
-      <main className="ml-56 max-w-3xl p-8">
+      <main className="ml-56 max-w-6xl p-8 pb-16">
         <BackLink href="/users" label="Users" title="Invite user" />
 
-        <Tabs
-          className="mt-6"
-          activeKey={activeType}
-          onChange={(key) => !submitting && switchType(key as Role)}
-          items={USER_TYPES.map(({ role, label }) => ({ key: role, label, disabled: submitting }))}
-        />
-        <p className="text-xs text-gray-500">{activeMeta.description}</p>
-
-        <Card className="mt-4">
-          <Form layout="vertical" onFinish={handleInvite}>
-            <div className="flex gap-3">
-              <Form.Item label="Name" className="flex-1">
-                <Input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
-              </Form.Item>
-              <Form.Item
-                label="Email"
-                name="email"
-                rules={[{ required: true, type: "email", message: "Enter a valid email" }]}
-                className="flex-1"
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {USER_TYPES.map((type) => {
+            const active = type.role === activeType;
+            return (
+              <button
+                key={type.role}
+                type="button"
+                disabled={submitting}
+                onClick={() => switchType(type.role)}
+                className={`relative flex cursor-pointer flex-col gap-2 rounded-2xl border-2 bg-white p-4 text-left transition hover:shadow-md disabled:cursor-not-allowed ${
+                  active ? "border-[color:var(--btn-b)] shadow-md" : "border-transparent shadow-sm"
+                }`}
               >
-                <Input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
-              </Form.Item>
+                {active && <CheckCircleFilled className="absolute right-3 top-3 text-lg text-[color:var(--btn-b)]" />}
+                <span
+                  className={`grid h-10 w-10 place-items-center rounded-xl text-lg ${
+                    active ? "bg-[color:var(--btn-b)] text-white" : "bg-slate-100 text-slate-500"
+                  }`}
+                >
+                  {type.icon}
+                </span>
+                <span className="font-semibold text-slate-800">{type.label}</span>
+                <span className="text-xs leading-relaxed text-slate-500">{type.description}</span>
+                <span>
+                  <Tag color={type.paidSeat ? "gold" : "green"} className="mr-0">
+                    {type.paidSeat ? "Paid seat" : "Free seat"}
+                  </Tag>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <Form layout="vertical" onFinish={handleInvite} className="mt-6">
+          <div className="grid gap-6 lg:grid-cols-3">
+            <div className="flex flex-col gap-6 lg:col-span-2">
+              <Card title="Person">
+                <div className="grid gap-x-4 sm:grid-cols-2">
+                  <Form.Item label="Name" className="mb-0">
+                    <Input placeholder="Full name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
+                  </Form.Item>
+                  <Form.Item
+                    label="Email"
+                    name="email"
+                    rules={[{ required: true, type: "email", message: "Enter a valid email" }]}
+                    className="mb-0"
+                  >
+                    <Input
+                      placeholder="name@example.com"
+                      prefix={<MailOutlined className="text-slate-400" />}
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      autoComplete="off"
+                    />
+                  </Form.Item>
+                </div>
+              </Card>
+
+              {activeType === ("STAFF" as Role) && (
+                <Card title="Permissions">
+                  <div className="divide-y divide-slate-100">
+                    {STAFF_PERMISSIONS.map(({ key, label, hint }) => (
+                      <label key={key} className="flex cursor-pointer items-center justify-between gap-4 py-3 first:pt-0">
+                        <span>
+                          <span className="block font-medium text-slate-800">{label}</span>
+                          <span className="block text-xs text-slate-500">{hint}</span>
+                        </span>
+                        <Switch
+                          checked={staffPermissions[key]}
+                          onChange={(checked) => setStaffPermissions((prev) => ({ ...prev, [key]: checked }))}
+                        />
+                      </label>
+                    ))}
+                    <div className="flex items-center justify-between gap-4 pb-0 pt-3">
+                      <label className="cursor-pointer" htmlFor="revenue-share">
+                        <span className="block font-medium text-slate-800">Revenue share</span>
+                        <span className="block text-xs text-slate-500">Earns a percentage of total company profit</span>
+                      </label>
+                      <div className="flex items-center gap-3">
+                        {hasRevenueShare && (
+                          <InputNumber suffix="%" min={0} max={100} className="w-28" {...numProps(staffSharePercent, setStaffSharePercent)} />
+                        )}
+                        <Switch id="revenue-share" checked={hasRevenueShare} onChange={setHasRevenueShare} />
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              )}
+
+              {activeType === ("ACCOUNT_HOLDER" as Role) && (
+                <Card title="Account Holder terms">
+                  <div className="grid gap-x-4 sm:grid-cols-3">
+                    <Form.Item label="Share of profit" tooltip="Their cut of each order's profit" className="mb-0">
+                      <InputNumber suffix="%" min={0} max={100} className="w-full" {...numProps(sharePercent, setSharePercent)} />
+                    </Form.Item>
+                    <Form.Item label="3PL price charged" tooltip="Charged once per order shipped by a 3PL (optional)" className="mb-0">
+                      <InputNumber prefix="$" min={0} step={0.01} className="w-full" {...numProps(threePlPriceCharged, setThreePlPriceCharged)} />
+                    </Form.Item>
+                    {billingDayField}
+                  </div>
+                </Card>
+              )}
+
+              {activeType === ("STOCK_OWNER" as Role) && (
+                <Card title="Stock Owner terms">
+                  <div className="grid gap-x-4 sm:grid-cols-3">
+                    <Form.Item label="Payout mode" className="mb-0">
+                      <Select
+                        value={payoutMode}
+                        onChange={(v) => setPayoutMode(v)}
+                        options={[
+                          { value: "FIXED", label: "Fixed" },
+                          { value: "PROFIT_SHARE", label: "Profit share" },
+                        ]}
+                      />
+                    </Form.Item>
+                    {payoutMode === ("PROFIT_SHARE" as StockOwnerPayoutMode) && (
+                      <Form.Item label="Share of their margin" tooltip="The company keeps this % of (buy price − their cost)" className="mb-0">
+                        <InputNumber suffix="%" min={0} max={100} className="w-full" {...numProps(stockOwnerSharePercent, setStockOwnerSharePercent)} />
+                      </Form.Item>
+                    )}
+                    {billingDayField}
+                  </div>
+                </Card>
+              )}
+
+              {activeType === ("THREE_PL" as Role) && (
+                <Card title="3PL terms">
+                  <div className="grid gap-x-4 sm:grid-cols-3">
+                    <Form.Item label="Fulfillment type" className="mb-0">
+                      <Select
+                        value={threePlFulfillmentType}
+                        onChange={(v) => setThreePlFulfillmentType(v)}
+                        options={[
+                          { value: "STOCK", label: "Stock" },
+                          { value: "DROPSHIP", label: "Dropshipping" },
+                        ]}
+                      />
+                    </Form.Item>
+                    {threePlFulfillmentType === ("STOCK" as ProductFulfillmentType) && (
+                      <Form.Item label="Payout per order" tooltip="Paid once per order fulfilled" className="mb-0">
+                        <InputNumber prefix="$" min={0} step={0.01} className="w-full" {...numProps(payoutPerOrder, setPayoutPerOrder)} />
+                      </Form.Item>
+                    )}
+                    {billingDayField}
+                  </div>
+                  {threePlFulfillmentType === ("DROPSHIP" as ProductFulfillmentType) && (
+                    <p className="mb-0 mt-3 text-xs text-slate-500">
+                      Dropshipping 3PLs have no fixed rate — they&apos;re paid the buy price they enter against each order.
+                    </p>
+                  )}
+                </Card>
+              )}
             </div>
 
-            {activeType === ("STAFF" as Role) && (
-              <Card size="small" title="Permissions" className="mb-4">
-                <div className="grid grid-cols-2 gap-2">
-                  {STAFF_PERMISSIONS.map(({ key, label }) => (
-                    <Checkbox
-                      key={key}
-                      checked={staffPermissions[key]}
-                      onChange={(e) => setStaffPermissions((prev) => ({ ...prev, [key]: e.target.checked }))}
-                    >
-                      {label}
-                    </Checkbox>
-                  ))}
+            <div className="flex flex-col gap-6">
+              <Card title="Summary">
+                <div className="flex items-center gap-3">
+                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-[color:var(--btn-b)] text-lg text-white">
+                    {activeMeta.icon}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="truncate font-semibold text-slate-800">{name || email || "New user"}</div>
+                    <div className="text-xs text-slate-500">Invited as {activeMeta.label}</div>
+                  </div>
                 </div>
-                <div className="mt-3 flex items-center gap-3">
-                  <Checkbox checked={hasRevenueShare} onChange={(e) => setHasRevenueShare(e.target.checked)}>
-                    Revenue share
-                  </Checkbox>
-                  {hasRevenueShare && (
-                    <InputNumber suffix="%" min={0} max={100} className="w-28" {...numProps(staffSharePercent, setStaffSharePercent)} />
-                  )}
-                </div>
-              </Card>
-            )}
-
-            {activeType === ("ACCOUNT_HOLDER" as Role) && (
-              <Card size="small" title="Account Holder settings" className="mb-4">
-                <div className="flex gap-3">
-                  <Form.Item label="Share % of profit" className="flex-1">
-                    <InputNumber suffix="%" min={0} max={100} className="w-full" {...numProps(sharePercent, setSharePercent)} />
-                  </Form.Item>
-                  <Form.Item label="3PL price charged (optional)" className="flex-1">
-                    <InputNumber prefix="$" min={0} step={0.01} className="w-full" {...numProps(threePlPriceCharged, setThreePlPriceCharged)} />
-                  </Form.Item>
-                </div>
-                <Form.Item label="Billing cycle start day (1–28)" className="mb-0">
-                  <InputNumber min={1} max={28} precision={0} className="w-full" {...numProps(billingCycleStartDay, setBillingCycleStartDay)} />
-                </Form.Item>
-              </Card>
-            )}
-
-            {activeType === ("STOCK_OWNER" as Role) && (
-              <Card size="small" title="Stock Owner settings" className="mb-4">
-                <div className="flex gap-3">
-                  <Form.Item label="Payout mode" className="flex-1">
-                    <Select
-                      value={payoutMode}
-                      onChange={(v) => setPayoutMode(v)}
-                      options={[
-                        { value: "FIXED", label: "Fixed" },
-                        { value: "PROFIT_SHARE", label: "Profit share" },
-                      ]}
-                    />
-                  </Form.Item>
-                  {payoutMode === ("PROFIT_SHARE" as StockOwnerPayoutMode) && (
-                    <Form.Item label="Share % of their margin" className="flex-1">
-                      <InputNumber suffix="%" min={0} max={100} className="w-full" {...numProps(stockOwnerSharePercent, setStockOwnerSharePercent)} />
-                    </Form.Item>
-                  )}
-                </div>
-                <Form.Item label="Billing cycle start day (1–28)" className="mb-0">
-                  <InputNumber min={1} max={28} precision={0} className="w-full" {...numProps(billingCycleStartDay, setBillingCycleStartDay)} />
-                </Form.Item>
-              </Card>
-            )}
-
-            {activeType === ("THREE_PL" as Role) && (
-              <Card size="small" title="3PL settings" className="mb-4">
-                <div className="flex gap-3">
-                  <Form.Item label="Type" className="flex-1">
-                    <Select
-                      value={threePlFulfillmentType}
-                      onChange={(v) => setThreePlFulfillmentType(v)}
-                      options={[
-                        { value: "STOCK", label: "Stock" },
-                        { value: "DROPSHIP", label: "Dropshipping" },
-                      ]}
-                    />
-                  </Form.Item>
-                  {threePlFulfillmentType === ("STOCK" as ProductFulfillmentType) && (
-                    <Form.Item label="Payout per order fulfilled" className="flex-1">
-                      <InputNumber prefix="$" min={0} step={0.01} className="w-full" {...numProps(payoutPerOrder, setPayoutPerOrder)} />
-                    </Form.Item>
-                  )}
-                </div>
-                {threePlFulfillmentType === ("DROPSHIP" as ProductFulfillmentType) && (
-                  <p className="mb-3 text-xs text-gray-500">
-                    Dropshipping 3PLs have no fixed rate — they&apos;re paid the buy price they enter against each order.
+                {activeType === ("STAFF" as Role) && (
+                  <p className="mb-0 mt-4 text-sm text-slate-500">
+                    {enabledPermissions.length ? `Can: ${enabledPermissions.join(", ")}.` : "No permissions selected yet."}
                   </p>
                 )}
-                <Form.Item label="Billing cycle start day (1–28)" className="mb-0">
-                  <InputNumber min={1} max={28} precision={0} className="w-full" {...numProps(billingCycleStartDay, setBillingCycleStartDay)} />
-                </Form.Item>
+                <ul className="mb-0 mt-4 space-y-1 pl-4 text-xs text-slate-500">
+                  <li>They get an email to set their password and sign in.</li>
+                  {activeMeta.paidSeat && <li>Uses a paid {activeMeta.label} seat — the first seat of each type gets a free month.</li>}
+                  <li>To give the same person another role, invite them again under that type.</li>
+                </ul>
               </Card>
-            )}
 
-            {formError && <Alert type="error" title={formError} className="mb-4" showIcon />}
-            {successMessage && <Alert type="success" title={successMessage} className="mb-4" showIcon />}
-            <Button type="primary" htmlType="submit" loading={submitting}>
-              {submitting ? "Sending invite..." : `Send invite as ${activeMeta.label}`}
-            </Button>
-          </Form>
-        </Card>
+              <Card>
+                {formError && <Alert type="error" title={formError} className="mb-4" showIcon />}
+                {successMessage && <Alert type="success" title={successMessage} className="mb-4" showIcon />}
+                <Button type="primary" htmlType="submit" loading={submitting} block size="large">
+                  {submitting ? "Sending invite..." : `Send invite as ${activeMeta.label}`}
+                </Button>
+              </Card>
+            </div>
+          </div>
+        </Form>
       </main>
     </>
   );
