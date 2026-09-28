@@ -7,11 +7,11 @@ import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import DateField from "@/components/DateField";
 import FileUpload from "@/components/FileUpload";
-import { createOrder, getToken, listProducts, listUsers, mediaUrl, uploadOrderShippingLabel } from "@/lib/api";
+import { createOrder, getToken, listProducts, listUsers, localDateOnly, mediaUrl, uploadOrderShippingLabel } from "@/lib/api";
 import { productOptions, searchable, userOptions } from "@/lib/selectOptions";
 
 function todayIsoDate() {
-  return new Date().toISOString().slice(0, 10);
+  return localDateOnly();
 }
 
 interface NewOrderValues {

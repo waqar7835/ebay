@@ -22,10 +22,14 @@ export function computeCurrentCycle(anchorDay: number, today: Date = new Date())
   if (start.getTime() > today.getTime()) {
     start = new Date(today.getFullYear(), today.getMonth() - 1, anchorDay);
   }
-  const end = new Date(start.getFullYear(), start.getMonth() + 1, anchorDay);
-  const lastInclusiveDay = new Date(end.getTime() - 24 * 60 * 60 * 1000);
-  const toDateOnly = (d: Date) => d.toISOString().slice(0, 10);
-  return { start: toDateOnly(start), end: toDateOnly(lastInclusiveDay) };
+  const lastInclusiveDay = new Date(start.getFullYear(), start.getMonth() + 1, anchorDay - 1);
+  return { start: localDateOnly(start), end: localDateOnly(lastInclusiveDay) };
+}
+
+/** YYYY-MM-DD from local date parts — toISOString() would shift local midnight back a day east of UTC. */
+export function localDateOnly(d: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 export function mediaUrl(path: string | null | undefined): string {
