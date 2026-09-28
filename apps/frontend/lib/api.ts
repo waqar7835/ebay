@@ -438,7 +438,7 @@ export interface CreateOrderPayload {
   supplierUrl?: string;
 }
 
-export type UpdateOrderPayload = Partial<Omit<CreateOrderPayload, "quantity" | "threePlId" | "productId">>;
+export type UpdateOrderPayload = Partial<Omit<CreateOrderPayload, "quantity">>;
 
 export function createOrder(payload: CreateOrderPayload) {
   return request<OrderDto>("/orders", { method: "POST", body: JSON.stringify(payload) });

@@ -1,6 +1,12 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { InjectModel } from "@nestjs/sequelize";
-import { Op } from "sequelize";
+import { Op, UniqueConstraintError } from "sequelize";
 import { OrderStatus, ProductFulfillmentType, Role } from "@ebay-order-management/shared";
 import { Order } from "../database/models/order.model";
 import { Company } from "../database/models/company.model";
@@ -99,7 +105,34 @@ export class OrdersService {
     };
   }
 
+  // eBay order numbers are unique per company (DB index orders_company_id_ebay_order_ref_unique);
+  // this pre-check just gives a friendly error before hitting the constraint.
+  private async assertEbayOrderRefAvailable(companyId: string, ebayOrderRef: string, excludeOrderId?: string) {
+    const existing = await this.orderModel.findOne({
+      where: { companyId, ebayOrderRef, ...(excludeOrderId ? { id: { [Op.ne]: excludeOrderId } } : {}) },
+    });
+    if (existing) {
+      throw new ConflictException(`eBay order number "${ebayOrderRef}" is already used by another order`);
+    }
+  }
+
+  // Catches the race where two requests pass the pre-check at once and the DB index rejects the second.
+  private async saveWithUniqueRef<T>(ebayOrderRef: string, save: () => Promise<T>): Promise<T> {
+    try {
+      return await save();
+    } catch (err) {
+      if (err instanceof UniqueConstraintError) {
+        throw new ConflictException(`eBay order number "${ebayOrderRef}" is already used by another order`);
+      }
+      throw err;
+    }
+  }
+
   async create(companyId: string, dto: CreateOrderDto) {
+    const ebayOrderRef = dto.ebayOrderRef.trim();
+    if (!ebayOrderRef) throw new BadRequestException("eBay order number is required");
+    await this.assertEbayOrderRefAvailable(companyId, ebayOrderRef);
+
     const product = await this.productModel.findOne({ where: { id: dto.productId, companyId } });
     if (!product) throw new NotFoundException("Product not found");
 
@@ -149,33 +182,35 @@ export class OrdersService {
       threePlPayoutSnapshot = threePlProfile.payoutPerOrder;
     }
 
-    const order = await this.orderModel.create({
-      companyId,
-      accountHolderId: dto.accountHolderId,
-      stockOwnerId: product.stockOwnerId,
-      productId: product.id,
-      quantity: dto.quantity,
-      threePlId,
-      status: OrderStatus.PENDING,
-      statusChangedAt: new Date(),
-      orderDate: dto.orderDate ?? new Date().toISOString().slice(0, 10),
-      ebayOrderRef: dto.ebayOrderRef,
-      trackingNumber: dto.trackingNumber ?? null,
-      buyerDetails: dto.buyerDetails,
-      ebayNetProceeds: dto.ebayNetProceeds,
-      shippingCost: dto.shippingCost ?? 0,
-      supplierUrl: dto.supplierUrl ?? null,
-      // DROPSHIP: no product-level price to snapshot yet — the assigned 3PL enters the buy price
-      // once they pick up the order (see setDropshipBuyPrice below).
-      sellPriceSnapshot: product.sellPrice,
-      buyPriceSnapshot: product.buyPrice,
-      stockOwnerCostSnapshot: product.stockOwnerCost,
-      threePlPriceChargedSnapshot,
-      threePlPayoutSnapshot,
-      accountHolderSharePercentSnapshot: accountHolderProfile.sharePercent,
-      stockOwnerPayoutModeSnapshot: stockOwnerProfile?.payoutMode ?? null,
-      stockOwnerSharePercentSnapshot: stockOwnerProfile?.sharePercent ?? null,
-    });
+    const order = await this.saveWithUniqueRef(ebayOrderRef, () =>
+      this.orderModel.create({
+        companyId,
+        accountHolderId: dto.accountHolderId,
+        stockOwnerId: product.stockOwnerId,
+        productId: product.id,
+        quantity: dto.quantity,
+        threePlId,
+        status: OrderStatus.PENDING,
+        statusChangedAt: new Date(),
+        orderDate: dto.orderDate ?? new Date().toISOString().slice(0, 10),
+        ebayOrderRef,
+        trackingNumber: dto.trackingNumber ?? null,
+        buyerDetails: dto.buyerDetails,
+        ebayNetProceeds: dto.ebayNetProceeds,
+        shippingCost: dto.shippingCost ?? 0,
+        supplierUrl: dto.supplierUrl ?? null,
+        // DROPSHIP: no product-level price to snapshot yet — the assigned 3PL enters the buy price
+        // once they pick up the order (see setDropshipBuyPrice below).
+        sellPriceSnapshot: product.sellPrice,
+        buyPriceSnapshot: product.buyPrice,
+        stockOwnerCostSnapshot: product.stockOwnerCost,
+        threePlPriceChargedSnapshot,
+        threePlPayoutSnapshot,
+        accountHolderSharePercentSnapshot: accountHolderProfile.sharePercent,
+        stockOwnerPayoutModeSnapshot: stockOwnerProfile?.payoutMode ?? null,
+        stockOwnerSharePercentSnapshot: stockOwnerProfile?.sharePercent ?? null,
+      }),
+    );
 
     // DROPSHIP products hold no stock to decrement.
     if (product.fulfillmentType === ProductFulfillmentType.STOCK) {
@@ -190,16 +225,118 @@ export class OrdersService {
     const order = await this.get(companyId, id);
 
     if (dto.orderDate !== undefined) order.orderDate = dto.orderDate;
-    if (dto.accountHolderId !== undefined) order.accountHolderId = dto.accountHolderId;
-    if (dto.ebayOrderRef !== undefined) order.ebayOrderRef = dto.ebayOrderRef;
+    if (dto.accountHolderId !== undefined && dto.accountHolderId !== order.accountHolderId) {
+      await this.changeAccountHolder(order, dto.accountHolderId);
+    }
+    if (dto.ebayOrderRef !== undefined) {
+      const ebayOrderRef = dto.ebayOrderRef.trim();
+      if (!ebayOrderRef) throw new BadRequestException("eBay order number is required");
+      await this.assertEbayOrderRefAvailable(companyId, ebayOrderRef, order.id);
+      order.ebayOrderRef = ebayOrderRef;
+    }
     if (dto.trackingNumber !== undefined) order.trackingNumber = dto.trackingNumber;
     if (dto.buyerDetails !== undefined) order.buyerDetails = dto.buyerDetails;
     if (dto.ebayNetProceeds !== undefined) order.ebayNetProceeds = dto.ebayNetProceeds;
     if (dto.shippingCost !== undefined) order.shippingCost = dto.shippingCost;
     if (dto.supplierUrl !== undefined) order.supplierUrl = dto.supplierUrl;
+    if (dto.productId !== undefined && dto.productId !== order.productId) {
+      await this.changeProduct(companyId, order, dto.productId, dto.threePlId);
+    }
 
-    await order.save();
+    await this.saveWithUniqueRef(order.ebayOrderRef, () => order.save());
     return order;
+  }
+
+  /**
+   * Like changeProduct: swapping the Account Holder re-snapshots their share % and the 3PL price
+   * they're charged from the new holder's current profile, at any status. Issued invoices aren't adjusted.
+   */
+  private async changeAccountHolder(order: Order, accountHolderId: string) {
+    if (await this.billingService.isSeatBlocked(accountHolderId)) {
+      throw new ForbiddenException("This Account Holder's seat is blocked pending payment");
+    }
+    const profile = await this.accountHolderProfileModel.findByPk(accountHolderId);
+    if (!profile) throw new BadRequestException("Account Holder profile not found");
+
+    order.accountHolderId = accountHolderId;
+    order.accountHolderSharePercentSnapshot = profile.sharePercent;
+    if (order.threePlId) order.threePlPriceChargedSnapshot = profile.threePlPriceCharged ?? 0;
+  }
+
+  /**
+   * Swapping an order's product deliberately re-snapshots everything product-derived (prices, Stock
+   * Owner + their share terms, 3PL fees) from the new product's *current* rates, and moves stock
+   * from the new product back to the old one. Allowed at any status — invoices already issued for
+   * this order are not rewritten, so they may no longer match it.
+   */
+  private async changeProduct(companyId: string, order: Order, productId: string, threePlIdOverride?: string) {
+    const product = await this.productModel.findOne({ where: { id: productId, companyId } });
+    if (!product) throw new NotFoundException("Product not found");
+    const oldProduct = await this.productModel.findByPk(order.productId);
+
+    if (product.stockOwnerId && (await this.billingService.isSeatBlocked(product.stockOwnerId))) {
+      throw new ForbiddenException("This Stock Owner's seat is blocked pending payment");
+    }
+
+    let threePlId: string | null;
+    if (product.fulfillmentType === ProductFulfillmentType.STOCK) {
+      threePlId = threePlIdOverride ?? product.threePlId;
+      if (!threePlId) {
+        throw new BadRequestException("A 3PL must be assigned for STOCK fulfillment products");
+      }
+    } else {
+      // Keep an already-assigned dropship 3PL when moving between DROPSHIP products.
+      const keepExisting = oldProduct?.fulfillmentType === ProductFulfillmentType.DROPSHIP ? order.threePlId : null;
+      threePlId = threePlIdOverride ?? keepExisting;
+    }
+    if (threePlId && threePlId !== order.threePlId && (await this.billingService.isSeatBlocked(threePlId))) {
+      throw new ForbiddenException("This 3PL's seat is blocked pending payment");
+    }
+
+    const stockOwnerProfile = product.stockOwnerId
+      ? await this.stockOwnerProfileModel.findByPk(product.stockOwnerId)
+      : null;
+    if (product.stockOwnerId && !stockOwnerProfile) {
+      throw new BadRequestException("Stock Owner profile not found");
+    }
+
+    let threePlPriceChargedSnapshot: number | null = null;
+    let threePlPayoutSnapshot: number | null = null;
+    if (threePlId) {
+      const threePlProfile = await this.threePlProfileModel.findByPk(threePlId);
+      if (!threePlProfile) throw new BadRequestException("3PL profile not found");
+      if (threePlProfile.fulfillmentType !== product.fulfillmentType) {
+        throw new BadRequestException(
+          `The selected 3PL handles ${threePlProfile.fulfillmentType} fulfillment, but this product is ${product.fulfillmentType}`,
+        );
+      }
+      const accountHolderProfile = await this.accountHolderProfileModel.findByPk(order.accountHolderId);
+      threePlPriceChargedSnapshot = accountHolderProfile?.threePlPriceCharged ?? 0;
+      threePlPayoutSnapshot = threePlProfile.payoutPerOrder;
+    }
+
+    // Orders already restocked (cancelled/returned) hold no stock, so there's nothing to move.
+    if (!order.restocked) {
+      if (oldProduct && oldProduct.fulfillmentType === ProductFulfillmentType.STOCK) {
+        oldProduct.stockQuantity += order.quantity;
+        await oldProduct.save();
+      }
+      if (product.fulfillmentType === ProductFulfillmentType.STOCK) {
+        product.stockQuantity -= order.quantity;
+        await product.save();
+      }
+    }
+
+    order.productId = product.id;
+    order.stockOwnerId = product.stockOwnerId;
+    order.threePlId = threePlId;
+    order.sellPriceSnapshot = product.sellPrice;
+    order.buyPriceSnapshot = product.buyPrice;
+    order.stockOwnerCostSnapshot = product.stockOwnerCost;
+    order.threePlPriceChargedSnapshot = threePlPriceChargedSnapshot;
+    order.threePlPayoutSnapshot = threePlPayoutSnapshot;
+    order.stockOwnerPayoutModeSnapshot = stockOwnerProfile?.payoutMode ?? null;
+    order.stockOwnerSharePercentSnapshot = stockOwnerProfile?.sharePercent ?? null;
   }
 
   /** Lets the assigned 3PL fill in the buy price for a DROPSHIP order once they can see it (status past PENDING). */

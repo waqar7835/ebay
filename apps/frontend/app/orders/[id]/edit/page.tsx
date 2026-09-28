@@ -8,10 +8,12 @@ import Nav from "@/components/Nav";
 import DateField from "@/components/DateField";
 import FileUpload from "@/components/FileUpload";
 import { getToken, listOrders, listProducts, listUsers, mediaUrl, updateOrder, uploadOrderShippingLabel } from "@/lib/api";
-import { searchable, userOptions } from "@/lib/selectOptions";
+import { productOptions, searchable, userOptions } from "@/lib/selectOptions";
 
 interface EditOrderValues {
   accountHolderId: string;
+  productId: string;
+  threePlId?: string;
   orderDate: string;
   ebayOrderRef: string;
   trackingNumber?: string;
@@ -54,8 +56,22 @@ export default function EditOrderPage() {
       .catch((err) => setLoadError(err instanceof Error ? err.message : "Failed to load order"));
   }, [router, orderId]);
 
+  const productId = Form.useWatch("productId", form);
   const accountHolders = users.filter((u) => u.roles.includes("ACCOUNT_HOLDER" as never));
-  const product = order ? products.find((p) => p.id === order.productId) : undefined;
+  const productById = new Map(products.map((p) => [p.id, p]));
+  const product = productById.get(productId ?? order?.productId ?? "");
+  // Switching product re-snapshots its prices/Stock Owner/3PL fees server-side, so the 3PL is only
+  // re-picked when the product actually changes.
+  const productChanged = !!order && !!productId && productId !== order.productId;
+  const eligibleThreePls = users.filter(
+    (u) => u.roles.includes("THREE_PL" as never) && u.threePlProfile?.fulfillmentType === product?.fulfillmentType,
+  );
+
+  function handleProductChange(id: string) {
+    const next = productById.get(id);
+    const keepThreePl = next?.fulfillmentType === "DROPSHIP" && order?.threePlId ? order.threePlId : undefined;
+    form.setFieldValue("threePlId", next?.fulfillmentType === "STOCK" ? (next.threePlId ?? undefined) : keepThreePl);
+  }
 
   async function handleFinish(values: EditOrderValues) {
     setFormError(null);
@@ -63,6 +79,8 @@ export default function EditOrderPage() {
     try {
       await updateOrder(orderId, {
         accountHolderId: values.accountHolderId,
+        productId: values.productId,
+        threePlId: productChanged ? values.threePlId || undefined : undefined,
         orderDate: values.orderDate,
         ebayOrderRef: values.ebayOrderRef,
         trackingNumber: values.trackingNumber || undefined,
@@ -100,6 +118,8 @@ export default function EditOrderPage() {
               onFinish={handleFinish}
               initialValues={{
                 accountHolderId: order.accountHolderId,
+                productId: order.productId,
+                threePlId: order.threePlId ?? undefined,
                 orderDate: order.orderDate,
                 ebayOrderRef: order.ebayOrderRef,
                 trackingNumber: order.trackingNumber ?? "",
@@ -123,14 +143,38 @@ export default function EditOrderPage() {
                 </Form.Item>
               </div>
 
-              <div className="mb-6 flex items-center gap-3 rounded bg-gray-50 p-3">
-                <Avatar shape="square" size={36} src={product?.imageUrl ? mediaUrl(product.imageUrl) : undefined}>
-                  —
-                </Avatar>
-                <p className="text-gray-600">
-                  {product ? `${product.sku} — ${product.title}` : "—"} · Qty {order.quantity}
-                </p>
+              <div className="flex items-start gap-3">
+                <Form.Item
+                  name="productId"
+                  label={`Product (Qty ${order.quantity})`}
+                  rules={[{ required: true, message: "Select a product" }]}
+                  extra={productChanged ? "Prices, Stock Owner terms and 3PL fees will be re-copied from this product's current rates." : undefined}
+                  className="flex-1"
+                >
+                  <Select showSearch={searchable} placeholder="Select…" options={productOptions(products)} onChange={handleProductChange} />
+                </Form.Item>
+                {product?.imageUrl && <Avatar shape="square" size={40} src={mediaUrl(product.imageUrl)} className="mt-7 shrink-0" />}
               </div>
+
+              {productChanged && product && (
+                <Form.Item
+                  name="threePlId"
+                  label={`3PL ${product.fulfillmentType === "STOCK" ? "" : "(optional)"}`}
+                  rules={[{ required: product.fulfillmentType === "STOCK", message: "Select a 3PL" }]}
+                  extra={
+                    eligibleThreePls.length === 0
+                      ? `No 3PL users are set up for ${product.fulfillmentType === "STOCK" ? "Stock" : "Dropshipping"} fulfillment yet.`
+                      : undefined
+                  }
+                >
+                  <Select
+                    showSearch={searchable}
+                    allowClear={product.fulfillmentType !== "STOCK"}
+                    placeholder={product.fulfillmentType === "STOCK" ? "Select…" : "None"}
+                    options={userOptions(eligibleThreePls)}
+                  />
+                </Form.Item>
+              )}
 
               <div className="flex gap-3">
                 <Form.Item name="ebayOrderRef" label="eBay order number" rules={[{ required: true }]} className="flex-1">

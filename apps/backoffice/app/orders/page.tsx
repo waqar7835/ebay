@@ -160,7 +160,7 @@ export default function OrdersPage() {
     };
     try {
       if (editingOrderId) {
-        await updateOrder(editingOrderId, common);
+        await updateOrder(editingOrderId, { ...common, productId: values.productId as string });
       } else {
         await createOrder({ ...common, productId: values.productId as string, quantity: Number(values.quantity) });
       }
@@ -268,7 +268,7 @@ export default function OrdersPage() {
 
               <div className="flex items-start gap-3">
                 <Form.Item name="productId" label="Product" rules={[{ required: true, message: "Select a product" }]} className="flex-1">
-                  <Select showSearch={searchable} disabled={!!editingOrderId} placeholder="Select…" options={productOptions(products)} />
+                  <Select showSearch={searchable} placeholder="Select…" options={productOptions(products)} />
                 </Form.Item>
                 <Form.Item name="quantity" label="Qty" rules={[{ required: true }]} className="w-24">
                   <InputNumber disabled={!!editingOrderId} min={1} precision={0} className="w-full" />
