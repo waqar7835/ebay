@@ -16,6 +16,12 @@ import type {
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
+// Uploads are relative paths on local disk but absolute URLs when stored on R2.
+export function mediaUrl(path: string | null | undefined): string {
+  if (!path) return "";
+  return /^https?:\/\//.test(path) ? path : `${API_URL}${path}`;
+}
+
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("accessToken");
@@ -170,11 +176,21 @@ export function updateStock(productId: string, stockQuantity: number) {
   return request<ProductDto>(`/products/${productId}/stock`, { method: "PATCH", body: JSON.stringify({ stockQuantity }) });
 }
 
-export async function uploadProductImage(productId: string, image: File) {
+/**
+ * Saves the product's full image gallery in the given order (first = cover). Each entry is either an
+ * already-saved image URL (kept) or a new File (uploaded); anything not listed is removed.
+ */
+export async function setProductImages(productId: string, images: Array<string | File>) {
   const form = new FormData();
-  form.append("image", image);
-  const res = await fetch(`${API_URL}${withSelectedCompany(`/products/${productId}/image`)}`, {
-    method: "POST",
+  let newIndex = 0;
+  const layout = images.map((image) => {
+    if (typeof image === "string") return image;
+    form.append("images", image);
+    return `new:${newIndex++}`;
+  });
+  form.append("layout", JSON.stringify(layout));
+  const res = await fetch(`${API_URL}${withSelectedCompany(`/products/${productId}/images`)}`, {
+    method: "PUT",
     headers: authHeaders(),
     body: form,
   });

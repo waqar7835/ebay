@@ -5,13 +5,15 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
-  UploadedFile,
+  UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from "@nestjs/common";
-import { FileInterceptor } from "@nestjs/platform-express";
+import { FilesInterceptor } from "@nestjs/platform-express";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
+import { PRODUCT_MAX_IMAGES } from "@ebay-order-management/shared";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { RolesGuard } from "../common/guards/roles.guard";
 import { PermissionsGuard } from "../common/guards/permissions.guard";
@@ -21,7 +23,7 @@ import { resolveCompanyId } from "../common/company-scope.util";
 import { multerUploadOptions, publicUploadUrl } from "../uploads/uploads.util";
 import type { JwtPayload } from "../auth/jwt.strategy";
 import { ProductsService } from "./products.service";
-import { CreateProductDto, UpdateProductDto, UpdateStockDto } from "./dto/product.dto";
+import { CreateProductDto, SetProductImagesDto, UpdateProductDto, UpdateStockDto } from "./dto/product.dto";
 
 @ApiTags("products")
 @ApiBearerAuth()
@@ -68,15 +70,26 @@ export class ProductsController {
     return this.productsService.updateStock(resolveCompanyId(user, companyId), id, dto);
   }
 
-  @Post(":id/image")
+  /**
+   * Replaces the product's whole image gallery in one request. `layout` is a JSON array giving the
+   * final order: each entry is either an already-saved URL of this product or `"new:<i>"` pointing
+   * at the i-th uploaded file in `images`. The first entry becomes the cover.
+   */
+  @Put(":id/images")
   @RequirePermission("canManageStock")
-  @UseInterceptors(FileInterceptor("image", multerUploadOptions("products")))
-  uploadImage(
+  @UseInterceptors(FilesInterceptor("images", PRODUCT_MAX_IMAGES, multerUploadOptions("products")))
+  setImages(
     @CurrentUser() user: JwtPayload,
     @Param("id") id: string,
-    @UploadedFile() file: Express.Multer.File,
+    @Body() dto: SetProductImagesDto,
+    @UploadedFiles() files: Express.Multer.File[] = [],
     @Query("companyId") companyId?: string,
   ) {
-    return this.productsService.updateImage(resolveCompanyId(user, companyId), id, publicUploadUrl("products", file.filename));
+    return this.productsService.setImages(
+      resolveCompanyId(user, companyId),
+      id,
+      dto.layout,
+      files.map((f) => publicUploadUrl("products", f.filename)),
+    );
   }
 }

@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectModel } from "@nestjs/sequelize";
-import { ProductFulfillmentType } from "@ebay-order-management/shared";
+import { PRODUCT_MAX_IMAGES, ProductFulfillmentType } from "@ebay-order-management/shared";
 import { Product } from "../database/models/product.model";
 import { CreateProductDto, UpdateProductDto, UpdateStockDto } from "./dto/product.dto";
 
@@ -68,9 +68,40 @@ export class ProductsService {
     return product;
   }
 
-  async updateImage(companyId: string, id: string, imageUrl: string) {
+  async setImages(companyId: string, id: string, layoutJson: string, uploadedUrls: string[]) {
     const product = await this.get(companyId, id);
-    product.imageUrl = imageUrl;
+
+    let layout: unknown;
+    try {
+      layout = JSON.parse(layoutJson);
+    } catch {
+      throw new BadRequestException("layout must be a JSON array");
+    }
+    if (!Array.isArray(layout) || !layout.every((entry) => typeof entry === "string")) {
+      throw new BadRequestException("layout must be a JSON array of strings");
+    }
+    if (layout.length > PRODUCT_MAX_IMAGES) {
+      throw new BadRequestException(`A product can have at most ${PRODUCT_MAX_IMAGES} images`);
+    }
+
+    const existing = new Set(product.imageUrls ?? []);
+    const imageUrls = layout.map((entry: string) => {
+      const match = /^new:(\d+)$/.exec(entry);
+      if (match) {
+        const url = uploadedUrls[Number(match[1])];
+        if (!url) throw new BadRequestException(`layout references missing upload ${entry}`);
+        return url;
+      }
+      // Only URLs already on this product may be kept — never let a client point at arbitrary URLs.
+      if (!existing.has(entry)) throw new BadRequestException("layout references an unknown image");
+      return entry;
+    });
+    if (new Set(imageUrls).size !== imageUrls.length) {
+      throw new BadRequestException("layout contains duplicate images");
+    }
+
+    product.imageUrls = imageUrls;
+    product.imageUrl = imageUrls[0] ?? null;
     await product.save();
     return product;
   }

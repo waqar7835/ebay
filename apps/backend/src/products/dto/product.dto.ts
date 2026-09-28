@@ -45,6 +45,12 @@ export class CreateProductDto {
   stockQuantity?: number;
 }
 
+export class SetProductImagesDto {
+  // JSON-encoded string[] (multipart bodies can't carry arrays natively) — see ProductsController.setImages.
+  @IsString()
+  layout!: string;
+}
+
 export class UpdateStockDto {
   @IsInt()
   stockQuantity!: number;

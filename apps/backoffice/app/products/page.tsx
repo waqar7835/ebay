@@ -1,12 +1,12 @@
 "use client";
 
 import type { ProductFulfillmentType } from "@ebay-order-management/shared";
-import { Alert, Button, Card, Form, Input, InputNumber, Select, Table, type TableColumnsType } from "antd";
+import { Alert, Badge, Button, Card, Form, Image, Input, InputNumber, Select, Table, type TableColumnsType } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
-import ImageUpload from "@/components/ImageUpload";
-import { API_URL, createProduct, getToken, listProducts, listUsers, updateProduct, uploadProductImage } from "@/lib/api";
+import ProductImagesUpload, { productImageItems, type ProductImageItem } from "@/components/ProductImagesUpload";
+import { createProduct, getToken, listProducts, listUsers, mediaUrl, setProductImages, updateProduct } from "@/lib/api";
 import { searchable, userOptions } from "@/lib/selectOptions";
 
 interface ProductRow {
@@ -22,6 +22,7 @@ interface ProductRow {
   sellPrice: number | null;
   stockQuantity: number;
   imageUrl: string | null;
+  imageUrls: string[];
 }
 
 interface UserOption {
@@ -54,9 +55,8 @@ export default function ProductsPage() {
   const [error, setError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [image, setImage] = useState<File | null>(null);
+  const [images, setImages] = useState<ProductImageItem[]>([]);
 
   function refresh() {
     listProducts()
@@ -96,7 +96,7 @@ export default function ProductsPage() {
       sellPrice: p?.sellPrice ?? 0,
       stockQuantity: p?.stockQuantity ?? 0,
     });
-    setImage(null);
+    setImages(productImageItems(p?.imageUrls));
     setFormError(null);
   }
 
@@ -124,8 +124,9 @@ export default function ProductsPage() {
     };
     try {
       const saved = editingId ? await updateProduct(editingId, payload as never) : await createProduct(payload as never);
-      if (image) {
-        await uploadProductImage(saved.id, image);
+      // New products with no images skip the call; edits always resave so removals/reorders apply.
+      if (editingId || images.length > 0) {
+        await setProductImages(saved.id, images.map((i) => i.file ?? i.existingUrl!));
       }
       setShowForm(false);
       fillForm(null);
@@ -137,32 +138,23 @@ export default function ProductsPage() {
     }
   }
 
-  async function uploadCroppedImage(productId: string, file: File) {
-    setUploadingId(productId);
-    try {
-      await uploadProductImage(productId, file);
-      refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to upload image");
-    } finally {
-      setUploadingId(null);
-    }
-  }
-
   const money = (v: number | null) => (v != null ? `$${v.toFixed(2)}` : "—");
 
   const columns: TableColumnsType<ProductRow> = [
     {
       title: "Image",
       key: "image",
-      render: (_, p) => (
-        <ImageUpload
-          value={null}
-          existingUrl={p.imageUrl ? `${API_URL}${p.imageUrl}` : null}
-          uploading={uploadingId === p.id}
-          onChange={(file) => file && uploadCroppedImage(p.id, file)}
-        />
-      ),
+      // Cover thumbnail; clicking opens a preview carousel of the whole gallery. Images are managed via Edit.
+      render: (_, p) =>
+        p.imageUrl ? (
+          <Badge count={p.imageUrls.length > 1 ? p.imageUrls.length : 0} size="small" color="blue">
+            <Image.PreviewGroup items={p.imageUrls.map((url) => mediaUrl(url))}>
+              <Image src={mediaUrl(p.imageUrl)} alt={p.title} width={48} height={48} className="rounded object-cover" />
+            </Image.PreviewGroup>
+          </Badge>
+        ) : (
+          "—"
+        ),
     },
     { title: "SKU", dataIndex: "sku", sorter: (a, b) => a.sku.localeCompare(b.sku) },
     { title: "Title", dataIndex: "title", sorter: (a, b) => a.title.localeCompare(b.title) },
@@ -258,12 +250,8 @@ export default function ProductsPage() {
                 </div>
               )}
 
-              <Form.Item label="Product image (optional)">
-                <ImageUpload
-                  value={image}
-                  existingUrl={editingProduct?.imageUrl ? `${API_URL}${editingProduct.imageUrl}` : null}
-                  onChange={setImage}
-                />
+              <Form.Item label="Product images (optional)">
+                <ProductImagesUpload value={images} onChange={setImages} disabled={submitting} />
               </Form.Item>
 
               {formError && <Alert type="error" title={formError} className="mb-4" showIcon />}

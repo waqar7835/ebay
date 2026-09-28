@@ -96,6 +96,8 @@ export interface UserDto {
   createdAt: string;
 }
 
+export const PRODUCT_MAX_IMAGES = 5;
+
 export interface ProductDto {
   id: string;
   companyId: string;
@@ -106,7 +108,10 @@ export interface ProductDto {
   sku: string;
   title: string;
   size: string | null;
+  // Cover image — always imageUrls[0] (or null when the product has no images).
   imageUrl: string | null;
+  // Up to PRODUCT_MAX_IMAGES, in display order; the first is the cover.
+  imageUrls: string[];
   stockOwnerCost: number | null;
   buyPrice: number | null;
   sellPrice: number | null;

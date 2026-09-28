@@ -45,8 +45,13 @@ export class Product extends Model {
   @Column({ type: DataType.STRING, allowNull: true })
   declare size: string | null;
 
+  // Cover image — always imageUrls[0] (or null); kept denormalized so display sites read one field.
   @Column({ type: DataType.STRING, allowNull: true, field: "image_url" })
   declare imageUrl: string | null;
+
+  // Ordered gallery, max PRODUCT_MAX_IMAGES; first entry is the cover.
+  @Column({ type: DataType.JSONB, allowNull: false, defaultValue: [], field: "image_urls" })
+  declare imageUrls: string[];
 
   @Column({
     type: DataType.DECIMAL(12, 2),

@@ -3,8 +3,8 @@
 import type { ProductDto, ProductFulfillmentType, UserDto } from "@ebay-order-management/shared";
 import { Alert, Button, Card, Form, Input, InputNumber, Select } from "antd";
 import { useEffect, useState } from "react";
-import ImageUpload from "@/components/ImageUpload";
-import { listUsers, mediaUrl, type CreateProductPayload } from "@/lib/api";
+import ProductImagesUpload, { productImageItems, type ProductImageItem } from "@/components/ProductImagesUpload";
+import { listUsers, type CreateProductPayload } from "@/lib/api";
 import { searchable, userOptions } from "@/lib/selectOptions";
 
 interface ProductFormProps {
@@ -12,7 +12,8 @@ interface ProductFormProps {
   initial?: ProductDto;
   submitLabel: string;
   submittingLabel: string;
-  onSubmit: (payload: CreateProductPayload, image: File | null) => Promise<void>;
+  // `images` is the full gallery in display order (first = cover): saved URLs to keep, or new Files.
+  onSubmit: (payload: CreateProductPayload, images: Array<string | File>) => Promise<void>;
 }
 
 interface ProductFormValues {
@@ -34,7 +35,7 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
   const [users, setUsers] = useState<UserDto[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [image, setImage] = useState<File | null>(null);
+  const [images, setImages] = useState<ProductImageItem[]>(() => productImageItems(initial?.imageUrls));
 
   useEffect(() => {
     listUsers().then(setUsers).catch(() => undefined);
@@ -63,7 +64,7 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
           sellPrice: isStock ? Number(values.sellPrice ?? 0) : undefined,
           stockQuantity: isStock ? Number(values.stockQuantity ?? 0) : undefined,
         },
-        image,
+        images.map((i) => i.file ?? i.existingUrl!),
       );
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to save product");
@@ -140,8 +141,8 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
           </div>
         )}
 
-        <Form.Item label="Product image (optional)">
-          <ImageUpload value={image} existingUrl={initial?.imageUrl ? mediaUrl(initial.imageUrl) : null} onChange={setImage} />
+        <Form.Item label="Product images (optional)">
+          <ProductImagesUpload value={images} onChange={setImages} disabled={submitting} />
         </Form.Item>
 
         {formError && <Alert type="error" title={formError} className="mb-4" showIcon />}

@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import ProductForm from "@/components/ProductForm";
-import { getProduct, getToken, updateProduct, uploadProductImage } from "@/lib/api";
+import { getProduct, getToken, updateProduct, setProductImages } from "@/lib/api";
 
 export default function EditProductPage() {
   const router = useRouter();
@@ -40,11 +40,9 @@ export default function EditProductPage() {
             initial={product}
             submitLabel="Save changes"
             submittingLabel="Saving..."
-            onSubmit={async (payload, image) => {
+            onSubmit={async (payload, images) => {
               await updateProduct(product.id, payload);
-              if (image) {
-                await uploadProductImage(product.id, image);
-              }
+              await setProductImages(product.id, images);
               router.push("/products");
             }}
           />

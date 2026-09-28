@@ -5,7 +5,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import ProductForm from "@/components/ProductForm";
-import { createProduct, getToken, uploadProductImage } from "@/lib/api";
+import { createProduct, getToken, setProductImages } from "@/lib/api";
 
 export default function AddProductPage() {
   const router = useRouter();
@@ -28,10 +28,10 @@ export default function AddProductPage() {
         <ProductForm
           submitLabel="Create"
           submittingLabel="Creating..."
-          onSubmit={async (payload, image) => {
+          onSubmit={async (payload, images) => {
             const created = await createProduct(payload);
-            if (image) {
-              await uploadProductImage(created.id, image);
+            if (images.length > 0) {
+              await setProductImages(created.id, images);
             }
             router.push("/products");
           }}

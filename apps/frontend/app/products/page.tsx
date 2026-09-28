@@ -1,12 +1,11 @@
 "use client";
 
 import type { ProductFulfillmentType } from "@ebay-order-management/shared";
-import { Alert, Button, Table, type TableColumnsType } from "antd";
+import { Alert, Badge, Button, Image, Table, type TableColumnsType } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
-import ImageUpload from "@/components/ImageUpload";
-import { getToken, listProducts, mediaUrl, uploadProductImage } from "@/lib/api";
+import { getToken, listProducts, mediaUrl } from "@/lib/api";
 
 interface ProductRow {
   id: string;
@@ -20,6 +19,7 @@ interface ProductRow {
   sellPrice: number | null;
   stockQuantity: number;
   imageUrl: string | null;
+  imageUrls: string[];
 }
 
 export default function ProductsPage() {
@@ -27,7 +27,6 @@ export default function ProductsPage() {
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [uploadingId, setUploadingId] = useState<string | null>(null);
 
   function refresh() {
     listProducts()
@@ -44,32 +43,23 @@ export default function ProductsPage() {
     refresh();
   }, [router]);
 
-  async function uploadCroppedImage(productId: string, file: File) {
-    setUploadingId(productId);
-    try {
-      await uploadProductImage(productId, file);
-      refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to upload image");
-    } finally {
-      setUploadingId(null);
-    }
-  }
-
   const money = (v: number | null) => (v != null ? `$${v.toFixed(2)}` : "—");
 
   const columns: TableColumnsType<ProductRow> = [
     {
       title: "Image",
       key: "image",
-      render: (_, p) => (
-        <ImageUpload
-          value={null}
-          existingUrl={p.imageUrl ? mediaUrl(p.imageUrl) : null}
-          uploading={uploadingId === p.id}
-          onChange={(file) => file && uploadCroppedImage(p.id, file)}
-        />
-      ),
+      // Cover thumbnail; clicking opens a preview carousel of the whole gallery. Images are managed on the edit page.
+      render: (_, p) =>
+        p.imageUrl ? (
+          <Badge count={p.imageUrls.length > 1 ? p.imageUrls.length : 0} size="small" color="blue">
+            <Image.PreviewGroup items={p.imageUrls.map((url) => mediaUrl(url))}>
+              <Image src={mediaUrl(p.imageUrl)} alt={p.title} width={48} height={48} className="rounded object-cover" />
+            </Image.PreviewGroup>
+          </Badge>
+        ) : (
+          "—"
+        ),
     },
     { title: "SKU", dataIndex: "sku", sorter: (a, b) => a.sku.localeCompare(b.sku) },
     { title: "Title", dataIndex: "title", sorter: (a, b) => a.title.localeCompare(b.title) },

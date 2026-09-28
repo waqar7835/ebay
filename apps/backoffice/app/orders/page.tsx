@@ -19,7 +19,7 @@ import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import DateField from "@/components/DateField";
 import {
-  API_URL,
+  mediaUrl,
   createOrder,
   getToken,
   listOrders,
@@ -185,7 +185,7 @@ export default function OrdersPage() {
       render: (_, order) => {
         const product = productById.get(order.productId);
         return product?.imageUrl ? (
-          <Image src={`${API_URL}${product.imageUrl}`} alt={product.title} width={40} height={40} className="rounded object-cover" />
+          <Image src={mediaUrl(product.imageUrl)} alt={product.title} width={40} height={40} className="rounded object-cover" />
         ) : (
           <Avatar shape="square" size={40}>
             —
@@ -274,7 +274,7 @@ export default function OrdersPage() {
                   <InputNumber disabled={!!editingOrderId} min={1} precision={0} className="w-full" />
                 </Form.Item>
                 {formProduct?.imageUrl && (
-                  <Avatar shape="square" size={40} src={`${API_URL}${formProduct.imageUrl}`} className="mt-7 shrink-0" />
+                  <Avatar shape="square" size={40} src={mediaUrl(formProduct.imageUrl)} className="mt-7 shrink-0" />
                 )}
               </div>
 

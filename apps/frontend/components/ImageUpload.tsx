@@ -68,7 +68,7 @@ export default function ImageUpload({ value, existingUrl, onChange, freeAspect, 
 }
 
 /** Downscales the cropped image so its longest side is at most MAX_OUTPUT_SIZE and re-encodes as JPEG. */
-async function resizeToJpeg(file: File): Promise<File> {
+export async function resizeToJpeg(file: File): Promise<File> {
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
