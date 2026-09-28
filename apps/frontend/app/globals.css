@@ -94,6 +94,7 @@ body {
 
 .ant-btn.ant-btn-color-primary.ant-btn-variant-solid:not(:disabled) {
   background: linear-gradient(90deg, var(--btn-a), var(--btn-b), var(--btn-c));
+  background-origin: border-box;
   border-color: transparent;
 }
 .ant-btn.ant-btn-color-primary.ant-btn-variant-solid:not(:disabled):hover {

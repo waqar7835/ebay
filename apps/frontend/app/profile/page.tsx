@@ -1,10 +1,11 @@
 "use client";
 
 import type { CompanyDto, UserDto } from "@ebay-order-management/shared";
-import { Alert, Avatar, Button, Card, Descriptions, Divider, Form, Image, Input, Select, Tag } from "antd";
+import { Alert, Avatar, Button, Card, Descriptions, Divider, Form, Image, Input, Select } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
+import RoleTag from "@/components/RoleTag";
 import ImageUpload from "@/components/ImageUpload";
 import {
   changeMyPassword,
@@ -134,7 +135,7 @@ export default function ProfilePage() {
             <Form.Item label="Roles">
               <div>
                 {user?.roles.map((r) => (
-                  <Tag key={r}>{r}</Tag>
+                  <RoleTag key={r} role={r} />
                 ))}
               </div>
             </Form.Item>

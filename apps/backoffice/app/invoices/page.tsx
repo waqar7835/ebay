@@ -5,6 +5,8 @@ import { Alert, Button, Card, Popconfirm, Select, Table, Tag, type TableColumnsT
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
+import RoleTag, { roleLabel } from "@/components/RoleTag";
+import { DeleteAction } from "@/components/RowActions";
 import InvoiceCyclePicker from "@/components/InvoiceCyclePicker";
 import { deleteInvoice, generateInvoice, getToken, listInvoices, listUsers, markInvoicePaid } from "@/lib/api";
 import { searchable, userLabel, userOptions } from "@/lib/selectOptions";
@@ -77,25 +79,21 @@ export default function InvoicesPage() {
 
   const columns: TableColumnsType<InvoiceDto> = [
     { title: "User", dataIndex: "userId", render: (id: string) => (userById.has(id) ? userLabel(userById.get(id)) : id) },
-    { title: "Role", dataIndex: "role" },
+    { title: "Role", dataIndex: "role", render: (r: string) => <RoleTag role={r} /> },
     { title: "Period", key: "period", render: (_, inv) => `${inv.periodStart} – ${inv.periodEnd}` },
     { title: "Total", dataIndex: "totalAmount", render: (v: number) => `$${v.toFixed(2)}` },
     { title: "Status", dataIndex: "status", render: (s: string) => <Tag color={s === "PAID" ? "green" : "orange"}>{s}</Tag> },
     {
       key: "actions",
       render: (_, inv) => (
-        <div className="flex gap-2">
+        <div className="flex items-center gap-1">
           {inv.status === "UNPAID" && (
             <Popconfirm title="Mark this invoice as paid?" onConfirm={() => handleMarkPaid(inv.id)}>
               <Button size="small">Mark paid</Button>
             </Popconfirm>
           )}
           {inv.deletable && (
-            <Popconfirm title="Delete this invoice? You can re-generate it for the same cycle." onConfirm={() => handleDelete(inv.id)}>
-              <Button size="small" danger>
-                Delete
-              </Button>
-            </Popconfirm>
+            <DeleteAction confirmTitle="Delete this invoice? You can re-generate it for the same cycle." onConfirm={() => handleDelete(inv.id)} />
           )}
         </div>
       ),
@@ -105,7 +103,7 @@ export default function InvoicesPage() {
   return (
     <>
       <Nav />
-      <main className="ml-56 max-w-4xl p-8">
+      <main className="ml-56 p-8">
         <h1 className="text-2xl font-semibold">Invoices</h1>
         {error && <Alert type="error" title={error} className="mt-4" showIcon />}
 
@@ -123,7 +121,7 @@ export default function InvoicesPage() {
                   if (!roles.includes(role) && roles[0]) setRole(roles[0]);
                 }}
                 options={userOptions(users)}
-                className="mt-1 block w-full"
+                className="mt-1 flex w-full"
               />
             </label>
             <label className="flex-1">
@@ -131,8 +129,8 @@ export default function InvoicesPage() {
               <Select
                 value={availableRoles.includes(role) ? role : undefined}
                 onChange={(v) => setRole(v)}
-                options={availableRoles.map((r) => ({ value: r, label: r }))}
-                className="mt-1 block w-full"
+                options={availableRoles.map((r) => ({ value: r, label: roleLabel(r) }))}
+                className="mt-1 flex w-full"
               />
             </label>
           </div>

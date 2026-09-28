@@ -4,6 +4,8 @@ import { Alert, Button, Card, Checkbox, Form, Input, Table, Tag, type TableColum
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
+import RoleTag from "@/components/RoleTag";
+import { ToggleStatusAction } from "@/components/RowActions";
 import { getStoredUser, getToken, inviteBackofficeUser, listBackofficeUsers, setBackofficeUserStatus } from "@/lib/api";
 
 const PERMISSIONS = [
@@ -90,7 +92,7 @@ export default function PlatformStaffPage() {
   const columns: TableColumnsType<BackofficeUserRow> = [
     { title: "Name", dataIndex: "name", render: (v) => v ?? "—" },
     { title: "Email", dataIndex: "email" },
-    { title: "Role", dataIndex: "role", render: (r: string) => <Tag>{r}</Tag> },
+    { title: "Role", dataIndex: "role", render: (r: string) => <RoleTag role={r} /> },
     {
       title: "Status",
       dataIndex: "status",
@@ -99,9 +101,7 @@ export default function PlatformStaffPage() {
     {
       key: "actions",
       render: (_, u) => (
-        <Button size="small" danger={u.status === "ACTIVE"} onClick={() => toggleStatus(u)}>
-          {u.status === "ACTIVE" ? "Disable" : "Enable"}
-        </Button>
+        <ToggleStatusAction active={u.status === "ACTIVE"} name={u.name ?? u.email} onConfirm={() => toggleStatus(u)} />
       ),
     },
   ];
@@ -109,7 +109,7 @@ export default function PlatformStaffPage() {
   return (
     <>
       <Nav />
-      <main className="ml-56 max-w-4xl p-8">
+      <main className="ml-56 p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Platform Staff</h1>
           <Button type={showForm ? "default" : "primary"} onClick={() => setShowForm((v) => !v)}>

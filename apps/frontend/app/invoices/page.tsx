@@ -5,6 +5,8 @@ import { Alert, Button, Card, Popconfirm, Select, Table, Tag, type TableColumnsT
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
+import RoleTag, { roleLabel } from "@/components/RoleTag";
+import { DeleteAction } from "@/components/RowActions";
 import InvoiceCyclePicker from "@/components/InvoiceCyclePicker";
 import {
   deleteInvoice,
@@ -130,7 +132,7 @@ export default function InvoicesPage() {
   const statusTag = (status: string) => <Tag color={status === "PAID" ? "green" : "orange"}>{status}</Tag>;
 
   const myColumns: TableColumnsType<InvoiceDto> = [
-    { title: "Role", dataIndex: "role" },
+    { title: "Role", dataIndex: "role", render: (r: string) => <RoleTag role={r} /> },
     { title: "Period", key: "period", render: (_, inv) => `${inv.periodStart} – ${inv.periodEnd}` },
     { title: "Total", dataIndex: "totalAmount", render: (v: number) => `$${v.toFixed(2)}` },
     { title: "Status", dataIndex: "status", render: statusTag },
@@ -142,18 +144,14 @@ export default function InvoicesPage() {
     {
       key: "actions",
       render: (_, inv) => (
-        <div className="flex gap-2">
+        <div className="flex items-center gap-1">
           {inv.status === "UNPAID" && (
             <Popconfirm title="Mark this invoice as paid?" onConfirm={() => handleMarkPaid(inv.id)}>
               <Button size="small">Mark paid</Button>
             </Popconfirm>
           )}
           {inv.deletable && (
-            <Popconfirm title="Delete this invoice? You can re-generate it for the same cycle." onConfirm={() => handleDelete(inv.id)}>
-              <Button size="small" danger>
-                Delete
-              </Button>
-            </Popconfirm>
+            <DeleteAction confirmTitle="Delete this invoice? You can re-generate it for the same cycle." onConfirm={() => handleDelete(inv.id)} />
           )}
         </div>
       ),
@@ -163,7 +161,7 @@ export default function InvoicesPage() {
   return (
     <>
       <Nav />
-      <main className="ml-56 max-w-4xl p-8">
+      <main className="ml-56 p-8">
         <h1 className="text-2xl font-semibold">My Invoices</h1>
 
         {myRoles.length > 0 && (
@@ -175,8 +173,8 @@ export default function InvoicesPage() {
                   <Select
                     value={role}
                     onChange={(v) => setRole(v)}
-                    options={myRoles.map((r) => ({ value: r, label: r }))}
-                    className="mt-1 block w-44"
+                    options={myRoles.map((r) => ({ value: r, label: roleLabel(r) }))}
+                    className="mt-1 flex w-44"
                   />
                 </label>
               )}
@@ -230,7 +228,7 @@ export default function InvoicesPage() {
                       if (!roles.includes(genRole) && roles[0]) setGenRole(roles[0]);
                     }}
                     options={userOptions(users)}
-                    className="mt-1 block w-full"
+                    className="mt-1 flex w-full"
                   />
                 </label>
                 <label className="flex-1">
@@ -238,8 +236,8 @@ export default function InvoicesPage() {
                   <Select
                     value={availableRoles.includes(genRole) ? genRole : undefined}
                     onChange={(v) => setGenRole(v)}
-                    options={availableRoles.map((r) => ({ value: r, label: r }))}
-                    className="mt-1 block w-full"
+                    options={availableRoles.map((r) => ({ value: r, label: roleLabel(r) }))}
+                    className="mt-1 flex w-full"
                   />
                 </label>
               </div>

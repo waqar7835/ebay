@@ -19,6 +19,7 @@ import {
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
+import { EditAction } from "@/components/RowActions";
 import DateField from "@/components/DateField";
 import {
   computeCurrentCycle,
@@ -261,9 +262,7 @@ export default function OrdersPage() {
           {
             key: "actions",
             render: (_: unknown, order: OrderDto) => (
-              <Button size="small" onClick={() => router.push(`/orders/${order.id}/edit`)}>
-                Edit
-              </Button>
+              <EditAction onClick={() => router.push(`/orders/${order.id}/edit`)} />
             ),
           },
         ]
@@ -273,7 +272,7 @@ export default function OrdersPage() {
   return (
     <>
       <Nav />
-      <main className="ml-56 max-w-6xl p-8">
+      <main className="ml-56 p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Orders</h1>
           <Button type="primary" onClick={() => router.push("/orders/new")}>
@@ -296,7 +295,7 @@ export default function OrdersPage() {
                     value={filter.accountHolderId || undefined}
                     onChange={(v) => setFilter((f) => ({ ...f, accountHolderId: v ?? "" }))}
                     options={userOptions(accountHolders)}
-                    className="mt-1 block w-56"
+                    className="mt-1 flex w-56"
                   />
                 </label>
                 <label>
@@ -308,7 +307,7 @@ export default function OrdersPage() {
                     value={filter.threePlId || undefined}
                     onChange={(v) => setFilter((f) => ({ ...f, threePlId: v ?? "" }))}
                     options={userOptions(threePls)}
-                    className="mt-1 block w-56"
+                    className="mt-1 flex w-56"
                   />
                 </label>
               </>
@@ -321,16 +320,16 @@ export default function OrdersPage() {
                 value={filter.status || undefined}
                 onChange={(v) => setFilter((f) => ({ ...f, status: v ?? "" }))}
                 options={STATUSES.map((s) => ({ value: s, label: s }))}
-                className="mt-1 block w-36"
+                className="mt-1 flex w-36"
               />
             </label>
             <label>
               Start date
-              <DateField value={filter.startDate} onChange={(v) => setFilter((f) => ({ ...f, startDate: v }))} className="mt-1 block" />
+              <DateField value={filter.startDate} onChange={(v) => setFilter((f) => ({ ...f, startDate: v }))} className="mt-1 flex" />
             </label>
             <label>
               End date
-              <DateField value={filter.endDate} onChange={(v) => setFilter((f) => ({ ...f, endDate: v }))} className="mt-1 block" />
+              <DateField value={filter.endDate} onChange={(v) => setFilter((f) => ({ ...f, endDate: v }))} className="mt-1 flex" />
             </label>
           </div>
         </Card>

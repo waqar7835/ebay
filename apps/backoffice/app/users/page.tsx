@@ -5,6 +5,8 @@ import { Alert, Button, Card, Checkbox, Form, Input, InputNumber, Select, Table,
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
+import RoleTag from "@/components/RoleTag";
+import { ToggleStatusAction } from "@/components/RowActions";
 import { getSelectedCompanyId, getStoredUser, getToken, inviteUser, listUsers, setUserStatus } from "@/lib/api";
 
 const ALL_ROLES: Role[] = ["STAFF", "ACCOUNT_HOLDER", "STOCK_OWNER", "THREE_PL"] as Role[];
@@ -156,7 +158,7 @@ export default function UsersPage() {
   const columns: TableColumnsType<UserRow> = [
     { title: "Name", dataIndex: "name", render: (v) => v ?? "—", sorter: (a, b) => (a.name ?? "").localeCompare(b.name ?? "") },
     { title: "Email", dataIndex: "email", sorter: (a, b) => a.email.localeCompare(b.email) },
-    { title: "Roles", dataIndex: "roles", render: (rs: Role[]) => rs.map((r) => <Tag key={r}>{r}</Tag>) },
+    { title: "Roles", dataIndex: "roles", render: (rs: Role[]) => rs.map((r) => <RoleTag key={r} role={r} />) },
     {
       title: "Status",
       dataIndex: "status",
@@ -165,9 +167,7 @@ export default function UsersPage() {
     {
       key: "actions",
       render: (_, u) => (
-        <Button size="small" danger={u.status === "ACTIVE"} onClick={() => toggleStatus(u)}>
-          {u.status === "ACTIVE" ? "Disable" : "Enable"}
-        </Button>
+        <ToggleStatusAction active={u.status === "ACTIVE"} name={u.name ?? u.email} onConfirm={() => toggleStatus(u)} />
       ),
     },
   ];
@@ -175,7 +175,7 @@ export default function UsersPage() {
   return (
     <>
       <Nav />
-      <main className="ml-56 max-w-4xl p-8">
+      <main className="ml-56 p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Users</h1>
           <Button type={showForm ? "default" : "primary"} onClick={() => setShowForm((v) => !v)} disabled={needsCompanySelection}>

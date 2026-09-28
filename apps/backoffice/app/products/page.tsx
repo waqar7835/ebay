@@ -5,6 +5,7 @@ import { Alert, Badge, Button, Card, Form, Image, Input, InputNumber, Select, Ta
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
+import { EditAction } from "@/components/RowActions";
 import ProductImagesUpload, { productImageItems, type ProductImageItem } from "@/components/ProductImagesUpload";
 import { createProduct, getToken, listProducts, listUsers, mediaUrl, setProductImages, updateProduct } from "@/lib/api";
 import { searchable, userOptions } from "@/lib/selectOptions";
@@ -166,9 +167,7 @@ export default function ProductsPage() {
     {
       key: "actions",
       render: (_, p) => (
-        <Button size="small" onClick={() => startEdit(p)}>
-          Edit
-        </Button>
+        <EditAction onClick={() => startEdit(p)} />
       ),
     },
   ];
@@ -176,7 +175,7 @@ export default function ProductsPage() {
   return (
     <>
       <Nav />
-      <main className="ml-56 max-w-5xl p-8">
+      <main className="ml-56 p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Products</h1>
           <Button

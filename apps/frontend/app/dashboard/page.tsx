@@ -79,16 +79,16 @@ function FilterBar({ value, onChange }: { value: FilterState; onChange: (next: F
           value={value.status || undefined}
           onChange={(v) => onChange({ ...value, status: v ?? "" })}
           options={STATUS_OPTIONS.map((s) => ({ value: s, label: s }))}
-          className="mt-1 block w-36"
+          className="mt-1 flex w-36"
         />
       </label>
       <label>
         Start date
-        <DateField value={value.startDate} onChange={(v) => onChange({ ...value, startDate: v })} className="mt-1 block" />
+        <DateField value={value.startDate} onChange={(v) => onChange({ ...value, startDate: v })} className="mt-1 flex" />
       </label>
       <label>
         End date
-        <DateField value={value.endDate} onChange={(v) => onChange({ ...value, endDate: v })} className="mt-1 block" />
+        <DateField value={value.endDate} onChange={(v) => onChange({ ...value, endDate: v })} className="mt-1 flex" />
       </label>
     </div>
   );
@@ -306,7 +306,7 @@ export default function DashboardPage() {
   return (
     <>
       <Nav />
-      <main className="ml-56 max-w-5xl p-8">
+      <main className="ml-56 p-8">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
         {error && <Alert type="error" title={error} className="mt-4" showIcon />}
 

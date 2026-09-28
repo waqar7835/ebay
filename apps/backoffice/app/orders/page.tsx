@@ -17,6 +17,7 @@ import {
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
+import { EditAction } from "@/components/RowActions";
 import DateField from "@/components/DateField";
 import {
   mediaUrl,
@@ -231,9 +232,7 @@ export default function OrdersPage() {
     {
       key: "actions",
       render: (_, order) => (
-        <Button size="small" onClick={() => openEditForm(order)}>
-          Edit
-        </Button>
+        <EditAction onClick={() => openEditForm(order)} />
       ),
     },
   ];
@@ -241,7 +240,7 @@ export default function OrdersPage() {
   return (
     <>
       <Nav />
-      <main className="ml-56 max-w-6xl p-8">
+      <main className="ml-56 p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Orders</h1>
           <Button type={showForm ? "default" : "primary"} onClick={() => (showForm ? closeForm() : openCreateForm())}>

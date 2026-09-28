@@ -4,6 +4,7 @@ import type { OrderDto, ProductDto, UserDto } from "@ebay-order-management/share
 import { Alert, Avatar, Button, Card, Form, Input, InputNumber, Select } from "antd";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import BackLink from "@/components/BackLink";
 import Nav from "@/components/Nav";
 import DateField from "@/components/DateField";
 import FileUpload from "@/components/FileUpload";
@@ -103,10 +104,8 @@ export default function EditOrderPage() {
     <>
       <Nav />
       <main className="ml-56 max-w-3xl p-8">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Edit order</h1>
-          <Button onClick={() => router.push("/orders")}>Back to orders</Button>
-        </div>
+        <BackLink href="/orders" label="Orders" />
+        <h1 className="text-2xl font-semibold">Edit order</h1>
 
         {loadError && <Alert type="error" title={loadError} className="mt-4" showIcon />}
 

@@ -37,7 +37,7 @@ export default function SuperAdminPage() {
   return (
     <>
       <Nav />
-      <main className="ml-56 max-w-5xl p-8">
+      <main className="ml-56 p-8">
         <h1 className="text-2xl font-semibold">Super Admin</h1>
         {error && <Alert type="error" title={error} className="mt-4" showIcon />}
 

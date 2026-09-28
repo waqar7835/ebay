@@ -4,6 +4,7 @@ import type { ProductFulfillmentType, Role, StockOwnerPayoutMode } from "@ebay-o
 import { Alert, Button, Card, Checkbox, Form, Input, InputNumber, Select, Tabs } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import BackLink from "@/components/BackLink";
 import Nav from "@/components/Nav";
 import { getToken, inviteUser } from "@/lib/api";
 
@@ -129,10 +130,8 @@ export default function InviteUserPage() {
     <>
       <Nav />
       <main className="ml-56 max-w-3xl p-8">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Invite user</h1>
-          <Button onClick={() => router.push("/users")}>Back to users</Button>
-        </div>
+        <BackLink href="/users" label="Users" />
+        <h1 className="text-2xl font-semibold">Invite user</h1>
 
         <Tabs
           className="mt-6"

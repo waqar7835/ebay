@@ -73,83 +73,94 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
   }
 
   return (
-    <Card className="mt-6">
-      <Form<ProductFormValues>
-        form={form}
-        layout="vertical"
-        onFinish={handleFinish}
-        initialValues={{
-          sku: initial?.sku ?? "",
-          title: initial?.title ?? "",
-          size: initial?.size ?? "",
-          fulfillmentType: initial?.fulfillmentType ?? ("STOCK" as ProductFulfillmentType),
-          stockOwnerId: initial?.stockOwnerId ?? undefined,
-          threePlId: initial?.threePlId ?? undefined,
-          stockOwnerCost: initial?.stockOwnerCost ?? 0,
-          buyPrice: initial?.buyPrice ?? 0,
-          sellPrice: initial?.sellPrice ?? 0,
-          stockQuantity: initial?.stockQuantity ?? 0,
-        }}
-      >
-        <div className="flex gap-3">
-          <Form.Item name="sku" label="SKU" rules={[{ required: true }]} className="flex-1">
-            <Input />
-          </Form.Item>
-          <Form.Item name="title" label="Title" rules={[{ required: true }]} className="flex-1">
-            <Input />
-          </Form.Item>
-          <Form.Item name="size" label="Size (optional)" className="w-40">
-            <Input />
-          </Form.Item>
+    <Form<ProductFormValues>
+      form={form}
+      layout="vertical"
+      onFinish={handleFinish}
+      className="mt-6"
+      initialValues={{
+        sku: initial?.sku ?? "",
+        title: initial?.title ?? "",
+        size: initial?.size ?? "",
+        fulfillmentType: initial?.fulfillmentType ?? ("STOCK" as ProductFulfillmentType),
+        stockOwnerId: initial?.stockOwnerId ?? undefined,
+        threePlId: initial?.threePlId ?? undefined,
+        stockOwnerCost: initial?.stockOwnerCost ?? 0,
+        buyPrice: initial?.buyPrice ?? 0,
+        sellPrice: initial?.sellPrice ?? 0,
+        stockQuantity: initial?.stockQuantity ?? 0,
+      }}
+    >
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="flex flex-col gap-6 lg:col-span-2">
+          <Card title="Product details">
+            <div className="grid gap-x-4 sm:grid-cols-4">
+              <Form.Item name="sku" label="SKU" rules={[{ required: true }]}>
+                <Input />
+              </Form.Item>
+              <Form.Item name="title" label="Title" rules={[{ required: true }]} className="sm:col-span-2">
+                <Input />
+              </Form.Item>
+              <Form.Item name="size" label="Size">
+                <Input placeholder="e.g. 8cm x 5cm" />
+              </Form.Item>
+            </div>
+            <Form.Item name="fulfillmentType" label="Fulfillment type" className="mb-0">
+              <Select
+                options={[
+                  { value: "STOCK", label: "Stock — held at a 3PL warehouse" },
+                  { value: "DROPSHIP", label: "Dropship — no 3PL" },
+                ]}
+              />
+            </Form.Item>
+          </Card>
+
+          {isStock && (
+            <Card title="Stock Owner & warehouse">
+              <div className="grid gap-x-4 sm:grid-cols-2">
+                <Form.Item name="stockOwnerId" label="Stock Owner" rules={[{ required: true, message: "Select a Stock Owner" }]} className="mb-0">
+                  <Select showSearch={searchable} placeholder="Select…" options={userOptions(stockOwners)} />
+                </Form.Item>
+                <Form.Item name="threePlId" label="3PL warehouse" rules={[{ required: true, message: "Select a 3PL warehouse" }]} className="mb-0">
+                  <Select showSearch={searchable} placeholder="Select…" options={userOptions(threePls)} />
+                </Form.Item>
+              </div>
+            </Card>
+          )}
+
+          {isStock && (
+            <Card title="Pricing & stock">
+              <div className="grid gap-x-4 sm:grid-cols-2 xl:grid-cols-4">
+                <Form.Item name="stockOwnerCost" label="Stock Owner cost" tooltip="What the item costs the Stock Owner" className="mb-0">
+                  <InputNumber prefix="$" min={0} step={0.01} className="w-full" />
+                </Form.Item>
+                <Form.Item name="buyPrice" label="Buy price" tooltip="Paid to the Stock Owner per unit sold" className="mb-0">
+                  <InputNumber prefix="$" min={0} step={0.01} className="w-full" />
+                </Form.Item>
+                <Form.Item name="sellPrice" label="Sell price" tooltip="Charged to the Account Holder per unit" className="mb-0">
+                  <InputNumber prefix="$" min={0} step={0.01} className="w-full" />
+                </Form.Item>
+                <Form.Item name="stockQuantity" label="Stock quantity" className="mb-0">
+                  <InputNumber min={0} precision={0} className="w-full" />
+                </Form.Item>
+              </div>
+            </Card>
+          )}
         </div>
 
-        <Form.Item name="fulfillmentType" label="Fulfillment type">
-          <Select
-            options={[
-              { value: "STOCK", label: "Stock" },
-              { value: "DROPSHIP", label: "Dropship" },
-            ]}
-          />
-        </Form.Item>
+        <div className="flex flex-col gap-6">
+          <Card title="Images">
+            <ProductImagesUpload value={images} onChange={setImages} disabled={submitting} />
+          </Card>
 
-        {isStock && (
-          <Form.Item name="stockOwnerId" label="Stock Owner" rules={[{ required: true, message: "Select a Stock Owner" }]}>
-            <Select showSearch={searchable} placeholder="Select…" options={userOptions(stockOwners)} />
-          </Form.Item>
-        )}
-
-        {isStock && (
-          <Form.Item name="threePlId" label="3PL warehouse" rules={[{ required: true, message: "Select a 3PL warehouse" }]}>
-            <Select showSearch={searchable} placeholder="Select…" options={userOptions(threePls)} />
-          </Form.Item>
-        )}
-
-        {isStock && (
-          <div className="flex gap-3">
-            <Form.Item name="stockOwnerCost" label="Stock Owner cost" className="flex-1">
-              <InputNumber prefix="$" min={0} step={0.01} className="w-full" />
-            </Form.Item>
-            <Form.Item name="buyPrice" label="Buy price (paid to Stock Owner)" className="flex-1">
-              <InputNumber prefix="$" min={0} step={0.01} className="w-full" />
-            </Form.Item>
-            <Form.Item name="sellPrice" label="Sell price (charged to Account Holder)" className="flex-1">
-              <InputNumber prefix="$" min={0} step={0.01} className="w-full" />
-            </Form.Item>
-            <Form.Item name="stockQuantity" label="Stock quantity" className="flex-1">
-              <InputNumber min={0} precision={0} className="w-full" />
-            </Form.Item>
-          </div>
-        )}
-
-        <Form.Item label="Product images (optional)">
-          <ProductImagesUpload value={images} onChange={setImages} disabled={submitting} />
-        </Form.Item>
-
-        {formError && <Alert type="error" title={formError} className="mb-4" showIcon />}
-        <Button type="primary" htmlType="submit" loading={submitting}>
-          {submitting ? submittingLabel : submitLabel}
-        </Button>
-      </Form>
-    </Card>
+          <Card>
+            {formError && <Alert type="error" title={formError} className="mb-4" showIcon />}
+            <Button type="primary" htmlType="submit" loading={submitting} block size="large">
+              {submitting ? submittingLabel : submitLabel}
+            </Button>
+          </Card>
+        </div>
+      </div>
+    </Form>
   );
 }

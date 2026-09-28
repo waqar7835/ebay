@@ -5,6 +5,7 @@ import { Alert, Badge, Button, Image, Table, type TableColumnsType } from "antd"
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
+import { EditAction } from "@/components/RowActions";
 import { getToken, listProducts, mediaUrl } from "@/lib/api";
 
 interface ProductRow {
@@ -71,9 +72,7 @@ export default function ProductsPage() {
     {
       key: "actions",
       render: (_, p) => (
-        <Button size="small" onClick={() => router.push(`/products/${p.id}/edit`)}>
-          Edit
-        </Button>
+        <EditAction onClick={() => router.push(`/products/${p.id}/edit`)} />
       ),
     },
   ];
@@ -81,7 +80,7 @@ export default function ProductsPage() {
   return (
     <>
       <Nav />
-      <main className="ml-56 max-w-5xl p-8">
+      <main className="ml-56 p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Products</h1>
           <Button type="primary" onClick={() => router.push("/products/add")}>

@@ -1,10 +1,12 @@
 "use client";
 
 import type { ProductFulfillmentType, StockOwnerPayoutMode, UserDto } from "@ebay-order-management/shared";
-import { Alert, Button, Card, Checkbox, Form, Input, InputNumber, Select, Tag } from "antd";
+import { Alert, Button, Card, Checkbox, Form, Input, InputNumber, Select } from "antd";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import BackLink from "@/components/BackLink";
 import Nav from "@/components/Nav";
+import RoleTag from "@/components/RoleTag";
 import {
   getToken,
   getUser,
@@ -153,10 +155,8 @@ export default function EditUserPage() {
     <>
       <Nav />
       <main className="ml-56 max-w-2xl p-8">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Edit user</h1>
-          <Button onClick={() => router.push("/users")}>Back to users</Button>
-        </div>
+        <BackLink href="/users" label="Users" />
+        <h1 className="text-2xl font-semibold">Edit user</h1>
 
         {loadError && <Alert type="error" title={loadError} className="mt-4" showIcon />}
 
@@ -175,7 +175,7 @@ export default function EditUserPage() {
               <p className="mb-4 text-gray-600">
                 Roles:{" "}
                 {user.roles.map((r) => (
-                  <Tag key={r}>{r}</Tag>
+                  <RoleTag key={r} role={r} />
                 ))}
               </p>
 

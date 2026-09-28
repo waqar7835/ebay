@@ -55,16 +55,16 @@ export default function InvoiceCyclePicker({ userId, role, value, onChange, relo
             disabled: !!c.invoiceId,
             label: `${c.isCurrent ? "Current cycle" : `${c.periodStart} – ${c.periodEnd}`}${c.invoiceId ? " (invoiced)" : ""}`,
           }))}
-          className="mt-1 block w-full"
+          className="mt-1 flex w-full"
         />
       </label>
       <label>
         Start date
-        <DateField value={selected?.periodStart} disabled className="mt-1 block" />
+        <DateField value={selected?.periodStart} disabled className="mt-1 flex" />
       </label>
       <label>
         End date
-        <DateField value={selected?.periodEnd} disabled className="mt-1 block" />
+        <DateField value={selected?.periodEnd} disabled className="mt-1 flex" />
       </label>
     </div>
   );

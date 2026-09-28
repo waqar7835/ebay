@@ -5,6 +5,8 @@ import { Alert, Button, Space, Table, Tag, type TableColumnsType } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
+import RoleTag from "@/components/RoleTag";
+import { EditAction, ToggleStatusAction } from "@/components/RowActions";
 import { getToken, listUsers, setUserStatus } from "@/lib/api";
 
 interface UserRow {
@@ -44,7 +46,7 @@ export default function UsersPage() {
   const columns: TableColumnsType<UserRow> = [
     { title: "Name", dataIndex: "name", render: (v) => v ?? "—", sorter: (a, b) => (a.name ?? "").localeCompare(b.name ?? "") },
     { title: "Email", dataIndex: "email", sorter: (a, b) => a.email.localeCompare(b.email) },
-    { title: "Roles", dataIndex: "roles", render: (roles: Role[]) => roles.map((r) => <Tag key={r}>{r}</Tag>) },
+    { title: "Roles", dataIndex: "roles", render: (roles: Role[]) => roles.map((r) => <RoleTag key={r} role={r} />) },
     {
       title: "Status",
       dataIndex: "status",
@@ -53,14 +55,10 @@ export default function UsersPage() {
     {
       key: "actions",
       render: (_, u) => (
-        <Space size="small">
-          <Button size="small" onClick={() => router.push(`/users/${u.id}/edit`)}>
-            Edit
-          </Button>
+        <Space size={2}>
+          <EditAction onClick={() => router.push(`/users/${u.id}/edit`)} />
           {!u.roles.includes("ADMIN" as Role) && (
-            <Button size="small" danger={u.status === "ACTIVE"} onClick={() => toggleStatus(u)}>
-              {u.status === "ACTIVE" ? "Disable" : "Enable"}
-            </Button>
+            <ToggleStatusAction active={u.status === "ACTIVE"} name={u.name ?? u.email} onConfirm={() => toggleStatus(u)} />
           )}
         </Space>
       ),
@@ -70,7 +68,7 @@ export default function UsersPage() {
   return (
     <>
       <Nav />
-      <main className="ml-56 max-w-4xl p-8">
+      <main className="ml-56 p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Users</h1>
           <Button type="primary" onClick={() => router.push("/users/invite")}>

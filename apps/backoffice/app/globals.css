@@ -37,6 +37,7 @@ body {
 
 .ant-btn.ant-btn-color-primary.ant-btn-variant-solid:not(:disabled) {
   background: linear-gradient(90deg, #6e77d3, #937adc, #cc91d6);
+  background-origin: border-box;
   border-color: transparent;
 }
 .ant-btn.ant-btn-color-primary.ant-btn-variant-solid:not(:disabled):hover {

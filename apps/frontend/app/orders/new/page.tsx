@@ -4,6 +4,7 @@ import type { ProductDto, UserDto } from "@ebay-order-management/shared";
 import { Alert, Avatar, Button, Card, Form, Input, InputNumber, Select } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import BackLink from "@/components/BackLink";
 import Nav from "@/components/Nav";
 import DateField from "@/components/DateField";
 import FileUpload from "@/components/FileUpload";
@@ -89,10 +90,8 @@ export default function NewOrderPage() {
     <>
       <Nav />
       <main className="ml-56 max-w-3xl p-8">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">New order</h1>
-          <Button onClick={() => router.push("/orders")}>Back to orders</Button>
-        </div>
+        <BackLink href="/orders" label="Orders" />
+        <h1 className="text-2xl font-semibold">New order</h1>
 
         <Card className="mt-6">
           <Form<NewOrderValues>
