@@ -4,6 +4,7 @@ import { Op } from "sequelize";
 import { InvoiceStatus, OrderStatus, Role } from "@ebay-order-management/shared";
 import { Company } from "../database/models/company.model";
 import { Order } from "../database/models/order.model";
+import { OrderItem } from "../database/models/order-item.model";
 import { Invoice } from "../database/models/invoice.model";
 import { InvoiceLineItem } from "../database/models/invoice-line-item.model";
 import { AccountHolderProfile } from "../database/models/account-holder-profile.model";
@@ -24,6 +25,7 @@ export class InvoicesService {
   constructor(
     @InjectModel(Company) private readonly companyModel: typeof Company,
     @InjectModel(Order) private readonly orderModel: typeof Order,
+    @InjectModel(OrderItem) private readonly orderItemModel: typeof OrderItem,
     @InjectModel(Invoice) private readonly invoiceModel: typeof Invoice,
     @InjectModel(InvoiceLineItem) private readonly lineItemModel: typeof InvoiceLineItem,
     @InjectModel(AccountHolderProfile) private readonly accountHolderProfileModel: typeof AccountHolderProfile,
@@ -202,7 +204,11 @@ export class InvoicesService {
     };
 
     if (role === Role.ACCOUNT_HOLDER) where.accountHolderId = userId;
-    else if (role === Role.STOCK_OWNER) where.stockOwnerId = userId;
+    else if (role === Role.STOCK_OWNER) {
+      // Any order carrying at least one of their items; the line only counts those items.
+      const items = await this.orderItemModel.findAll({ attributes: ["orderId"], where: { stockOwnerId: userId } });
+      where.id = [...new Set(items.map((i) => i.orderId))];
+    }
     else if (role === Role.THREE_PL) where.threePlId = userId;
     // STAFF: no extra filter — every company order counts toward their revenue share.
 
@@ -228,7 +234,7 @@ export class InvoicesService {
     }
 
     return orders.map((order) => {
-      const f = this.finance.compute(order);
+      const f = this.finance.compute(order, role === Role.STOCK_OWNER ? userId : undefined);
       if (role === Role.ACCOUNT_HOLDER) {
         return {
           orderId: order.id,
@@ -242,7 +248,7 @@ export class InvoicesService {
       if (role === Role.STOCK_OWNER) {
         return {
           orderId: order.id,
-          description: `Order ${order.ebayOrderRef} — ${order.quantity} unit(s)`,
+          description: `Order ${order.ebayOrderRef} — ${unitsFor(order, userId)} unit(s)`,
           grossAmount: f.stockOwnerGross,
           deductionAmount: f.stockOwnerShareCut,
           netAmount: f.stockOwnerNet,
@@ -322,6 +328,11 @@ function resolveCycle(anchorDay: number, periodStart?: string): InvoiceCycle {
 function isCurrentOrLastCycle(anchorDay: number, today: Date, periodStart: string): boolean {
   const [, previous] = recentCycles(anchorDay, today, 2);
   return periodStart >= previous.periodStart;
+}
+
+/** Units of this Stock Owner's products on the order. */
+function unitsFor(order: Order, stockOwnerId: string): number {
+  return order.items.filter((i) => i.stockOwnerId === stockOwnerId).reduce((sum, i) => sum + i.quantity, 0);
 }
 
 function round2(value: number): number {

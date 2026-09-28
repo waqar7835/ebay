@@ -5,6 +5,7 @@ import type {
   InvoiceCycleDto,
   InvoiceDto,
   OrderDto,
+  OrderItemInput,
   OrderStatus,
   ProductDto,
   ProductFulfillmentType,
@@ -209,8 +210,8 @@ export function listOrders() {
 
 export interface CreateOrderPayload {
   accountHolderId: string;
-  productId: string;
-  quantity: number;
+  /** One or more products. Several only for STOCK products at the same 3PL; DROPSHIP orders have one. */
+  items: OrderItemInput[];
   threePlId?: string;
   orderDate?: string;
   ebayOrderRef: string;
@@ -221,7 +222,7 @@ export interface CreateOrderPayload {
   supplierUrl?: string;
 }
 
-export type UpdateOrderPayload = Partial<Omit<CreateOrderPayload, "quantity">>;
+export type UpdateOrderPayload = Partial<CreateOrderPayload>;
 
 export function createOrder(payload: CreateOrderPayload) {
   return request<OrderDto>("/orders", { method: "POST", body: JSON.stringify(payload) });

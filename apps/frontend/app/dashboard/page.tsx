@@ -2,7 +2,7 @@
 
 import type { OrderStatus, ProductDto } from "@ebay-order-management/shared";
 import { PrinterOutlined } from "@ant-design/icons";
-import { Alert, Avatar, Button, Card, Result, Select, Space, Statistic, Table, Tag, Tooltip as AntTooltip } from "antd";
+import { Alert, Button, Card, Result, Select, Statistic, Table, Tag, Tooltip as AntTooltip } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -22,10 +22,12 @@ import {
 } from "recharts";
 import Nav from "@/components/Nav";
 import DateField from "@/components/DateField";
+import ProductThumb from "@/components/ProductThumb";
 import {
   AccountHolderDashboard,
   DailyPoint,
   DashboardOrderFilters,
+  DashboardOrderItem,
   StaffDashboard,
   StockOwnerDashboard,
   ThreePlDashboard,
@@ -94,14 +96,23 @@ function FilterBar({ value, onChange }: { value: FilterState; onChange: (next: F
   );
 }
 
-function ProductCell({ product }: { product: ProductDto | undefined }) {
+/** Every product on an order, each with a readable thumbnail (click to preview) and its quantity when there are several. */
+function ProductsCell({ items, productById }: { items: DashboardOrderItem[]; productById: Map<string, ProductDto> }) {
   return (
-    <Space size="small">
-      <Avatar shape="square" size={32} src={product?.imageUrl ? mediaUrl(product.imageUrl) : undefined}>
-        —
-      </Avatar>
-      <span>{product?.title ?? "—"}</span>
-    </Space>
+    <div className="flex flex-col gap-2">
+      {items.map((item) => {
+        const product = productById.get(item.productId);
+        return (
+          <div key={item.productId} className="flex items-center gap-3">
+            <ProductThumb product={product} size={44} />
+            <span>
+              {product?.title ?? "—"}
+              {items.length > 1 && <span className="text-slate-500"> ×{item.quantity}</span>}
+            </span>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -285,7 +296,11 @@ export default function DashboardPage() {
     }
   }
 
-  const productColumn = { title: "Product", key: "product", render: (_: unknown, o: { productId: string }) => <ProductCell product={productById.get(o.productId)} /> };
+  const productColumn = {
+    title: "Product",
+    key: "product",
+    render: (_: unknown, o: { items: DashboardOrderItem[] }) => <ProductsCell items={o.items} productById={productById} />,
+  };
   const money = (v: number) => `$${v.toFixed(2)}`;
 
   if (blocked) {
@@ -386,7 +401,7 @@ export default function DashboardPage() {
                     { title: "Status", dataIndex: "status" },
                     { title: "Days", dataIndex: "daysInStatus", render: (v: number) => <span className="font-medium text-red-700">{v}</span> },
                     { title: "Account Holder", dataIndex: "accountHolderName" },
-                    { title: "Stock Owner", dataIndex: "stockOwnerName" },
+                    { title: "Stock Owner", dataIndex: "stockOwnerName", render: (v: string | null) => v ?? "—" },
                     { title: "3PL", dataIndex: "threePlName", render: (v: string | null) => v ?? "—" },
                   ]}
                 />

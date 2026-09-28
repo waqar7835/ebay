@@ -4,10 +4,8 @@ import { Role, type OrderDto, type OrderStatus, type ProductDto } from "@ebay-or
 import { PrinterOutlined } from "@ant-design/icons";
 import {
   Alert,
-  Avatar,
   Button,
   Card,
-  Image,
   InputNumber,
   Select,
   Space,
@@ -20,6 +18,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import { EditAction } from "@/components/RowActions";
+import ProductThumb from "@/components/ProductThumb";
 import DateField from "@/components/DateField";
 import {
   computeCurrentCycle,
@@ -147,29 +146,38 @@ export default function OrdersPage() {
   }
 
   const money = (v: number | null | undefined, empty = "—") => (v != null ? `$${v.toFixed(2)}` : empty);
+  // Buy price × qty across the order's items; null while a dropship item still awaits its buy price.
+  const buyTotal = (o: OrderDto) =>
+    o.items.some((i) => i.buyPriceSnapshot == null) ? null : o.items.reduce((sum, i) => sum + i.buyPriceSnapshot! * i.quantity, 0);
 
   const columns: TableColumnsType<OrderDto> = [
     {
-      title: "Image",
-      key: "image",
-      render: (_, order) => {
-        const product = productById.get(order.productId);
-        return product?.imageUrl ? (
-          <Image src={mediaUrl(product.imageUrl)} alt={product.title} width={40} height={40} className="rounded object-cover" />
-        ) : (
-          <Avatar shape="square" size={40}>
-            —
-          </Avatar>
-        );
-      },
+      title: "Products",
+      key: "products",
+      render: (_, order) => (
+        <div className="flex min-w-64 flex-col gap-2">
+          {order.items.map((item) => {
+            const product = productById.get(item.productId);
+            return (
+              <div key={item.id} className="flex items-center gap-3">
+                <ProductThumb product={product} size={52} />
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{product?.title ?? "—"}</div>
+                  <div className="text-xs text-slate-500">
+                    {product?.sku ?? "—"} · ×{item.quantity}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ),
     },
-    { title: "SKU", key: "sku", render: (_, o) => productById.get(o.productId)?.sku ?? "—" },
-    { title: "Product", key: "product", render: (_, o) => productById.get(o.productId)?.title ?? "—" },
     {
       title: "Source",
       key: "source",
       render: (_, o) => {
-        const product = productById.get(o.productId);
+        const product = productById.get(o.items[0]?.productId ?? "");
         return product ? (SOURCE_LABEL[product.fulfillmentType] ?? product.fulfillmentType) : "—";
       },
     },
@@ -179,11 +187,11 @@ export default function OrdersPage() {
     { title: "Date", dataIndex: "orderDate", sorter: (a, b) => a.orderDate.localeCompare(b.orderDate) },
     { title: "Order #", dataIndex: "ebayOrderRef" },
     { title: "Tracking #", dataIndex: "trackingNumber", render: (v) => v ?? "—" },
-    { title: "Qty", dataIndex: "quantity" },
+    { title: "Qty", key: "qty", render: (_, o) => o.items.reduce((sum, i) => sum + i.quantity, 0) },
     ...(!isThreePl ? [{ title: "Payout", key: "payout", render: (_: unknown, o: OrderDto) => money(o.ebayNetProceeds) }] : []),
     ...(isManager
       ? [
-          { title: "Buy Price", key: "buyPrice", render: (_: unknown, o: OrderDto) => money(o.buyPriceSnapshot, "Pending") },
+          { title: "Buy Price", key: "buyPrice", render: (_: unknown, o: OrderDto) => money(buyTotal(o), "Pending") },
           { title: "3PL Fee", key: "threePlFee", render: (_: unknown, o: OrderDto) => money(o.threePlPayoutSnapshot) },
           { title: "Profit", key: "profit", render: (_: unknown, o: OrderDto) => money(o.companyProfit) },
         ]
@@ -194,9 +202,11 @@ export default function OrdersPage() {
             title: "Buy Price",
             key: "buyPrice",
             render: (_: unknown, order: OrderDto) => {
-              const product = productById.get(order.productId);
+              // DROPSHIP orders always have exactly one item.
+              const item = order.items[0];
+              const product = productById.get(item?.productId ?? "");
               if (product?.fulfillmentType !== "DROPSHIP") return "—";
-              if (order.buyPriceSnapshot != null) return money(order.buyPriceSnapshot);
+              if (item.buyPriceSnapshot != null) return money(item.buyPriceSnapshot);
               return (
                 <Space.Compact size="small">
                   <InputNumber

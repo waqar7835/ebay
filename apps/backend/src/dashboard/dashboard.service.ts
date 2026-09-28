@@ -4,6 +4,7 @@ import { Op } from "sequelize";
 import { OrderStatus, Role, UserStatus } from "@ebay-order-management/shared";
 import { Company } from "../database/models/company.model";
 import { Order } from "../database/models/order.model";
+import { OrderItem } from "../database/models/order-item.model";
 import { Product } from "../database/models/product.model";
 import { User } from "../database/models/user.model";
 import { UserRoleAssignment } from "../database/models/user-role.model";
@@ -30,6 +31,7 @@ export class DashboardService {
   constructor(
     @InjectModel(Company) private readonly companyModel: typeof Company,
     @InjectModel(Order) private readonly orderModel: typeof Order,
+    @InjectModel(OrderItem) private readonly orderItemModel: typeof OrderItem,
     @InjectModel(Product) private readonly productModel: typeof Product,
     @InjectModel(AccountHolderProfile) private readonly accountHolderProfileModel: typeof AccountHolderProfile,
     @InjectModel(StockOwnerProfile) private readonly stockOwnerProfileModel: typeof StockOwnerProfile,
@@ -74,8 +76,8 @@ export class DashboardService {
       orderId: order.id,
       ebayOrderRef: order.ebayOrderRef,
       status: order.status,
-      productId: order.productId,
-      quantity: order.quantity,
+      items: itemSummary(order),
+      quantity: totalUnits(order),
       profit: this.finance.compute(order).accountHolderProfit,
       payout: this.finance.compute(order).accountHolderPayout,
     }));
@@ -98,40 +100,44 @@ export class DashboardService {
     if (!profile) throw new NotFoundException("Stock Owner profile not found");
 
     const cycle = await this.cycle(companyId, profile.billingCycleStartDay);
+    // Orders can mix Stock Owners — only this owner's items count here.
+    const ownOrderIds = await this.orderIdsForStockOwner(userId);
+    const ownItems = (o: Order) => o.items.filter((i) => i.stockOwnerId === userId);
+    const ownUnits = (o: Order) => ownItems(o).reduce((sum, i) => sum + i.quantity, 0);
     const cycleOrders = await this.orderModel.findAll({
-      where: { companyId, stockOwnerId: userId, createdAt: { [Op.gte]: cycle.start, [Op.lt]: cycle.end } },
+      where: { companyId, id: ownOrderIds, createdAt: { [Op.gte]: cycle.start, [Op.lt]: cycle.end } },
     });
     const countable = cycleOrders.filter((o) => !NON_COUNTABLE.includes(o.status));
-    const itemsSold = countable.reduce((sum, o) => sum + o.quantity, 0);
-    const totalProfit = round2(countable.reduce((sum, o) => sum + this.finance.compute(o).stockOwnerNet, 0));
-    const itemsSoldByDay = buildDailySeries(cycle.start, cycle.end, countable, (o) => o.quantity);
+    const itemsSold = countable.reduce((sum, o) => sum + ownUnits(o), 0);
+    const totalProfit = round2(countable.reduce((sum, o) => sum + this.finance.compute(o, userId).stockOwnerNet, 0));
+    const itemsSoldByDay = buildDailySeries(cycle.start, cycle.end, countable, ownUnits);
 
     const byProductMap = new Map<string, { productId: string; quantity: number; net: number }>();
-    for (const order of countable) {
-      const entry = byProductMap.get(order.productId) ?? { productId: order.productId, quantity: 0, net: 0 };
-      entry.quantity += order.quantity;
-      entry.net = round2(entry.net + this.finance.compute(order).stockOwnerNet);
-      byProductMap.set(order.productId, entry);
+    for (const item of countable.flatMap(ownItems)) {
+      const entry = byProductMap.get(item.productId) ?? { productId: item.productId, quantity: 0, net: 0 };
+      entry.quantity += item.quantity;
+      entry.net = round2(entry.net + this.finance.stockOwnerItemNet(item));
+      byProductMap.set(item.productId, entry);
     }
     const byProduct = Array.from(byProductMap.values()).sort((a, b) => b.quantity - a.quantity);
 
     const range = resolveRange(filters, cycle);
     const listWhere: Record<string, unknown> = {
       companyId,
-      stockOwnerId: userId,
+      id: ownOrderIds,
       createdAt: { [Op.gte]: range.start, [Op.lt]: range.end },
     };
     if (filters.status) listWhere.status = filters.status;
     const listOrders = await this.orderModel.findAll({ where: listWhere, order: [["createdAt", "DESC"]] });
 
     const rows = listOrders.map((order) => {
-      const f = this.finance.compute(order);
+      const f = this.finance.compute(order, userId);
       return {
         orderId: order.id,
         ebayOrderRef: order.ebayOrderRef,
         status: order.status,
-        productId: order.productId,
-        quantity: order.quantity,
+        items: ownItems(order).map((i) => ({ productId: i.productId, quantity: i.quantity })),
+        quantity: ownUnits(order),
         net: f.stockOwnerNet,
       };
     });
@@ -202,8 +208,8 @@ export class DashboardService {
       orderId: o.id,
       ebayOrderRef: o.ebayOrderRef,
       status: o.status,
-      productId: o.productId,
-      quantity: o.quantity,
+      items: itemSummary(o),
+      quantity: totalUnits(o),
       shippingLabelUrl: o.shippingLabelUrl,
       daysInStatus: daysInStatus(o.statusChangedAt, now),
       stale: isOrderStale(o.status, o.statusChangedAt, cycle.staleOrderDays, now),
@@ -291,10 +297,10 @@ export class DashboardService {
         orderId: o.id,
         ebayOrderRef: o.ebayOrderRef,
         status: o.status,
-        productId: o.productId,
+        items: itemSummary(o),
         daysInStatus: daysInStatus(o.statusChangedAt, now),
         accountHolderName: nameOf(o.accountHolderId),
-        stockOwnerName: o.stockOwnerId ? nameOf(o.stockOwnerId) : null,
+        stockOwnerName: stockOwnerIds(o).map(nameOf).join(", ") || null,
         threePlName: o.threePlId ? nameOf(o.threePlId) : null,
       }));
 
@@ -318,7 +324,7 @@ export class DashboardService {
     };
     for (const o of allOrders) {
       addRow(o.accountHolderId, Role.ACCOUNT_HOLDER, o.status);
-      if (o.stockOwnerId) addRow(o.stockOwnerId, Role.STOCK_OWNER, o.status);
+      for (const stockOwnerId of stockOwnerIds(o)) addRow(stockOwnerId, Role.STOCK_OWNER, o.status);
       if (o.threePlId) addRow(o.threePlId, Role.THREE_PL, o.status);
     }
 
@@ -382,11 +388,29 @@ export class DashboardService {
     };
   }
 
+  /** Orders with at least one item from this Stock Owner. */
+  private async orderIdsForStockOwner(stockOwnerId: string): Promise<string[]> {
+    const items = await this.orderItemModel.findAll({ attributes: ["orderId"], where: { stockOwnerId } });
+    return [...new Set(items.map((i) => i.orderId))];
+  }
+
   private async cycle(companyId: string, billingCycleStartDay: number) {
     const company = await this.companyModel.findByPk(companyId);
     const anchor = billingCycleStartDay ?? company?.billingAnchorDay ?? 1;
     return { ...currentCycle(anchor, new Date()), staleOrderDays: company?.staleOrderDays ?? 3 };
   }
+}
+
+function itemSummary(order: Order): { productId: string; quantity: number }[] {
+  return order.items.map((i) => ({ productId: i.productId, quantity: i.quantity }));
+}
+
+function totalUnits(order: Order): number {
+  return order.items.reduce((sum, i) => sum + i.quantity, 0);
+}
+
+function stockOwnerIds(order: Order): string[] {
+  return [...new Set(order.items.map((i) => i.stockOwnerId).filter((id): id is string => !!id))];
 }
 
 function round2(value: number): number {

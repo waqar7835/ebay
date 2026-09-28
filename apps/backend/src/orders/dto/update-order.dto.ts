@@ -1,18 +1,19 @@
-import { IsDateString, IsInt, IsNumber, IsOptional, IsPositive, IsString, Min } from "class-validator";
+import { Type } from "class-transformer";
+import { ArrayMinSize, IsArray, IsDateString, IsNumber, IsOptional, IsString, Min, ValidateNested } from "class-validator";
+import { OrderItemInputDto } from "./order-item.dto";
 
 export class UpdateOrderDto {
   @IsOptional()
   @IsString()
   accountHolderId?: string;
 
+  /** Replaces the order's items. Unchanged products keep their snapshots; new ones snapshot current rates. */
   @IsOptional()
-  @IsString()
-  productId?: string;
-
-  @IsOptional()
-  @IsInt()
-  @IsPositive()
-  quantity?: number;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => OrderItemInputDto)
+  items?: OrderItemInputDto[];
 
   @IsOptional()
   @IsString()

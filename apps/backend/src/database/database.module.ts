@@ -13,6 +13,7 @@ import { ThreePlProfile } from "./models/three-pl-profile.model";
 import { VerificationToken } from "./models/verification-token.model";
 import { Product } from "./models/product.model";
 import { Order } from "./models/order.model";
+import { OrderItem } from "./models/order-item.model";
 import { Invoice } from "./models/invoice.model";
 import { InvoiceLineItem } from "./models/invoice-line-item.model";
 import { PlatformSetting } from "./models/platform-setting.model";
@@ -33,6 +34,7 @@ export const ALL_MODELS = [
   VerificationToken,
   Product,
   Order,
+  OrderItem,
   Invoice,
   InvoiceLineItem,
   PlatformSetting,

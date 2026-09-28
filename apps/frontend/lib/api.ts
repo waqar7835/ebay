@@ -4,6 +4,7 @@ import type {
   InvoiceCycleDto,
   InvoiceDto,
   OrderDto,
+  OrderItemInput,
   OrderStatus,
   ProductDto,
   ProductFulfillmentType,
@@ -144,6 +145,12 @@ export interface DailyPoint {
   value: number;
 }
 
+/** One product line of an order in dashboard lists (a Stock Owner only sees their own). */
+export interface DashboardOrderItem {
+  productId: string;
+  quantity: number;
+}
+
 export interface AccountHolderDashboard {
   cycleStart: string;
   cycleEnd: string;
@@ -151,7 +158,7 @@ export interface AccountHolderDashboard {
   listEnd: string;
   orderCount: number;
   totalProfit: number;
-  orders: { orderId: string; ebayOrderRef: string; status: string; productId: string; quantity: number; profit: number; payout: number }[];
+  orders: { orderId: string; ebayOrderRef: string; status: string; items: DashboardOrderItem[]; quantity: number; profit: number; payout: number }[];
   payoutByDay: DailyPoint[];
   ordersByDay: DailyPoint[];
 }
@@ -167,7 +174,7 @@ export interface StockOwnerDashboard {
   listEnd: string;
   itemsSold: number;
   totalProfit: number;
-  orders: { orderId: string; ebayOrderRef: string; status: string; productId: string; quantity: number; net: number }[];
+  orders: { orderId: string; ebayOrderRef: string; status: string; items: DashboardOrderItem[]; quantity: number; net: number }[];
   itemsSoldByDay: DailyPoint[];
   byProduct: { productId: string; quantity: number; net: number }[];
 }
@@ -180,7 +187,7 @@ export interface ThreePlOrderRow {
   orderId: string;
   ebayOrderRef: string;
   status: string;
-  productId: string;
+  items: DashboardOrderItem[];
   quantity: number;
   shippingLabelUrl: string | null;
   daysInStatus: number;
@@ -218,10 +225,10 @@ export interface StaffDashboard {
     orderId: string;
     ebayOrderRef: string;
     status: string;
-    productId: string;
+    items: DashboardOrderItem[];
     daysInStatus: number;
     accountHolderName: string;
-    stockOwnerName: string;
+    stockOwnerName: string | null;
     threePlName: string | null;
   }[];
   staleOrderDays: number;
@@ -431,8 +438,8 @@ export function listOrders(filters: OrderListFilters = {}) {
 
 export interface CreateOrderPayload {
   accountHolderId: string;
-  productId: string;
-  quantity: number;
+  /** One or more products. Several only for STOCK products at the same 3PL; DROPSHIP orders have one. */
+  items: OrderItemInput[];
   threePlId?: string;
   orderDate?: string;
   ebayOrderRef: string;
@@ -443,7 +450,7 @@ export interface CreateOrderPayload {
   supplierUrl?: string;
 }
 
-export type UpdateOrderPayload = Partial<Omit<CreateOrderPayload, "quantity">>;
+export type UpdateOrderPayload = Partial<CreateOrderPayload>;
 
 export function createOrder(payload: CreateOrderPayload) {
   return request<OrderDto>("/orders", { method: "POST", body: JSON.stringify(payload) });

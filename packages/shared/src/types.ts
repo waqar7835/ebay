@@ -96,7 +96,7 @@ export interface UserDto {
   createdAt: string;
 }
 
-export const PRODUCT_MAX_IMAGES = 5;
+export const PRODUCT_MAX_IMAGES = 4;
 
 export interface ProductDto {
   id: string;
@@ -120,14 +120,38 @@ export interface ProductDto {
   updatedAt: string;
 }
 
+/** One product line on an order, with its own price + Stock Owner snapshots. */
+export interface OrderItemDto {
+  id: string;
+  orderId: string;
+  productId: string;
+  // Null for DROPSHIP items (no Stock Owner involved).
+  stockOwnerId: string | null;
+  position: number;
+  quantity: number;
+  /** Null on a DROPSHIP item until the assigned 3PL enters the buy price. */
+  sellPriceSnapshot: number | null;
+  buyPriceSnapshot: number | null;
+  stockOwnerCostSnapshot: number | null;
+  stockOwnerPayoutModeSnapshot: StockOwnerPayoutMode | null;
+  stockOwnerSharePercentSnapshot: number | null;
+}
+
+/** A product + quantity as sent when creating/editing an order. */
+export interface OrderItemInput {
+  productId: string;
+  quantity: number;
+}
+
 export interface OrderDto {
   id: string;
   companyId: string;
   accountHolderId: string;
-  // Null for DROPSHIP orders (no Stock Owner involved).
-  stockOwnerId: string | null;
-  productId: string;
-  quantity: number;
+  /**
+   * One or more products, in display order. Several items are only allowed for STOCK products
+   * (all at the same 3PL); a DROPSHIP order always has exactly one.
+   */
+  items: OrderItemDto[];
   threePlId: string | null;
   status: OrderStatus;
   orderDate: string;
@@ -140,15 +164,10 @@ export interface OrderDto {
   buyerDetails: string;
   ebayNetProceeds: number;
   shippingCost: number;
-  /** Null on a DROPSHIP order until the assigned 3PL enters the buy price. */
-  sellPriceSnapshot: number | null;
-  buyPriceSnapshot: number | null;
-  stockOwnerCostSnapshot: number | null;
+  /** 3PL fee — charged once per order, however many items it has. */
   threePlPriceChargedSnapshot: number | null;
   threePlPayoutSnapshot: number | null;
   accountHolderSharePercentSnapshot: number;
-  stockOwnerPayoutModeSnapshot: StockOwnerPayoutMode | null;
-  stockOwnerSharePercentSnapshot: number | null;
   createdAt: string;
   updatedAt: string;
   deliveredAt: string | null;

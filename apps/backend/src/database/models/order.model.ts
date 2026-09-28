@@ -1,10 +1,12 @@
-import { BelongsTo, Column, DataType, ForeignKey, Model, Table } from "sequelize-typescript";
-import { OrderStatus, StockOwnerPayoutMode } from "@ebay-order-management/shared";
+import { BelongsTo, Column, DataType, DefaultScope, ForeignKey, HasMany, Model, Table } from "sequelize-typescript";
+import { OrderStatus } from "@ebay-order-management/shared";
 import { toDecimal, toNullableDecimal } from "../decimal.util";
 import { Company } from "./company.model";
 import { User } from "./user.model";
-import { Product } from "./product.model";
+import { OrderItem } from "./order-item.model";
 
+// Items are always loaded (in position order): every financial calculation needs them.
+@DefaultScope(() => ({ include: [{ model: OrderItem, separate: true, order: [["position", "ASC"]] }] }))
 @Table({ tableName: "orders", underscored: true })
 export class Order extends Model {
   @Column({ type: DataType.UUID, defaultValue: DataType.UUIDV4, primaryKey: true })
@@ -21,22 +23,9 @@ export class Order extends Model {
   @BelongsTo(() => User, "accountHolderId")
   declare accountHolder: User;
 
-  @ForeignKey(() => User)
-  @Column({ type: DataType.UUID, allowNull: true, field: "stock_owner_id" })
-  declare stockOwnerId: string | null;
-
-  @BelongsTo(() => User, "stockOwnerId")
-  declare stockOwner: User;
-
-  @ForeignKey(() => Product)
-  @Column({ type: DataType.UUID, allowNull: false, field: "product_id" })
-  declare productId: string;
-
-  @BelongsTo(() => Product)
-  declare product: Product;
-
-  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 1 })
-  declare quantity: number;
+  /** One or more products. Several items only for STOCK products; a DROPSHIP order has exactly one. */
+  @HasMany(() => OrderItem)
+  declare items: OrderItem[];
 
   @ForeignKey(() => User)
   @Column({ type: DataType.UUID, allowNull: true, field: "three_pl_id" })
@@ -91,36 +80,6 @@ export class Order extends Model {
   @Column({
     type: DataType.DECIMAL(12, 2),
     allowNull: true,
-    field: "sell_price_snapshot",
-    get(this: Order) {
-      return toNullableDecimal(this.getDataValue("sellPriceSnapshot" as keyof Order));
-    },
-  })
-  declare sellPriceSnapshot: number | null;
-
-  @Column({
-    type: DataType.DECIMAL(12, 2),
-    allowNull: true,
-    field: "buy_price_snapshot",
-    get(this: Order) {
-      return toNullableDecimal(this.getDataValue("buyPriceSnapshot" as keyof Order));
-    },
-  })
-  declare buyPriceSnapshot: number | null;
-
-  @Column({
-    type: DataType.DECIMAL(12, 2),
-    allowNull: true,
-    field: "stock_owner_cost_snapshot",
-    get(this: Order) {
-      return toNullableDecimal(this.getDataValue("stockOwnerCostSnapshot" as keyof Order));
-    },
-  })
-  declare stockOwnerCostSnapshot: number | null;
-
-  @Column({
-    type: DataType.DECIMAL(12, 2),
-    allowNull: true,
     field: "three_pl_price_charged_snapshot",
     get(this: Order) {
       return toNullableDecimal(this.getDataValue("threePlPriceChargedSnapshot" as keyof Order));
@@ -148,25 +107,8 @@ export class Order extends Model {
   })
   declare accountHolderSharePercentSnapshot: number;
 
-  @Column({
-    type: DataType.ENUM(...Object.values(StockOwnerPayoutMode)),
-    allowNull: true,
-    field: "stock_owner_payout_mode_snapshot",
-  })
-  declare stockOwnerPayoutModeSnapshot: StockOwnerPayoutMode | null;
-
   @Column({ type: DataType.STRING, allowNull: true, field: "supplier_url" })
   declare supplierUrl: string | null;
-
-  @Column({
-    type: DataType.DECIMAL(5, 2),
-    allowNull: true,
-    field: "stock_owner_share_percent_snapshot",
-    get(this: Order) {
-      return toNullableDecimal(this.getDataValue("stockOwnerSharePercentSnapshot" as keyof Order));
-    },
-  })
-  declare stockOwnerSharePercentSnapshot: number | null;
 
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
   declare restocked: boolean;
