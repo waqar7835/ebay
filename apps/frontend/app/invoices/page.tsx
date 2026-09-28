@@ -5,7 +5,9 @@ import { Alert, Button, Card, Popconfirm, Select, Table, Tag, type TableColumnsT
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
+import InvoiceCyclePicker from "@/components/InvoiceCyclePicker";
 import {
+  deleteInvoice,
   generateInvoice,
   generateMyInvoice,
   getStoredUser,
@@ -36,6 +38,8 @@ export default function InvoicesPage() {
   const [myError, setMyError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const myRoles = user?.roles.filter((r) => EARNER_ROLES.includes(r)) ?? [];
+  const [myPeriodStart, setMyPeriodStart] = useState<string | undefined>();
+  const [cycleReload, setCycleReload] = useState(0);
 
   // --- admin view: company-wide invoices ---
   const isAdmin = user?.roles.includes("ADMIN" as Role) ?? false;
@@ -44,6 +48,7 @@ export default function InvoicesPage() {
   const [users, setUsers] = useState<UserOption[]>([]);
   const [genUserId, setGenUserId] = useState("");
   const [genRole, setGenRole] = useState<Role>("ACCOUNT_HOLDER" as Role);
+  const [genPeriodStart, setGenPeriodStart] = useState<string | undefined>();
   const [adminError, setAdminError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -82,9 +87,11 @@ export default function InvoicesPage() {
     setMyError(null);
     setMessage(null);
     try {
-      await generateMyInvoice(user.id, role);
+      await generateMyInvoice(user.id, role, myPeriodStart);
       setMessage("Invoice generated.");
       refreshMine();
+      refreshAdmin();
+      setCycleReload((n) => n + 1);
     } catch (err) {
       setMyError(err instanceof Error ? err.message : "Failed to generate invoice");
     }
@@ -93,10 +100,24 @@ export default function InvoicesPage() {
   async function handleGenerateForUser() {
     setFormError(null);
     try {
-      await generateInvoice(genUserId, genRole);
+      await generateInvoice(genUserId, genRole, genPeriodStart);
       refreshAdmin();
+      refreshMine();
+      setCycleReload((n) => n + 1);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to generate invoice");
+    }
+  }
+
+  async function handleDelete(id: string) {
+    setAdminError(null);
+    try {
+      await deleteInvoice(id);
+      refreshAdmin();
+      refreshMine();
+      setCycleReload((n) => n + 1);
+    } catch (err) {
+      setAdminError(err instanceof Error ? err.message : "Failed to delete invoice");
     }
   }
 
@@ -120,12 +141,22 @@ export default function InvoicesPage() {
     ...myColumns,
     {
       key: "actions",
-      render: (_, inv) =>
-        inv.status === "UNPAID" && (
-          <Popconfirm title="Mark this invoice as paid?" onConfirm={() => handleMarkPaid(inv.id)}>
-            <Button size="small">Mark paid</Button>
-          </Popconfirm>
-        ),
+      render: (_, inv) => (
+        <div className="flex gap-2">
+          {inv.status === "UNPAID" && (
+            <Popconfirm title="Mark this invoice as paid?" onConfirm={() => handleMarkPaid(inv.id)}>
+              <Button size="small">Mark paid</Button>
+            </Popconfirm>
+          )}
+          {inv.deletable && (
+            <Popconfirm title="Delete this invoice? You can re-generate it for the same cycle." onConfirm={() => handleDelete(inv.id)}>
+              <Button size="small" danger>
+                Delete
+              </Button>
+            </Popconfirm>
+          )}
+        </div>
+      ),
     },
   ];
 
@@ -149,8 +180,19 @@ export default function InvoicesPage() {
                   />
                 </label>
               )}
-              <Button type="primary" onClick={handleGenerateMine}>
-                Generate invoice for last completed cycle
+            </div>
+            <div className="mt-3 flex items-end gap-3 text-sm">
+              <div className="flex-1">
+                <InvoiceCyclePicker
+                  userId={user?.id ?? ""}
+                  role={role}
+                  value={myPeriodStart}
+                  onChange={setMyPeriodStart}
+                  reloadKey={cycleReload}
+                />
+              </div>
+              <Button type="primary" disabled={!myPeriodStart} onClick={handleGenerateMine}>
+                Generate invoice
               </Button>
             </div>
           </Card>
@@ -200,7 +242,18 @@ export default function InvoicesPage() {
                     className="mt-1 block w-full"
                   />
                 </label>
-                <Button type="primary" disabled={!genUserId} onClick={handleGenerateForUser}>
+              </div>
+              <div className="mt-3 flex items-end gap-3 text-sm">
+                <div className="flex-1">
+                  <InvoiceCyclePicker
+                    userId={availableRoles.includes(genRole) ? genUserId : ""}
+                    role={genRole}
+                    value={genPeriodStart}
+                    onChange={setGenPeriodStart}
+                    reloadKey={cycleReload}
+                  />
+                </div>
+                <Button type="primary" disabled={!genUserId || !genPeriodStart} onClick={handleGenerateForUser}>
                   Generate invoice
                 </Button>
               </div>

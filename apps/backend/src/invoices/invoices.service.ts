@@ -11,11 +11,13 @@ import { StockOwnerProfile } from "../database/models/stock-owner-profile.model"
 import { ThreePlProfile } from "../database/models/three-pl-profile.model";
 import { StaffProfile } from "../database/models/staff-profile.model";
 import { FinanceService } from "../finance/finance.service";
-import { lastCompletedCycle, toDateOnly } from "./billing-cycle.util";
+import { cycleContaining, InvoiceCycle, recentCycles } from "./billing-cycle.util";
 import { GenerateInvoiceDto } from "./dto/generate-invoice.dto";
 import type { JwtPayload } from "../auth/jwt.strategy";
 
 const NON_COUNTABLE = [OrderStatus.CANCELLED, OrderStatus.REFUNDED];
+/** How many cycles (current + previous) the cycle picker offers. */
+const PICKER_CYCLE_COUNT = 12;
 
 @Injectable()
 export class InvoicesService {
@@ -32,11 +34,44 @@ export class InvoicesService {
   ) {}
 
   async list(companyId: string, userId?: string) {
-    return this.invoiceModel.findAll({
+    const invoices = await this.invoiceModel.findAll({
       where: { companyId, ...(userId ? { userId } : {}) },
       include: [InvoiceLineItem],
       order: [["generatedAt", "DESC"]],
     });
+    const company = await this.companyModel.findByPk(companyId);
+    const today = new Date();
+    const anchorCache = new Map<string, number>();
+    return Promise.all(
+      invoices.map(async (invoice) => {
+        const key = `${invoice.userId}:${invoice.role}`;
+        if (!anchorCache.has(key)) {
+          anchorCache.set(key, await this.resolveAnchorDay(invoice.userId, invoice.role, company?.billingAnchorDay ?? 1));
+        }
+        const deletable =
+          invoice.status === InvoiceStatus.UNPAID && isCurrentOrLastCycle(anchorCache.get(key)!, today, invoice.periodStart);
+        return { ...invoice.toJSON(), deletable };
+      }),
+    );
+  }
+
+  /** Cycles offered in the invoice picker for this user+role, newest first, each tagged with its existing invoice. */
+  async cycles(companyId: string, requester: JwtPayload, userId: string, role: Role) {
+    this.assertCanGenerate(requester, { userId, role });
+    const company = await this.companyModel.findByPk(companyId);
+    if (!company) throw new NotFoundException("Company not found");
+
+    const anchorDay = await this.resolveAnchorDay(userId, role, company.billingAnchorDay);
+    const cycles = recentCycles(anchorDay, new Date(), PICKER_CYCLE_COUNT);
+    const invoices = await this.invoiceModel.findAll({
+      where: { companyId, userId, role, periodStart: { [Op.in]: cycles.map((c) => c.periodStart) } },
+    });
+    const invoiceByStart = new Map(invoices.map((inv) => [inv.periodStart, inv.id]));
+    return cycles.map((cycle, i) => ({
+      ...cycle,
+      isCurrent: i === 0,
+      invoiceId: invoiceByStart.get(cycle.periodStart) ?? null,
+    }));
   }
 
   async generate(companyId: string, requester: JwtPayload, dto: GenerateInvoiceDto) {
@@ -46,18 +81,18 @@ export class InvoicesService {
     if (!company) throw new NotFoundException("Company not found");
 
     const anchorDay = await this.resolveAnchorDay(dto.userId, dto.role, company.billingAnchorDay);
-    const { start, end } = lastCompletedCycle(anchorDay, new Date());
-    const periodStart = toDateOnly(start);
-    const periodEnd = toDateOnly(end);
+    const { periodStart, periodEnd } = resolveCycle(anchorDay, dto.periodStart);
 
     const existing = await this.invoiceModel.findOne({
-      where: { userId: dto.userId, role: dto.role, periodStart, periodEnd },
+      where: { companyId, userId: dto.userId, role: dto.role, periodStart },
     });
     if (existing) {
-      throw new BadRequestException("An invoice for this period has already been generated");
+      throw new BadRequestException(
+        "An invoice for this billing cycle has already been generated — delete it first to re-generate",
+      );
     }
 
-    const orders = await this.fetchOrdersForRole(companyId, dto.userId, dto.role, start, end);
+    const orders = await this.fetchOrdersForRole(companyId, dto.userId, dto.role, { periodStart, periodEnd });
     const lineItemRows = await this.buildLineItems(dto.userId, dto.role, orders);
     const clawbackRows = await this.buildClawbacks(dto.userId, dto.role, companyId);
 
@@ -81,6 +116,49 @@ export class InvoicesService {
     return this.invoiceModel.findByPk(invoice.id, { include: [InvoiceLineItem] });
   }
 
+  /**
+   * Only UNPAID invoices for the current or the previous billing cycle can be deleted (so they can be
+   * re-generated); older cycles are closed. Line items cascade.
+   */
+  async remove(companyId: string, invoiceId: string) {
+    const invoice = await this.invoiceModel.findOne({ where: { id: invoiceId, companyId }, include: [InvoiceLineItem] });
+    if (!invoice) throw new NotFoundException("Invoice not found");
+    if (invoice.status === InvoiceStatus.PAID) {
+      throw new BadRequestException("Paid invoices cannot be deleted");
+    }
+
+    const company = await this.companyModel.findByPk(companyId);
+    const anchorDay = await this.resolveAnchorDay(invoice.userId, invoice.role, company?.billingAnchorDay ?? 1);
+    if (!isCurrentOrLastCycle(anchorDay, new Date(), invoice.periodStart)) {
+      throw new BadRequestException("Only invoices for the current or last billing cycle can be deleted");
+    }
+
+    // A later invoice may already carry a refund clawback against one of these orders; deleting the
+    // original would leave that clawback with nothing to offset.
+    const orderIds = invoice.lineItems.filter((l) => l.orderId && !l.isAdjustment).map((l) => l.orderId!);
+    if (orderIds.length) {
+      const otherInvoices = await this.invoiceModel.findAll({
+        attributes: ["id"],
+        where: { companyId, userId: invoice.userId, role: invoice.role, id: { [Op.ne]: invoice.id } },
+      });
+      const clawback = otherInvoices.length
+        ? await this.lineItemModel.findOne({
+            where: {
+              orderId: { [Op.in]: orderIds },
+              isAdjustment: true,
+              invoiceId: { [Op.in]: otherInvoices.map((i) => i.id) },
+            },
+          })
+        : null;
+      if (clawback) {
+        throw new BadRequestException("A later invoice has a refund adjustment for an order on this invoice");
+      }
+    }
+
+    await invoice.destroy();
+    return { id: invoice.id };
+  }
+
   async markPaid(companyId: string, invoiceId: string) {
     const invoice = await this.invoiceModel.findOne({ where: { id: invoiceId, companyId } });
     if (!invoice) throw new NotFoundException("Invoice not found");
@@ -90,7 +168,7 @@ export class InvoicesService {
     return invoice;
   }
 
-  private assertCanGenerate(requester: JwtPayload, dto: GenerateInvoiceDto) {
+  private assertCanGenerate(requester: JwtPayload, dto: Pick<GenerateInvoiceDto, "userId" | "role">) {
     const isManager = requester.roles.some((r) => r === Role.ADMIN || r === Role.SUPER_ADMIN);
     const isSelfService = requester.sub === dto.userId && requester.roles.includes(dto.role);
     if (isManager || isSelfService) return;
@@ -115,10 +193,11 @@ export class InvoicesService {
     return companyAnchorDay;
   }
 
-  private async fetchOrdersForRole(companyId: string, userId: string, role: Role, start: Date, end: Date) {
+  private async fetchOrdersForRole(companyId: string, userId: string, role: Role, cycle: InvoiceCycle) {
+    // Matched on order date (inclusive), same as the Orders page date filter.
     const where: Record<string, unknown> = {
       companyId,
-      createdAt: { [Op.gte]: start, [Op.lt]: end },
+      orderDate: { [Op.gte]: cycle.periodStart, [Op.lte]: cycle.periodEnd },
       status: { [Op.notIn]: NON_COUNTABLE },
     };
 
@@ -223,6 +302,26 @@ export class InvoicesService {
       };
     });
   }
+}
+
+/** The cycle starting on `periodStart` (must be a real cycle start, not in the future); defaults to the current cycle. */
+function resolveCycle(anchorDay: number, periodStart?: string): InvoiceCycle {
+  const today = new Date();
+  if (!periodStart) return cycleContaining(anchorDay, today);
+  const [y, m, d] = periodStart.split("-").map(Number);
+  const cycle = cycleContaining(anchorDay, new Date(y, m - 1, d));
+  if (cycle.periodStart !== periodStart) {
+    throw new BadRequestException("periodStart must be the start date of a billing cycle");
+  }
+  if (periodStart > cycleContaining(anchorDay, today).periodStart) {
+    throw new BadRequestException("Cannot invoice a future billing cycle");
+  }
+  return cycle;
+}
+
+function isCurrentOrLastCycle(anchorDay: number, today: Date, periodStart: string): boolean {
+  const [, previous] = recentCycles(anchorDay, today, 2);
+  return periodStart >= previous.periodStart;
 }
 
 function round2(value: number): number {

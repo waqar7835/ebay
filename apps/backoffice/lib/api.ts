@@ -2,6 +2,7 @@ import type {
   AccountHolderProfileDto,
   BackofficePermissionsDto,
   BackofficeUserDto,
+  InvoiceCycleDto,
   InvoiceDto,
   OrderDto,
   OrderStatus,
@@ -239,8 +240,19 @@ export function listInvoices(userId?: string) {
   return request<InvoiceDto[]>(`/invoices${userId ? `?userId=${userId}` : ""}`);
 }
 
-export function generateInvoice(userId: string, role: Role) {
-  return request<InvoiceDto>("/invoices/generate", { method: "POST", body: JSON.stringify({ userId, role }) });
+export function generateInvoice(userId: string, role: Role, periodStart?: string) {
+  return request<InvoiceDto>("/invoices/generate", {
+    method: "POST",
+    body: JSON.stringify({ userId, role, periodStart }),
+  });
+}
+
+export function listInvoiceCycles(userId: string, role: Role) {
+  return request<InvoiceCycleDto[]>(`/invoices/cycles?userId=${userId}&role=${role}`);
+}
+
+export function deleteInvoice(invoiceId: string) {
+  return request<{ id: string }>(`/invoices/${invoiceId}`, { method: "DELETE" });
 }
 
 export function markInvoicePaid(invoiceId: string) {

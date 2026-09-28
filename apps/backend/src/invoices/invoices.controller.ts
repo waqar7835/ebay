@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { Role } from "@ebay-order-management/shared";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { RolesGuard } from "../common/guards/roles.guard";
@@ -22,9 +23,25 @@ export class InvoicesController {
     return this.invoicesService.list(resolveCompanyId(user, companyId), userId);
   }
 
+  @Get("cycles")
+  cycles(
+    @CurrentUser() user: JwtPayload,
+    @Query("userId") userId: string,
+    @Query("role") role: Role,
+    @Query("companyId") companyId?: string,
+  ) {
+    return this.invoicesService.cycles(resolveCompanyId(user, companyId), user, userId, role);
+  }
+
   @Post("generate")
   generate(@CurrentUser() user: JwtPayload, @Body() dto: GenerateInvoiceDto, @Query("companyId") companyId?: string) {
     return this.invoicesService.generate(resolveCompanyId(user, companyId), user, dto);
+  }
+
+  @Delete(":id")
+  @RequirePermission("canGenerateInvoices")
+  remove(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Query("companyId") companyId?: string) {
+    return this.invoicesService.remove(resolveCompanyId(user, companyId), id);
   }
 
   @Patch(":id/mark-paid")

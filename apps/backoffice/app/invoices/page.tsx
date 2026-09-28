@@ -5,7 +5,8 @@ import { Alert, Button, Card, Popconfirm, Select, Table, Tag, type TableColumnsT
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
-import { generateInvoice, getToken, listInvoices, listUsers, markInvoicePaid } from "@/lib/api";
+import InvoiceCyclePicker from "@/components/InvoiceCyclePicker";
+import { deleteInvoice, generateInvoice, getToken, listInvoices, listUsers, markInvoicePaid } from "@/lib/api";
 import { searchable, userLabel, userOptions } from "@/lib/selectOptions";
 
 interface UserOption {
@@ -22,6 +23,8 @@ export default function InvoicesPage() {
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState("");
   const [role, setRole] = useState<Role>("ACCOUNT_HOLDER" as Role);
+  const [periodStart, setPeriodStart] = useState<string | undefined>();
+  const [cycleReload, setCycleReload] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -48,10 +51,22 @@ export default function InvoicesPage() {
   async function handleGenerate() {
     setFormError(null);
     try {
-      await generateInvoice(userId, role);
+      await generateInvoice(userId, role, periodStart);
       refresh();
+      setCycleReload((n) => n + 1);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to generate invoice");
+    }
+  }
+
+  async function handleDelete(id: string) {
+    setError(null);
+    try {
+      await deleteInvoice(id);
+      refresh();
+      setCycleReload((n) => n + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete invoice");
     }
   }
 
@@ -68,12 +83,22 @@ export default function InvoicesPage() {
     { title: "Status", dataIndex: "status", render: (s: string) => <Tag color={s === "PAID" ? "green" : "orange"}>{s}</Tag> },
     {
       key: "actions",
-      render: (_, inv) =>
-        inv.status === "UNPAID" && (
-          <Popconfirm title="Mark this invoice as paid?" onConfirm={() => handleMarkPaid(inv.id)}>
-            <Button size="small">Mark paid</Button>
-          </Popconfirm>
-        ),
+      render: (_, inv) => (
+        <div className="flex gap-2">
+          {inv.status === "UNPAID" && (
+            <Popconfirm title="Mark this invoice as paid?" onConfirm={() => handleMarkPaid(inv.id)}>
+              <Button size="small">Mark paid</Button>
+            </Popconfirm>
+          )}
+          {inv.deletable && (
+            <Popconfirm title="Delete this invoice? You can re-generate it for the same cycle." onConfirm={() => handleDelete(inv.id)}>
+              <Button size="small" danger>
+                Delete
+              </Button>
+            </Popconfirm>
+          )}
+        </div>
+      ),
     },
   ];
 
@@ -110,7 +135,18 @@ export default function InvoicesPage() {
                 className="mt-1 block w-full"
               />
             </label>
-            <Button type="primary" disabled={!userId} onClick={handleGenerate}>
+          </div>
+          <div className="mt-3 flex items-end gap-3 text-sm">
+            <div className="flex-1">
+              <InvoiceCyclePicker
+                userId={availableRoles.includes(role) ? userId : ""}
+                role={role}
+                value={periodStart}
+                onChange={setPeriodStart}
+                reloadKey={cycleReload}
+              />
+            </div>
+            <Button type="primary" disabled={!userId || !periodStart} onClick={handleGenerate}>
               Generate invoice
             </Button>
           </div>

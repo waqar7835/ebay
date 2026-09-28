@@ -195,6 +195,16 @@ export interface InvoiceDto {
   generatedAt: string;
   paidAt: string | null;
   lineItems: InvoiceLineItemDto[];
+  /** UNPAID and in the current or previous billing cycle — can be deleted and re-generated. */
+  deletable?: boolean;
+}
+
+/** A billing cycle offered by the invoice generator (inclusive YYYY-MM-DD bounds). */
+export interface InvoiceCycleDto {
+  periodStart: string;
+  periodEnd: string;
+  isCurrent: boolean;
+  invoiceId: string | null;
 }
 
 export interface PaginatedResult<T> {
