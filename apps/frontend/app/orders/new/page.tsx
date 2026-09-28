@@ -18,8 +18,7 @@ export default function NewOrderPage() {
     <>
       <Nav />
       <main className="ml-56 max-w-6xl p-8">
-        <BackLink href="/orders" label="Orders" />
-        <h1 className="text-2xl font-semibold">New order</h1>
+        <BackLink href="/orders" label="Orders" title="New order" />
 
         <OrderForm
           submitLabel="Create order"

@@ -116,3 +116,12 @@ body {
 .kpi-sky .ant-statistic-content { color: var(--kpi-b-fg); }
 .kpi-lavender.ant-card { background: var(--kpi-c-bg); border-color: transparent; }
 .kpi-lavender .ant-statistic-content { color: var(--kpi-c-fg); }
+
+/* Profile page header: the role theme's gradient, with a white avatar tile. */
+.profile-hero {
+  background: linear-gradient(120deg, var(--theme-a), var(--theme-b) 55%, var(--theme-c));
+}
+.profile-hero .profile-hero-avatar.ant-avatar {
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--btn-b);
+}

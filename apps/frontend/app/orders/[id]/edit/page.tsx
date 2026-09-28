@@ -36,8 +36,7 @@ export default function EditOrderPage() {
     <>
       <Nav />
       <main className="ml-56 max-w-6xl p-8">
-        <BackLink href="/orders" label="Orders" />
-        <h1 className="text-2xl font-semibold">Edit order</h1>
+        <BackLink href="/orders" label="Orders" title="Edit order" />
 
         {loadError && <Alert type="error" title={loadError} className="mt-4" showIcon />}
 

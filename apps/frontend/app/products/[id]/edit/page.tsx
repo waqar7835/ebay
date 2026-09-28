@@ -29,8 +29,7 @@ export default function EditProductPage() {
     <>
       <Nav />
       <main className="ml-56 max-w-6xl p-8">
-        <BackLink href="/products" label="Products" />
-        <h1 className="text-2xl font-semibold">Edit product</h1>
+        <BackLink href="/products" label="Products" title="Edit product" />
 
         {error && <Alert type="error" title={error} className="mt-4" showIcon />}
 

@@ -130,8 +130,7 @@ export default function InviteUserPage() {
     <>
       <Nav />
       <main className="ml-56 max-w-3xl p-8">
-        <BackLink href="/users" label="Users" />
-        <h1 className="text-2xl font-semibold">Invite user</h1>
+        <BackLink href="/users" label="Users" title="Invite user" />
 
         <Tabs
           className="mt-6"

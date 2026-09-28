@@ -1,7 +1,8 @@
 "use client";
 
 import type { CompanyDto, UserDto } from "@ebay-order-management/shared";
-import { Alert, Avatar, Button, Card, Descriptions, Divider, Form, Image, Input, Select } from "antd";
+import { LockOutlined, MailOutlined, ShopOutlined, UserOutlined } from "@ant-design/icons";
+import { Alert, Avatar, Button, Card, Descriptions, Form, Image, Input, Select, Tag, Tooltip } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
@@ -13,6 +14,7 @@ import {
   getMyProfile,
   getStoredUser,
   getToken,
+  mediaUrl,
   updateCompanyBillingAnchorDay,
   updateCompanyName,
   updateMyProfile,
@@ -70,6 +72,7 @@ export default function ProfilePage() {
   }, [router]);
 
   async function handleSave() {
+    if (saving) return;
     setSaveError(null);
     setSaveMessage(null);
     setSaving(true);
@@ -114,137 +117,220 @@ export default function ProfilePage() {
     }
   }
 
-  const yesNo = (v: boolean) => (v ? "Yes" : "No");
-  const setByAdmin = <p className="mb-3 text-xs text-gray-500">Set by an admin — contact them to make changes.</p>;
+  const yesNo = (v: boolean) => (v ? <Tag color="green">Yes</Tag> : <Tag>No</Tag>);
+  const money = (v: number | null | undefined) => (v != null ? `$${Number(v).toFixed(2)}` : "—");
+  const percent = (v: number | null | undefined) => (v != null ? `${v}%` : "—");
+  const displayName = user?.name || user?.email || "";
+  const initials =
+    displayName
+      .split(/[\s@.]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0]!.toUpperCase())
+      .join("") || "?";
+  const lockedTag = (
+    <Tooltip title="Set by an admin — contact them to make changes">
+      <Tag icon={<LockOutlined />} className="mr-0">
+        Set by admin
+      </Tag>
+    </Tooltip>
+  );
+  const settingsColumns = { xs: 1, sm: 2 };
 
   return (
     <>
       <Nav />
-      <main className="ml-56 max-w-2xl p-8 pb-16">
+      <main className="ml-56 max-w-6xl p-8 pb-16">
         <h1 className="text-2xl font-semibold">Profile</h1>
         {loadError && <Alert type="error" title={loadError} className="mt-4" showIcon />}
 
-        <Card className="mt-6" title="Your details">
-          <Form layout="vertical" onFinish={handleSave}>
-            <Form.Item label="Name">
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
-            </Form.Item>
-            <Form.Item label="Email">
-              <Input value={user?.email ?? ""} disabled />
-            </Form.Item>
-            <Form.Item label="Roles">
+        <div className="profile-hero mt-6 flex flex-wrap items-center gap-5 rounded-2xl p-6">
+          <Avatar size={72} className="profile-hero-avatar shrink-0 text-2xl font-semibold">
+            {initials}
+          </Avatar>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-2xl font-semibold text-white">{user?.name || "Your profile"}</div>
+            <div className="truncate text-white/85">{user?.email}</div>
+            <div className="mt-2 flex flex-wrap gap-1">
+              {user?.roles.map((r) => (
+                <RoleTag key={r} role={r} />
+              ))}
+            </div>
+          </div>
+          {company && (
+            <div className="flex items-center gap-3 rounded-xl bg-white/85 px-4 py-3 shadow-sm">
+              {company.logoUrl ? (
+                <img src={mediaUrl(company.logoUrl)} alt="" className="h-10 w-10 rounded-lg object-contain" />
+              ) : (
+                <Avatar shape="square" size={40} icon={<ShopOutlined />} />
+              )}
               <div>
-                {user?.roles.map((r) => (
-                  <RoleTag key={r} role={r} />
-                ))}
+                <div className="text-xs text-slate-500">Company</div>
+                <div className="font-semibold text-slate-800">{company.name}</div>
               </div>
-            </Form.Item>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-6 grid gap-6 lg:grid-cols-3">
+          <div className="flex flex-col gap-6 lg:col-span-2">
+            <Form layout="vertical" component={false}>
+              <Card
+                title={
+                  <span>
+                    <UserOutlined className="mr-2 text-slate-400" />
+                    Your details
+                  </span>
+                }
+              >
+                <div className="grid gap-x-4 sm:grid-cols-2">
+                  <Form.Item label="Name" className="mb-0">
+                    <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
+                  </Form.Item>
+                  <Form.Item label="Email" tooltip="Your sign-in email can't be changed here" className="mb-0">
+                    <Input value={user?.email ?? ""} disabled prefix={<MailOutlined className="text-slate-400" />} />
+                  </Form.Item>
+                </div>
+              </Card>
+
+              <Card
+                title={
+                  <span>
+                    <ShopOutlined className="mr-2 text-slate-400" />
+                    Company
+                  </span>
+                }
+                extra={!isAdmin && lockedTag}
+              >
+                <div className="flex flex-col gap-6 sm:flex-row">
+                  <Form.Item label="Logo" className="mb-0 shrink-0">
+                    {isAdmin ? (
+                      <ImageUpload value={logoFile} existingUrl={company?.logoUrl ? mediaUrl(company.logoUrl) : null} onChange={setLogoFile} freeAspect />
+                    ) : company?.logoUrl ? (
+                      <Image src={mediaUrl(company.logoUrl)} alt="Company logo" width={104} height={104} className="rounded-lg border object-contain" />
+                    ) : (
+                      <Avatar shape="square" size={104} icon={<ShopOutlined />} />
+                    )}
+                  </Form.Item>
+                  <div className="grid flex-1 content-start gap-x-4 sm:grid-cols-2">
+                    <Form.Item label="Company name" className="sm:col-span-2">
+                      <Input value={companyName} onChange={(e) => setCompanyName(e.target.value)} disabled={!isAdmin} />
+                    </Form.Item>
+                    <Form.Item
+                      label="Billing anchor day"
+                      tooltip="Day of the month each billing cycle starts, unless a user has their own"
+                      className="mb-0"
+                    >
+                      <Select
+                        value={billingAnchorDay}
+                        onChange={(v) => setBillingAnchorDay(v)}
+                        disabled={!isAdmin}
+                        options={BILLING_ANCHOR_DAY_OPTIONS.map((day) => ({ value: day, label: `Day ${day}` }))}
+                      />
+                    </Form.Item>
+                  </div>
+                </div>
+              </Card>
+            </Form>
 
             {user?.staffProfile && (
-              <>
-                <Divider titlePlacement="start">Staff permissions</Divider>
-                {setByAdmin}
-                <Descriptions size="small" column={2} bordered className="mb-4">
+              <Card title="Staff permissions" extra={lockedTag}>
+                <Descriptions size="small" column={settingsColumns} bordered>
                   <Descriptions.Item label="Manage orders">{yesNo(user.staffProfile.canManageOrders)}</Descriptions.Item>
                   <Descriptions.Item label="Manage stock">{yesNo(user.staffProfile.canManageStock)}</Descriptions.Item>
                   <Descriptions.Item label="Manage users">{yesNo(user.staffProfile.canManageUsers)}</Descriptions.Item>
                   <Descriptions.Item label="Generate invoices">{yesNo(user.staffProfile.canGenerateInvoices)}</Descriptions.Item>
                   <Descriptions.Item label="View financials">{yesNo(user.staffProfile.canViewFinancials)}</Descriptions.Item>
                   <Descriptions.Item label="Revenue share">
-                    {user.staffProfile.hasRevenueShare ? `${user.staffProfile.sharePercent ?? 0}%` : "No"}
+                    {user.staffProfile.hasRevenueShare ? percent(user.staffProfile.sharePercent ?? 0) : "No"}
                   </Descriptions.Item>
                 </Descriptions>
-              </>
+              </Card>
             )}
 
             {user?.accountHolderProfile && (
-              <>
-                <Divider titlePlacement="start">Account Holder settings</Divider>
-                {setByAdmin}
-                <Descriptions size="small" column={2} bordered className="mb-4">
-                  <Descriptions.Item label="Share % of profit">{user.accountHolderProfile.sharePercent}%</Descriptions.Item>
-                  <Descriptions.Item label="3PL price charged">{user.accountHolderProfile.threePlPriceCharged ?? "—"}</Descriptions.Item>
-                  <Descriptions.Item label="Billing cycle start day">{user.accountHolderProfile.billingCycleStartDay}</Descriptions.Item>
+              <Card title="Account Holder terms" extra={lockedTag}>
+                <Descriptions size="small" column={settingsColumns} bordered>
+                  <Descriptions.Item label="Share of profit">{percent(user.accountHolderProfile.sharePercent)}</Descriptions.Item>
+                  <Descriptions.Item label="3PL price charged">{money(user.accountHolderProfile.threePlPriceCharged)}</Descriptions.Item>
+                  <Descriptions.Item label="Billing cycle starts">Day {user.accountHolderProfile.billingCycleStartDay}</Descriptions.Item>
                 </Descriptions>
-              </>
+              </Card>
             )}
 
             {user?.stockOwnerProfile && (
-              <>
-                <Divider titlePlacement="start">Stock Owner settings</Divider>
-                {setByAdmin}
-                <Descriptions size="small" column={2} bordered className="mb-4">
-                  <Descriptions.Item label="Payout mode">{user.stockOwnerProfile.payoutMode}</Descriptions.Item>
-                  <Descriptions.Item label="Share % of margin">{user.stockOwnerProfile.sharePercent ?? "—"}</Descriptions.Item>
-                  <Descriptions.Item label="Billing cycle start day">{user.stockOwnerProfile.billingCycleStartDay}</Descriptions.Item>
+              <Card title="Stock Owner terms" extra={lockedTag}>
+                <Descriptions size="small" column={settingsColumns} bordered>
+                  <Descriptions.Item label="Payout mode">
+                    {user.stockOwnerProfile.payoutMode === "PROFIT_SHARE" ? "Profit share" : "Fixed"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Share of margin">{percent(user.stockOwnerProfile.sharePercent)}</Descriptions.Item>
+                  <Descriptions.Item label="Billing cycle starts">Day {user.stockOwnerProfile.billingCycleStartDay}</Descriptions.Item>
                 </Descriptions>
-              </>
+              </Card>
             )}
 
             {user?.threePlProfile && (
-              <>
-                <Divider titlePlacement="start">3PL settings</Divider>
-                {setByAdmin}
-                <Descriptions size="small" column={2} bordered className="mb-4">
-                  <Descriptions.Item label="Type">{user.threePlProfile.fulfillmentType}</Descriptions.Item>
-                  <Descriptions.Item label="Payout per order">{user.threePlProfile.payoutPerOrder}</Descriptions.Item>
-                  <Descriptions.Item label="Billing cycle start day">{user.threePlProfile.billingCycleStartDay}</Descriptions.Item>
+              <Card title="3PL terms" extra={lockedTag}>
+                <Descriptions size="small" column={settingsColumns} bordered>
+                  <Descriptions.Item label="Fulfillment">
+                    {user.threePlProfile.fulfillmentType === "DROPSHIP" ? "Dropshipping" : "Stock"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Payout per order">{money(user.threePlProfile.payoutPerOrder)}</Descriptions.Item>
+                  <Descriptions.Item label="Billing cycle starts">Day {user.threePlProfile.billingCycleStartDay}</Descriptions.Item>
                 </Descriptions>
-              </>
+              </Card>
             )}
+          </div>
 
-            <Divider titlePlacement="start">Company</Divider>
-            <Form.Item label="Company name">
-              <Input value={companyName} onChange={(e) => setCompanyName(e.target.value)} disabled={!isAdmin} />
-            </Form.Item>
+          <div className="flex flex-col gap-6">
+            <Card>
+              <p className="mb-4 mt-0 text-sm text-slate-500">Saves your name{isAdmin ? " and the company settings" : ""}.</p>
+              {saveError && <Alert type="error" title={saveError} className="mb-4" showIcon />}
+              {saveMessage && <Alert type="success" title={saveMessage} className="mb-4" showIcon />}
+              <Button type="primary" onClick={handleSave} loading={saving} block size="large">
+                {saving ? "Saving..." : "Save changes"}
+              </Button>
+            </Card>
 
-            <Form.Item label="Logo">
-              {isAdmin ? (
-                <ImageUpload value={logoFile} existingUrl={company?.logoUrl ?? null} onChange={setLogoFile} freeAspect />
-              ) : company?.logoUrl ? (
-                <Image src={company.logoUrl} alt="Company logo" width={80} height={80} className="rounded border object-contain" />
-              ) : (
-                <Avatar shape="square" size={80}>
-                  No logo
-                </Avatar>
-              )}
-            </Form.Item>
-
-            <Form.Item label="Billing anchor day">
-              <Select
-                value={billingAnchorDay}
-                onChange={(v) => setBillingAnchorDay(v)}
-                disabled={!isAdmin}
-                options={BILLING_ANCHOR_DAY_OPTIONS.map((day) => ({ value: day, label: String(day) }))}
-              />
-            </Form.Item>
-
-            {saveError && <Alert type="error" title={saveError} className="mb-4" showIcon />}
-            {saveMessage && <Alert type="success" title={saveMessage} className="mb-4" showIcon />}
-            <Button type="primary" htmlType="submit" loading={saving}>
-              {saving ? "Saving..." : "Save"}
-            </Button>
-          </Form>
-        </Card>
-
-        <Card className="mt-8" title="Change password">
-          <Form form={passwordForm} layout="vertical" onFinish={handleChangePassword}>
-            <Form.Item name="currentPassword" label="Current password" rules={[{ required: true }]}>
-              <Input.Password />
-            </Form.Item>
-            <Form.Item name="newPassword" label="New password" rules={[{ required: true }]}>
-              <Input.Password />
-            </Form.Item>
-            <Form.Item name="confirmNewPassword" label="Confirm new password" rules={[{ required: true }]}>
-              <Input.Password />
-            </Form.Item>
-            {passwordError && <Alert type="error" title={passwordError} className="mb-4" showIcon />}
-            {passwordMessage && <Alert type="success" title={passwordMessage} className="mb-4" showIcon />}
-            <Button type="primary" htmlType="submit" loading={passwordSaving}>
-              {passwordSaving ? "Saving..." : "Change password"}
-            </Button>
-          </Form>
-        </Card>
+            <Card
+              title={
+                <span>
+                  <LockOutlined className="mr-2 text-slate-400" />
+                  Change password
+                </span>
+              }
+            >
+              <Form form={passwordForm} layout="vertical" onFinish={handleChangePassword}>
+                <Form.Item name="currentPassword" label="Current password" rules={[{ required: true }]}>
+                  <Input.Password />
+                </Form.Item>
+                <Form.Item name="newPassword" label="New password" rules={[{ required: true }]}>
+                  <Input.Password />
+                </Form.Item>
+                <Form.Item
+                  name="confirmNewPassword"
+                  label="Confirm new password"
+                  dependencies={["newPassword"]}
+                  rules={[
+                    { required: true },
+                    ({ getFieldValue }) => ({
+                      validator: (_, v) =>
+                        !v || v === getFieldValue("newPassword") ? Promise.resolve() : Promise.reject(new Error("Passwords don't match")),
+                    }),
+                  ]}
+                >
+                  <Input.Password />
+                </Form.Item>
+                {passwordError && <Alert type="error" title={passwordError} className="mb-4" showIcon />}
+                {passwordMessage && <Alert type="success" title={passwordMessage} className="mb-4" showIcon />}
+                <Button htmlType="submit" loading={passwordSaving} block>
+                  {passwordSaving ? "Saving..." : "Change password"}
+                </Button>
+              </Form>
+            </Card>
+          </div>
+        </div>
       </main>
     </>
   );

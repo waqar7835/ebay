@@ -155,8 +155,7 @@ export default function EditUserPage() {
     <>
       <Nav />
       <main className="ml-56 max-w-2xl p-8">
-        <BackLink href="/users" label="Users" />
-        <h1 className="text-2xl font-semibold">Edit user</h1>
+        <BackLink href="/users" label="Users" title="Edit user" />
 
         {loadError && <Alert type="error" title={loadError} className="mt-4" showIcon />}
 

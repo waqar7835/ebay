@@ -20,8 +20,7 @@ export default function AddProductPage() {
     <>
       <Nav />
       <main className="ml-56 max-w-6xl p-8">
-        <BackLink href="/products" label="Products" />
-        <h1 className="text-2xl font-semibold">Add product</h1>
+        <BackLink href="/products" label="Products" title="Add product" />
 
         <ProductForm
           submitLabel="Create"
