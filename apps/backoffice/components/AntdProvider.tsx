@@ -4,16 +4,17 @@ import { AntdRegistry } from "@ant-design/nextjs-registry";
 import { App, ConfigProvider } from "antd";
 
 /**
- * "Aurora" theme: blue does the functional work (buttons, links, focus, form controls); mint and lavender are
- * decorative only. Gradients (sidebar, hero KPI card, primary button) live in globals.css since tokens take flat colors.
+ * "Twilight" theme: indigo does the functional work (buttons, links, focus, form controls); indigo, lavender and
+ * lilac are decorative only. Gradients (sidebar, hero KPI card, primary button) live in globals.css since tokens take
+ * flat colors. The partner portal (frontend) uses a different palette per role; this app is always Twilight.
  */
 const theme = {
   token: {
-    colorPrimary: "#3b82f6",
-    colorLink: "#2563eb",
-    colorInfo: "#3b82f6",
+    colorPrimary: "#6366f1",
+    colorLink: "#575ad4",
+    colorInfo: "#6366f1",
     colorSuccess: "#10b981",
-    colorBgLayout: "#f1f6ff",
+    colorBgLayout: "#faf8ff",
     colorBorderSecondary: "#e3e8f2",
     borderRadius: 8,
     fontFamily: "var(--font-jakarta), system-ui, -apple-system, 'Segoe UI', sans-serif",
@@ -23,7 +24,7 @@ const theme = {
       itemBg: "transparent",
       itemColor: "#3f4b63",
       itemSelectedBg: "rgba(255, 255, 255, 0.85)",
-      itemSelectedColor: "#2563eb",
+      itemSelectedColor: "#575ad4",
       itemHoverBg: "rgba(255, 255, 255, 0.55)",
     },
     Table: { headerBg: "#f7f9fd" },

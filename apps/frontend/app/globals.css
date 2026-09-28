@@ -8,19 +8,76 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ---- "Aurora" theme: gradients and multicolor accents antd tokens can't express (see AntdProvider.tsx) ---- */
+/* ---- Role themes: gradients and multicolor accents antd tokens can't express (see lib/roleTheme.ts) ----
+ * Each theme is three decorative colors (a/b/c) in the Aurora style. :root holds Aurora, which Admins (and logged-out
+ * pages) get; html[data-role-theme] swaps in the logged-in role's palette. The kpi-mint/-sky/-lavender classes are the
+ * a/b/c tint slots, named after Aurora's colors. Keep the ids in sync with ROLE_THEMES in lib/roleTheme.ts. */
+:root {
+  --theme-a: #34d399; --theme-b: #60a5fa; --theme-c: #a78bfa;
+  --btn-a: #10b981; --btn-b: #3b82f6; --btn-c: #8b5cf6;
+  --sider-a: #e3faf1; --sider-b: #e6efff; --sider-c: #efe8ff;
+  --body-a: #f0fcf8; --body-b: #f1f6ff; --body-c: #f6f2ff;
+  --kpi-a-bg: #dcfaf0; --kpi-a-fg: #047857;
+  --kpi-b-bg: #e0edff; --kpi-b-fg: #1d4ed8;
+  --kpi-c-bg: #efe7ff; --kpi-c-fg: #6d28d9;
+}
+
+/* Staff */
+:root[data-role-theme="ocean"] {
+  --theme-a: #22d3ee; --theme-b: #3b82f6; --theme-c: #6366f1;
+  --btn-a: #1db3ca; --btn-b: #3472d8; --btn-c: #5457cd;
+  --sider-a: #d7f7fc; --sider-b: #e0ebfe; --sider-c: #e3e3fc;
+  --body-a: #f0fcfe; --body-b: #f3f8fe; --body-c: #f4f4fe;
+  --kpi-a-bg: #d3f6fc; --kpi-a-fg: #0f5f6b;
+  --kpi-b-bg: #d8e6fd; --kpi-b-fg: #1b3b6f;
+  --kpi-c-bg: #e0e0fc; --kpi-c-fg: #2d2e6c;
+}
+
+/* Account Holder */
+:root[data-role-theme="ember"] {
+  --theme-a: #f87171; --theme-b: #fb923c; --theme-c: #fbbf24;
+  --btn-a: #d36060; --btn-b: #dd8035; --btn-c: #d5a21f;
+  --sider-a: #fee5e5; --sider-b: #feeee0; --sider-c: #fef3d8;
+  --body-a: #fff5f5; --body-b: #fff8f3; --body-c: #fffbf0;
+  --kpi-a-bg: #fee3e3; --kpi-a-fg: #703333;
+  --kpi-b-bg: #fee9d8; --kpi-b-fg: #71421b;
+  --kpi-c-bg: #fef2d3; --kpi-c-fg: #715610;
+}
+
+/* Stock Owner */
+:root[data-role-theme="orchid"] {
+  --theme-a: #e879f9; --theme-b: #c084fc; --theme-c: #818cf8;
+  --btn-a: #c567d4; --btn-b: #a974de; --btn-c: #6e77d3;
+  --sider-a: #fbe7fe; --sider-b: #f5ebff; --sider-c: #e8eafe;
+  --body-a: #fdf6ff; --body-b: #fbf8ff; --body-c: #f6f7ff;
+  --kpi-a-bg: #fae4fe; --kpi-a-fg: #683670;
+  --kpi-b-bg: #f2e6fe; --kpi-b-fg: #563b71;
+  --kpi-c-bg: #e6e8fe; --kpi-c-fg: #3a3f70;
+}
+
+/* 3PL */
+:root[data-role-theme="lagoon"] {
+  --theme-a: #2dd4bf; --theme-b: #22d3ee; --theme-c: #38bdf8;
+  --btn-a: #26b4a2; --btn-b: #1ebad1; --btn-c: #30a1d3;
+  --sider-a: #d9f7f3; --sider-b: #dcf8fc; --sider-c: #dbf3fe;
+  --body-a: #f0fcfb; --body-b: #f2fcfe; --body-c: #f1faff;
+  --kpi-a-bg: #d5f6f2; --kpi-a-fg: #145f56;
+  --kpi-b-bg: #d3f6fc; --kpi-b-fg: #0f5f6b;
+  --kpi-c-bg: #d7f2fe; --kpi-c-fg: #195570;
+}
+
 body {
-  background: linear-gradient(135deg, #f0fcf8, #f1f6ff 50%, #f6f2ff) fixed;
+  background: linear-gradient(135deg, var(--body-a), var(--body-b) 50%, var(--body-c)) fixed;
   color: #1e293b;
 }
 
 .app-sider {
-  background: linear-gradient(180deg, #e3faf1, #e6efff 55%, #efe8ff);
+  background: linear-gradient(180deg, var(--sider-a), var(--sider-b) 55%, var(--sider-c));
   border-right: 1px solid #e3e8f2;
 }
 
 .app-logo {
-  background: linear-gradient(120deg, #34d399, #60a5fa 55%, #a78bfa);
+  background: linear-gradient(120deg, var(--theme-a), var(--theme-b) 55%, var(--theme-c));
 }
 
 /* Colored rounded-square behind each nav icon; colors come from Nav.tsx via CSS variables. */
@@ -36,25 +93,25 @@ body {
 }
 
 .ant-btn.ant-btn-color-primary.ant-btn-variant-solid:not(:disabled) {
-  background: linear-gradient(90deg, #10b981, #3b82f6, #8b5cf6);
+  background: linear-gradient(90deg, var(--btn-a), var(--btn-b), var(--btn-c));
   border-color: transparent;
 }
 .ant-btn.ant-btn-color-primary.ant-btn-variant-solid:not(:disabled):hover {
   filter: brightness(1.07);
 }
 
-/* KPI cards: one gradient hero, the rest each tinted a different Aurora color. */
+/* KPI cards: one gradient hero, the rest each tinted a different theme color. */
 .kpi-hero.ant-card {
-  background: linear-gradient(120deg, #34d399, #60a5fa 55%, #a78bfa);
+  background: linear-gradient(120deg, var(--theme-a), var(--theme-b) 55%, var(--theme-c));
   border-color: transparent;
 }
 .kpi-hero .ant-statistic-title,
 .kpi-hero .ant-statistic-content {
   color: #fff;
 }
-.kpi-mint.ant-card { background: #dcfaf0; border-color: transparent; }
-.kpi-mint .ant-statistic-content { color: #047857; }
-.kpi-sky.ant-card { background: #e0edff; border-color: transparent; }
-.kpi-sky .ant-statistic-content { color: #1d4ed8; }
-.kpi-lavender.ant-card { background: #efe7ff; border-color: transparent; }
-.kpi-lavender .ant-statistic-content { color: #6d28d9; }
+.kpi-mint.ant-card { background: var(--kpi-a-bg); border-color: transparent; }
+.kpi-mint .ant-statistic-content { color: var(--kpi-a-fg); }
+.kpi-sky.ant-card { background: var(--kpi-b-bg); border-color: transparent; }
+.kpi-sky .ant-statistic-content { color: var(--kpi-b-fg); }
+.kpi-lavender.ant-card { background: var(--kpi-c-bg); border-color: transparent; }
+.kpi-lavender .ant-statistic-content { color: var(--kpi-c-fg); }

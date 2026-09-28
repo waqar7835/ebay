@@ -8,19 +8,19 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ---- "Aurora" theme: gradients and multicolor accents antd tokens can't express (see AntdProvider.tsx) ---- */
+/* ---- "Twilight" theme: gradients and multicolor accents antd tokens can't express (see AntdProvider.tsx) ---- */
 body {
-  background: linear-gradient(135deg, #f0fcf8, #f1f6ff 50%, #f6f2ff) fixed;
+  background: linear-gradient(135deg, #f6f7ff, #faf8ff 50%, #fef9ff) fixed;
   color: #1e293b;
 }
 
 .app-sider {
-  background: linear-gradient(180deg, #e3faf1, #e6efff 55%, #efe8ff);
+  background: linear-gradient(180deg, #e8eafe, #f1ecfe 55%, #fcf0fe);
   border-right: 1px solid #e3e8f2;
 }
 
 .app-logo {
-  background: linear-gradient(120deg, #34d399, #60a5fa 55%, #a78bfa);
+  background: linear-gradient(120deg, #818cf8, #a78bfa 55%, #f0abfc);
 }
 
 /* Colored rounded-square behind each nav icon; colors come from Nav.tsx via CSS variables. */
@@ -36,25 +36,25 @@ body {
 }
 
 .ant-btn.ant-btn-color-primary.ant-btn-variant-solid:not(:disabled) {
-  background: linear-gradient(90deg, #10b981, #3b82f6, #8b5cf6);
+  background: linear-gradient(90deg, #6e77d3, #937adc, #cc91d6);
   border-color: transparent;
 }
 .ant-btn.ant-btn-color-primary.ant-btn-variant-solid:not(:disabled):hover {
   filter: brightness(1.07);
 }
 
-/* KPI cards: one gradient hero, the rest each tinted a different Aurora color. */
+/* KPI cards: one gradient hero, the rest each tinted a different Twilight color (class names kept from Aurora). */
 .kpi-hero.ant-card {
-  background: linear-gradient(120deg, #34d399, #60a5fa 55%, #a78bfa);
+  background: linear-gradient(120deg, #818cf8, #a78bfa 55%, #f0abfc);
   border-color: transparent;
 }
 .kpi-hero .ant-statistic-title,
 .kpi-hero .ant-statistic-content {
   color: #fff;
 }
-.kpi-mint.ant-card { background: #dcfaf0; border-color: transparent; }
-.kpi-mint .ant-statistic-content { color: #047857; }
-.kpi-sky.ant-card { background: #e0edff; border-color: transparent; }
-.kpi-sky .ant-statistic-content { color: #1d4ed8; }
-.kpi-lavender.ant-card { background: #efe7ff; border-color: transparent; }
-.kpi-lavender .ant-statistic-content { color: #6d28d9; }
+.kpi-mint.ant-card { background: #e6e8fe; border-color: transparent; }
+.kpi-mint .ant-statistic-content { color: #3a3f70; }
+.kpi-sky.ant-card { background: #ede8fe; border-color: transparent; }
+.kpi-sky .ant-statistic-content { color: #4b3f71; }
+.kpi-lavender.ant-card { background: #fceefe; border-color: transparent; }
+.kpi-lavender .ant-statistic-content { color: #6c4d71; }
