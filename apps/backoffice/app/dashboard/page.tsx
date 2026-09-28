@@ -67,17 +67,17 @@ export default function DashboardPage() {
             </p>
 
             <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <Card size="small">
+              <Card size="small" className="kpi-hero">
                 <Statistic title="Total company profit" value={data.totalCompanyProfit} precision={2} prefix="$" />
               </Card>
-              <Card size="small">
+              <Card size="small" className="kpi-mint">
                 <Statistic title="Orders this cycle" value={data.orderCount} />
               </Card>
               {Object.entries(data.ordersByStatus)
                 .filter(([, count]) => count > 0)
                 .slice(0, 2)
-                .map(([status, count]) => (
-                  <Card key={status} size="small">
+                .map(([status, count], i) => (
+                  <Card key={status} size="small" className={i === 0 ? "kpi-sky" : "kpi-lavender"}>
                     <Statistic title={STATUS_LABELS[status] ?? status} value={count} />
                   </Card>
                 ))}

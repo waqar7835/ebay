@@ -7,3 +7,54 @@
 }
 @tailwind components;
 @tailwind utilities;
+
+/* ---- "Aurora" theme: gradients and multicolor accents antd tokens can't express (see AntdProvider.tsx) ---- */
+body {
+  background: linear-gradient(135deg, #f0fcf8, #f1f6ff 50%, #f6f2ff) fixed;
+  color: #1e293b;
+}
+
+.app-sider {
+  background: linear-gradient(180deg, #e3faf1, #e6efff 55%, #efe8ff);
+  border-right: 1px solid #e3e8f2;
+}
+
+.app-logo {
+  background: linear-gradient(120deg, #34d399, #60a5fa 55%, #a78bfa);
+}
+
+/* Colored rounded-square behind each nav icon; colors come from Nav.tsx via CSS variables. */
+.nav-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  font-size: 13px;
+  background: var(--nav-icon-bg);
+  color: var(--nav-icon-fg);
+}
+
+.ant-btn.ant-btn-color-primary.ant-btn-variant-solid:not(:disabled) {
+  background: linear-gradient(90deg, #10b981, #3b82f6, #8b5cf6);
+  border-color: transparent;
+}
+.ant-btn.ant-btn-color-primary.ant-btn-variant-solid:not(:disabled):hover {
+  filter: brightness(1.07);
+}
+
+/* KPI cards: one gradient hero, the rest each tinted a different Aurora color. */
+.kpi-hero.ant-card {
+  background: linear-gradient(120deg, #34d399, #60a5fa 55%, #a78bfa);
+  border-color: transparent;
+}
+.kpi-hero .ant-statistic-title,
+.kpi-hero .ant-statistic-content {
+  color: #fff;
+}
+.kpi-mint.ant-card { background: #dcfaf0; border-color: transparent; }
+.kpi-mint .ant-statistic-content { color: #047857; }
+.kpi-sky.ant-card { background: #e0edff; border-color: transparent; }
+.kpi-sky .ant-statistic-content { color: #1d4ed8; }
+.kpi-lavender.ant-card { background: #efe7ff; border-color: transparent; }
+.kpi-lavender .ant-statistic-content { color: #6d28d9; }

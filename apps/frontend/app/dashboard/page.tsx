@@ -317,15 +317,18 @@ export default function DashboardPage() {
               {staff.orderCount} orders this cycle — total company profit ${staff.totalCompanyProfit.toFixed(2)}
             </p>
 
-            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Card size="small">
-                <Statistic title="Active users" value={staff.userStats.active} styles={{ content: { color: "#15803d" } }} />
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
+              <Card size="small" className="kpi-hero">
+                <Statistic title="Company profit this cycle" value={staff.totalCompanyProfit} precision={2} prefix="$" />
               </Card>
-              <Card size="small">
-                <Statistic title="Disabled users" value={staff.userStats.disabled} styles={{ content: { color: "#6b7280" } }} />
+              <Card size="small" className="kpi-mint">
+                <Statistic title="Active users" value={staff.userStats.active} />
               </Card>
-              <Card size="small">
-                <Statistic title="Invited (pending)" value={staff.userStats.invited} styles={{ content: { color: "#d97706" } }} />
+              <Card size="small" className="kpi-sky">
+                <Statistic title="Disabled users" value={staff.userStats.disabled} />
+              </Card>
+              <Card size="small" className="kpi-lavender">
+                <Statistic title="Invited (pending)" value={staff.userStats.invited} />
               </Card>
               <Card size="small">
                 <Statistic title="Aging orders" value={staff.agingOrders.length} styles={{ content: { color: "#dc2626" } }} />
