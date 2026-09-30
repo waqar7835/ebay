@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException, 
 import { ConfigService } from "@nestjs/config";
 import { InjectModel } from "@nestjs/sequelize";
 import * as bcrypt from "bcrypt";
+import { Op } from "sequelize";
 import { DEFAULT_CURRENCY, ProductFulfillmentType, Role, TokenPurpose, UserStatus } from "@ebay-order-management/shared";
 import { User } from "../database/models/user.model";
 import { Company } from "../database/models/company.model";
@@ -10,6 +11,10 @@ import { StaffProfile } from "../database/models/staff-profile.model";
 import { AccountHolderProfile } from "../database/models/account-holder-profile.model";
 import { StockOwnerProfile } from "../database/models/stock-owner-profile.model";
 import { ThreePlProfile } from "../database/models/three-pl-profile.model";
+import { Order } from "../database/models/order.model";
+import { OrderItem } from "../database/models/order-item.model";
+import { Product } from "../database/models/product.model";
+import { Invoice } from "../database/models/invoice.model";
 import { MailerService } from "../mailer/mailer.service";
 import { TokensService } from "../tokens/tokens.service";
 import { SubscriptionsService } from "../subscriptions/subscriptions.service";
@@ -39,6 +44,10 @@ export class UsersService {
     @InjectModel(AccountHolderProfile) private readonly accountHolderModel: typeof AccountHolderProfile,
     @InjectModel(StockOwnerProfile) private readonly stockOwnerModel: typeof StockOwnerProfile,
     @InjectModel(ThreePlProfile) private readonly threePlModel: typeof ThreePlProfile,
+    @InjectModel(Order) private readonly orderModel: typeof Order,
+    @InjectModel(OrderItem) private readonly orderItemModel: typeof OrderItem,
+    @InjectModel(Product) private readonly productModel: typeof Product,
+    @InjectModel(Invoice) private readonly invoiceModel: typeof Invoice,
     private readonly tokensService: TokensService,
     private readonly mailer: MailerService,
     private readonly config: ConfigService,
@@ -63,6 +72,7 @@ export class UsersService {
       companyId: user.companyId,
       name: user.name,
       email: user.email,
+      avatarUrl: user.avatarUrl,
       status: user.status,
       disabledBySubscription: user.disabledBySubscription,
       currency: user.currency,
@@ -154,6 +164,14 @@ export class UsersService {
     return this.toDto(await user.reload({ include: PROFILE_INCLUDES }));
   }
 
+  async setAvatar(companyId: string, userId: string, avatarUrl: string) {
+    const user = await this.userModel.findOne({ where: { id: userId, companyId } });
+    if (!user) throw new NotFoundException("User not found");
+    user.avatarUrl = avatarUrl;
+    await user.save();
+    return this.get(companyId, userId);
+  }
+
   async changePassword(userId: string, dto: ChangePasswordDto) {
     if (dto.newPassword !== dto.confirmNewPassword) {
       throw new BadRequestException("Passwords do not match");
@@ -189,6 +207,29 @@ export class UsersService {
     user.disabledBySubscription = false;
     await user.save();
     return this.toDto(await user.reload({ include: PROFILE_INCLUDES }));
+  }
+
+  /**
+   * Hard-deletes an account that has no history. Anyone on an order, product or invoice is kept
+   * (deleting would cascade their invoices away or orphan orders) — disable them instead.
+   */
+  async remove(companyId: string, userId: string, actingUserId: string) {
+    const user = await this.userModel.findOne({ where: { id: userId, companyId }, include: [UserRoleAssignment] });
+    if (!user) throw new NotFoundException("User not found");
+    if (user.roleAssignments.some((r) => r.role === Role.ADMIN)) throw new BadRequestException("The company Admin can't be deleted");
+    if (user.id === actingUserId) throw new BadRequestException("You can't delete your own account");
+
+    const history =
+      (await this.orderModel.unscoped().count({ where: { [Op.or]: [{ accountHolderId: userId }, { threePlId: userId }] } })) +
+      (await this.orderItemModel.count({ where: { stockOwnerId: userId } })) +
+      (await this.productModel.count({ where: { [Op.or]: [{ stockOwnerId: userId }, { threePlId: userId }] } })) +
+      (await this.invoiceModel.count({ where: { [Op.or]: [{ userId }, { generatedByUserId: userId }] } }));
+    if (history > 0) {
+      throw new ConflictException("This user has orders, products or invoices, so they can't be deleted — disable them instead");
+    }
+
+    await user.destroy();
+    return { deleted: true };
   }
 
   async upsertStaffProfile(userId: string, input: StaffPermissionsInput) {

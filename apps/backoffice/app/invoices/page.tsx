@@ -50,7 +50,7 @@ export default function InvoicesPage() {
 
   const columns: TableColumnsType<InvoiceDto> = [
     { title: "Invoice #", dataIndex: "invoiceNumber", render: (v: string) => <span className="font-medium">{v}</span> },
-    { title: "User", key: "user", render: (_, inv) => userLabel(inv.user) },
+    { title: "User", key: "user", render: (_, inv) => userLabel(inv.user, inv.role) },
     { title: "Role", dataIndex: "role", render: (r: string) => <RoleTag role={r} /> },
     { title: "Orders", key: "orders", render: (_, inv) => inv.lineItems.filter((l) => l.kind === "ORDER").length },
     {

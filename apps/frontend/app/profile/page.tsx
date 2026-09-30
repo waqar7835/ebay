@@ -20,7 +20,9 @@ import {
   updateCompanyName,
   updateMyProfile,
   uploadCompanyLogo,
+  uploadMyAvatar,
 } from "@/lib/api";
+import AvatarUpload from "@/components/AvatarUpload";
 import { currencyOptions, money as formatMoney } from "@/lib/currency";
 
 const BILLING_ANCHOR_DAY_OPTIONS = [1, 5, 10, 15, 20, 25, 30];
@@ -33,6 +35,7 @@ export default function ProfilePage() {
   const [user, setUser] = useState<UserDto | null>(null);
   const [company, setCompany] = useState<CompanyDto | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [companyName, setCompanyName] = useState("");
@@ -153,11 +156,19 @@ export default function ProfilePage() {
       <main className="ml-56 max-w-6xl p-8 pb-16">
         <h1 className="text-2xl font-semibold">Profile</h1>
         {loadError && <Alert type="error" title={loadError} className="mt-4" showIcon />}
+        {avatarError && <Alert type="error" title={avatarError} className="mt-4" showIcon closable onClose={() => setAvatarError(null)} />}
 
         <div className="profile-hero mt-6 flex flex-wrap items-center gap-5 rounded-2xl p-6">
-          <Avatar size={72} className="profile-hero-avatar shrink-0 text-2xl font-semibold">
-            {initials}
-          </Avatar>
+          <AvatarUpload
+            url={user?.avatarUrl}
+            initials={initials}
+            className="profile-hero-avatar text-2xl"
+            onUpload={async (file) => {
+              setAvatarError(null);
+              setUser(await uploadMyAvatar(file));
+            }}
+            onError={setAvatarError}
+          />
           <div className="min-w-0 flex-1">
             <div className="truncate text-2xl font-semibold text-white">{user?.name || "Your profile"}</div>
             <div className="truncate text-white/85">{user?.email}</div>

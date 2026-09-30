@@ -127,6 +127,8 @@ export interface UserDto {
   companyId: string | null;
   name: string | null;
   email: string;
+  /** Profile picture (uploads path or absolute R2 URL), or null to show initials. */
+  avatarUrl: string | null;
   status: UserStatus;
   /** True when the account was switched off because the company's subscription expired (not by an admin). */
   disabledBySubscription: boolean;

@@ -2,7 +2,7 @@
 
 import { DEFAULT_CURRENCY, type Currency, type ProductFulfillmentType, type StockOwnerPayoutMode, type UserDto } from "@ebay-order-management/shared";
 import { MailOutlined } from "@ant-design/icons";
-import { Alert, Avatar, Button, Card, Form, Input, InputNumber, Select, Switch, Tag } from "antd";
+import { Alert, Button, Card, Form, Input, InputNumber, Select, Switch, Tag } from "antd";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import BackLink from "@/components/BackLink";
@@ -16,7 +16,9 @@ import {
   updateStockOwnerProfile,
   updateThreePlProfile,
   updateUser,
+  uploadUserAvatar,
 } from "@/lib/api";
+import AvatarUpload from "@/components/AvatarUpload";
 import { currencyOptions, currencySymbol } from "@/lib/currency";
 
 const STAFF_PERMISSIONS = [
@@ -44,6 +46,7 @@ export default function EditUserPage() {
   const [user, setUser] = useState<UserDto | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const [name, setName] = useState("");
@@ -320,9 +323,17 @@ export default function EditUserPage() {
               <div className="flex flex-col gap-6">
                 <Card>
                   <div className="flex flex-col items-center text-center">
-                    <Avatar size={72} className="bg-[color:var(--btn-b)] text-2xl font-semibold">
-                      {initials}
-                    </Avatar>
+                    <AvatarUpload
+                      url={user.avatarUrl}
+                      initials={initials}
+                      className="bg-[color:var(--btn-b)] text-2xl"
+                      onUpload={async (file) => {
+                        setAvatarError(null);
+                        setUser(await uploadUserAvatar(user.id, file));
+                      }}
+                      onError={setAvatarError}
+                    />
+                    {avatarError && <Alert type="error" title={avatarError} className="mt-3 text-left" showIcon />}
                     <div className="mt-3 max-w-full truncate text-lg font-semibold text-slate-800">{name || user.email}</div>
                     <div className="max-w-full truncate text-sm text-slate-500">{user.email}</div>
                     <div className="mt-3 flex flex-wrap justify-center gap-1">

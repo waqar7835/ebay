@@ -153,6 +153,10 @@ export function setUserStatus(userId: string, enable: boolean) {
   return request<UserDto>(`/users/${userId}/${enable ? "enable" : "disable"}`, { method: "PATCH" });
 }
 
+export function deleteUser(userId: string) {
+  return request<{ deleted: boolean }>(`/users/${userId}`, { method: "DELETE" });
+}
+
 export function updateStaffPermissions(userId: string, dto: StaffPermissionsDto) {
   return request<unknown>(`/users/${userId}/staff-permissions`, { method: "PATCH", body: JSON.stringify(dto) });
 }

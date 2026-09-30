@@ -285,7 +285,7 @@ export default function SubscriptionsPage() {
           { title: "Stock Owners", dataIndex: "maxStockOwners" },
           { title: "3PLs", dataIndex: "maxThreePls" },
           { title: "Staff", dataIndex: "maxStaff" },
-          { title: "Order", dataIndex: "sortOrder" },
+          { title: "Display order", dataIndex: "sortOrder" },
           {
             key: "actions",
             render: (_, p) =>

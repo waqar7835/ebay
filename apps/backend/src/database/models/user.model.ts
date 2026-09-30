@@ -29,6 +29,9 @@ export class User extends Model {
   @Column({ type: DataType.STRING, allowNull: false })
   declare email: string;
 
+  @Column({ type: DataType.STRING, allowNull: true, field: "avatar_url" })
+  declare avatarUrl: string | null;
+
   @Column({ type: DataType.STRING, allowNull: true, field: "password_hash" })
   declare passwordHash: string | null;
 

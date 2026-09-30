@@ -309,6 +309,26 @@ export function getMyProfile() {
   return request<UserDto>("/users/me");
 }
 
+async function uploadAvatar(path: string, file: File) {
+  const form = new FormData();
+  form.append("avatar", file);
+  const res = await fetch(`${API_URL}${path}`, { method: "POST", headers: authHeaders(), body: form });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message ?? `Request failed: ${res.status}`);
+  }
+  return res.json() as Promise<UserDto>;
+}
+
+export function uploadMyAvatar(file: File) {
+  return uploadAvatar("/users/me/avatar", file);
+}
+
+/** Admin / Staff with canManageUsers: set another user's picture. */
+export function uploadUserAvatar(userId: string, file: File) {
+  return uploadAvatar(`/users/${userId}/avatar`, file);
+}
+
 export function updateMyProfile(payload: { name?: string }) {
   return request<UserDto>("/users/me", { method: "PATCH", body: JSON.stringify(payload) });
 }
@@ -372,6 +392,10 @@ export function updateStockOwnerProfile(
 
 export function setUserStatus(userId: string, enable: boolean) {
   return request<UserDto>(`/users/${userId}/${enable ? "enable" : "disable"}`, { method: "PATCH" });
+}
+
+export function deleteUser(userId: string) {
+  return request<{ deleted: boolean }>(`/users/${userId}`, { method: "DELETE" });
 }
 
 export function updateStaffPermissions(userId: string, dto: StaffPermissionsDto) {

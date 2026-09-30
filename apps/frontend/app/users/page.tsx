@@ -2,19 +2,20 @@
 
 import type { Role } from "@ebay-order-management/shared";
 import type { CompanySubscriptionDto } from "@ebay-order-management/shared";
-import { Alert, Button, Space, Table, Tag, Tooltip, type TableColumnsType } from "antd";
+import { Alert, Avatar, Button, Space, Table, Tag, Tooltip, type TableColumnsType } from "antd";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import RoleTag, { roleLabel } from "@/components/RoleTag";
-import { EditAction, ToggleStatusAction } from "@/components/RowActions";
-import { getSubscription, getToken, listUsers, setUserStatus } from "@/lib/api";
+import { DeleteAction, EditAction, ToggleStatusAction } from "@/components/RowActions";
+import { deleteUser, getSubscription, getToken, listUsers, mediaUrl, setUserStatus } from "@/lib/api";
 
 interface UserRow {
   id: string;
   email: string;
   name: string | null;
+  avatarUrl: string | null;
   status: string;
   disabledBySubscription: boolean;
   roles: Role[];
@@ -55,10 +56,32 @@ export default function UsersPage() {
     refresh();
   }
 
+  async function remove(user: UserRow) {
+    setError(null);
+    try {
+      await deleteUser(user.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete user");
+    }
+    refresh();
+  }
+
   const subscriptionDisabledCount = users.filter((u) => u.disabledBySubscription && u.status === "DISABLED").length;
 
   const columns: TableColumnsType<UserRow> = [
-    { title: "Name", dataIndex: "name", render: (v) => v ?? "—", sorter: (a, b) => (a.name ?? "").localeCompare(b.name ?? "") },
+    {
+      title: "Name",
+      dataIndex: "name",
+      render: (v: string | null, u) => (
+        <span className="flex items-center gap-2">
+          <Avatar size={28} src={u.avatarUrl ? mediaUrl(u.avatarUrl) : undefined}>
+            {(v || u.email).charAt(0).toUpperCase()}
+          </Avatar>
+          {v ?? "—"}
+        </span>
+      ),
+      sorter: (a, b) => (a.name ?? "").localeCompare(b.name ?? ""),
+    },
     { title: "Email", dataIndex: "email", sorter: (a, b) => a.email.localeCompare(b.email) },
     { title: "Roles", dataIndex: "roles", render: (roles: Role[]) => roles.map((r) => <RoleTag key={r} role={r} />) },
     {
@@ -81,7 +104,10 @@ export default function UsersPage() {
         <Space size={2}>
           <EditAction onClick={() => router.push(`/users/${u.id}/edit`)} />
           {!u.roles.includes("ADMIN" as Role) && (
-            <ToggleStatusAction active={u.status !== "DISABLED"} name={u.name ?? u.email} onConfirm={() => toggleStatus(u)} />
+            <>
+              <ToggleStatusAction active={u.status !== "DISABLED"} name={u.name ?? u.email} onConfirm={() => toggleStatus(u)} />
+              <DeleteAction confirmTitle={`Delete ${u.name ?? u.email}? This can't be undone.`} onConfirm={() => remove(u)} />
+            </>
           )}
         </Space>
       ),

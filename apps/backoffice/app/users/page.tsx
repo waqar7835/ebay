@@ -1,13 +1,13 @@
 "use client";
 
 import { Currency, DEFAULT_CURRENCY, type ProductFulfillmentType, type Role, type StockOwnerPayoutMode } from "@ebay-order-management/shared";
-import { Alert, Button, Card, Checkbox, Form, Input, InputNumber, Select, Table, Tag, type TableColumnsType } from "antd";
+import { Alert, Button, Card, Checkbox, Form, Input, InputNumber, Select, Space, Table, Tag, type TableColumnsType } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import RoleTag from "@/components/RoleTag";
-import { ToggleStatusAction } from "@/components/RowActions";
-import { getMyCompany, getSelectedCompanyId, getStoredUser, getToken, inviteUser, listUsers, setUserStatus } from "@/lib/api";
+import { DeleteAction, ToggleStatusAction } from "@/components/RowActions";
+import { getMyCompany, getSelectedCompanyId, getStoredUser, getToken, deleteUser, inviteUser, listUsers, setUserStatus } from "@/lib/api";
 import { currencyOptions, currencySymbol } from "@/lib/currency";
 
 const ALL_ROLES: Role[] = ["STAFF", "ACCOUNT_HOLDER", "STOCK_OWNER", "THREE_PL"] as Role[];
@@ -171,6 +171,16 @@ export default function UsersPage() {
     refresh();
   }
 
+  async function remove(user: UserRow) {
+    setError(null);
+    try {
+      await deleteUser(user.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete user");
+    }
+    refresh();
+  }
+
   const numProps = (value: string, set: (v: string) => void) => ({
     value: value === "" ? null : value,
     onChange: (v: string | number | null) => set(v == null ? "" : String(v)),
@@ -187,9 +197,13 @@ export default function UsersPage() {
     },
     {
       key: "actions",
-      render: (_, u) => (
-        <ToggleStatusAction active={u.status !== "DISABLED"} name={u.name ?? u.email} onConfirm={() => toggleStatus(u)} />
-      ),
+      render: (_, u) =>
+        u.roles.includes("ADMIN" as Role) ? null : (
+          <Space size={2}>
+            <ToggleStatusAction active={u.status !== "DISABLED"} name={u.name ?? u.email} onConfirm={() => toggleStatus(u)} />
+            <DeleteAction confirmTitle={`Delete ${u.name ?? u.email}? This can't be undone.`} onConfirm={() => remove(u)} />
+          </Space>
+        ),
     },
   ];
 
