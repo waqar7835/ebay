@@ -162,7 +162,12 @@ export default function UsersPage() {
   }
 
   async function toggleStatus(user: UserRow) {
-    await setUserStatus(user.id, user.status !== "ACTIVE");
+    setError(null);
+    try {
+      await setUserStatus(user.id, user.status === "DISABLED");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update user");
+    }
     refresh();
   }
 
@@ -183,7 +188,7 @@ export default function UsersPage() {
     {
       key: "actions",
       render: (_, u) => (
-        <ToggleStatusAction active={u.status === "ACTIVE"} name={u.name ?? u.email} onConfirm={() => toggleStatus(u)} />
+        <ToggleStatusAction active={u.status !== "DISABLED"} name={u.name ?? u.email} onConfirm={() => toggleStatus(u)} />
       ),
     },
   ];

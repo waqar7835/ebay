@@ -1,6 +1,8 @@
 import type {
   AccountHolderProfileDto,
   BackofficePermissionsDto,
+  BillingPeriodDto,
+  CompanySubscriptionDto,
   BackofficeUserDto,
   Currency,
   ExchangeRateDto,
@@ -14,6 +16,9 @@ import type {
   Role,
   StaffPermissionsDto,
   StockOwnerProfileDto,
+  SubscriptionPaymentDto,
+  SubscriptionPaymentStatus,
+  SubscriptionPlanDto,
   ThreePlProfileDto,
   UserDto,
 } from "@ebay-order-management/shared";
@@ -282,49 +287,89 @@ export function staffDashboard() {
   }>("/dashboard/staff");
 }
 
-// --- Billing (seat payments) ---
-export function previewSeatCharge(userId: string, months: number) {
-  return request<{ periodStart: string; periodEnd: string; months: number; amount: number }>(
-    `/billing/preview?userId=${userId}&months=${months}`,
-  );
-}
-
-export async function submitSeatOrder(items: { userId: string; months: number }[], referenceNote: string, receipt: File | null) {
-  const form = new FormData();
-  form.append("items", JSON.stringify(items));
-  if (referenceNote) form.append("referenceNote", referenceNote);
-  if (receipt) form.append("receipt", receipt);
-
-  const res = await fetch(`${API_URL}${withSelectedCompany("/billing/seat-orders")}`, {
-    method: "POST",
-    headers: authHeaders(),
-    body: form,
+// --- Subscriptions (plans + billing periods: Super Admin edits; payments: Super Admin reviews) ---
+// These are platform-wide, so they bypass withSelectedCompany() via rawRequest().
+async function rawRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    ...options,
+    headers: { "Content-Type": "application/json", ...authHeaders(), ...(options.headers ?? {}) },
+    cache: "no-store",
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.message ?? `Request failed: ${res.status}`);
+    throw new Error(Array.isArray(body.message) ? body.message.join(", ") : (body.message ?? `Request failed: ${res.status}`));
   }
   return res.json();
 }
 
-export function listSeatOrders() {
-  return request<unknown[]>("/billing/seat-orders");
+export type PlanInput = Omit<SubscriptionPlanDto, "id" | "isFree">;
+export type BillingPeriodInput = Omit<BillingPeriodDto, "id">;
+
+export function listSubscriptionPlans() {
+  return rawRequest<SubscriptionPlanDto[]>("/subscriptions/plans?all=true");
 }
 
-// --- Super Admin ---
-export function listPendingSeatOrders() {
-  return request<unknown[]>("/billing/seat-orders/pending");
+export function createSubscriptionPlan(input: PlanInput) {
+  return rawRequest<SubscriptionPlanDto>("/subscriptions/plans", { method: "POST", body: JSON.stringify(input) });
 }
 
-export function reviewSeatOrder(orderId: string, approve: boolean) {
-  return request<unknown>(`/billing/seat-orders/${orderId}/review`, {
+export function updateSubscriptionPlan(id: string, input: Partial<PlanInput>) {
+  return rawRequest<SubscriptionPlanDto>(`/subscriptions/plans/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function deleteSubscriptionPlan(id: string) {
+  return rawRequest<unknown>(`/subscriptions/plans/${id}`, { method: "DELETE" });
+}
+
+export function listBillingPeriods() {
+  return rawRequest<BillingPeriodDto[]>("/subscriptions/billing-periods?all=true");
+}
+
+export function createBillingPeriod(input: BillingPeriodInput) {
+  return rawRequest<BillingPeriodDto>("/subscriptions/billing-periods", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateBillingPeriod(id: string, input: Partial<BillingPeriodInput>) {
+  return rawRequest<BillingPeriodDto>(`/subscriptions/billing-periods/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function deleteBillingPeriod(id: string) {
+  return rawRequest<unknown>(`/subscriptions/billing-periods/${id}`, { method: "DELETE" });
+}
+
+export function listSubscriptionPayments(status?: SubscriptionPaymentStatus) {
+  return rawRequest<SubscriptionPaymentDto[]>(`/subscriptions/payments/all${status ? `?status=${status}` : ""}`);
+}
+
+export function reviewSubscriptionPayment(id: string, approve: boolean) {
+  return rawRequest<SubscriptionPaymentDto>(`/subscriptions/payments/${id}/review`, {
     method: "PATCH",
     body: JSON.stringify({ approve }),
   });
 }
 
+export function getCompanySubscription(companyId: string) {
+  return rawRequest<CompanySubscriptionDto>(`/subscriptions/me?companyId=${companyId}`);
+}
+
+export function assignSubscriptionPlan(companyId: string, planId: string, endsAt?: string) {
+  return rawRequest<CompanySubscriptionDto>(`/subscriptions/companies/${companyId}/assign`, {
+    method: "POST",
+    body: JSON.stringify({ planId, endsAt }),
+  });
+}
+
 export function listAllCompanies() {
-  return request<{ id: string; name: string; emailVerifiedAt: string | null; createdAt: string }[]>("/companies");
+  return request<
+    {
+      id: string;
+      name: string;
+      emailVerifiedAt: string | null;
+      createdAt: string;
+      subscriptionEndsAt: string | null;
+      subscriptionPlan: { id: string; name: string } | null;
+    }[]
+  >("/companies");
 }
 
 // --- Platform Staff (backoffice_users) ---

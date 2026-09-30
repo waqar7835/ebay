@@ -37,7 +37,7 @@ import {
   getToken,
   listProducts,
   mediaUrl,
-  seatStatus,
+  accountStatus,
   staffDashboard,
   stockOwnerDashboard,
   threePlDashboard,
@@ -261,7 +261,7 @@ export default function DashboardPage() {
       router.push("/");
       return;
     }
-    seatStatus().then((s) => setBlocked(s.blocked));
+    accountStatus().then((s) => setBlocked(s.disabled)).catch(() => undefined);
     listProducts().then(setProducts).catch(() => undefined);
     refreshAh(emptyFilter);
     refreshSo(emptyFilter);
@@ -312,8 +312,8 @@ export default function DashboardPage() {
         <main className="ml-56 max-w-lg p-8">
           <Result
             status="warning"
-            title="Access pending payment"
-            subTitle="Your seat's payment is overdue. Please contact your company admin to submit payment — your dashboard will unlock once it's approved."
+            title="Account deactivated"
+            subTitle="Your account has been deactivated by your company. Please contact your company admin to get access back."
           />
         </main>
       </>

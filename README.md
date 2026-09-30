@@ -5,7 +5,7 @@ Multi-tenant order/revenue-share management platform. Monorepo (pnpm workspaces 
 ```
 apps/
   backend/     NestJS + Sequelize — REST API, JWT auth, billing engine, Swagger docs (http://localhost:4000, docs at /docs)
-  backoffice/  Next.js — Admin/Staff panel: users, products, orders, invoices, seat billing (http://localhost:3001)
+  backoffice/  Next.js — Admin/Staff panel: users, products, orders, invoices, subscriptions (http://localhost:3001)
   frontend/    Next.js — Partner portal for Account Holders/Stock Owners/3PLs/Staff (http://localhost:3000)
 packages/
   shared/      Shared TypeScript types/DTOs/enums used by all three apps
@@ -19,7 +19,7 @@ packages/
 - **Orders** are one product each; all revenue-share inputs (prices, rates, 3PL fees) are snapshotted onto the order at creation so later rate changes never rewrite history.
 - **Revenue share**: Stock Owner profit-share or fixed payout, Account Holder % of their order profit, 3PL flat fee per order, optional Staff % of total company profit — see `apps/backend/src/finance/finance.service.ts` for the exact formulas.
 - **Invoices** are generated per user per role for a completed billing cycle (each role/company has its own cycle anchor day), itemized, with an UNPAID → PAID toggle and refund clawback handling.
-- **Seat billing**: Account Holder/Stock Owner/3PL seats are paid (Admin/Staff seats are free); the first seat of each type per company gets one free month. Payment is manual/offline — Admin submits a seat-payment order with a receipt, the Super Admin approves/rejects it. Unpaid seats get reminder emails at day 5/10 and are blocked at day 15 (see `apps/backend/src/billing/`).
+- **Subscriptions**: each company is on a plan (a free fallback plan unless a paid one is active) that caps how many Account Holder / Stock Owner / 3PL / Staff accounts it can have (the Admin is always free). Plans and billing durations (1/3/6/12 months, each with its own discount) are configured by the Super Admin in the backoffice. Payment is manual — the company picks a duration and a plan, uploads a receipt, and the Super Admin approves it. Admins get emails 5 days and 1 day before expiry; on expiry every account except the Admin is deactivated and the Admin can re-enable up to the free plan's limits (see `apps/backend/src/subscriptions/`).
 
 Full detail and every confirmed business rule is in the build plan at `.claude/plans/resilient-noodling-stream.md` (or ask to see it).
 

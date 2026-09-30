@@ -16,7 +16,7 @@ import { AccountHolderProfile } from "../database/models/account-holder-profile.
 import { StockOwnerProfile } from "../database/models/stock-owner-profile.model";
 import { ThreePlProfile } from "../database/models/three-pl-profile.model";
 import { User } from "../database/models/user.model";
-import { BillingService } from "../billing/billing.service";
+import { SubscriptionsService } from "../subscriptions/subscriptions.service";
 import { FinanceService } from "../finance/finance.service";
 import { ExchangeRatesService } from "../exchange-rates/exchange-rates.service";
 import type { JwtPayload } from "../auth/jwt.strategy";
@@ -65,7 +65,7 @@ export class OrdersService {
     @InjectModel(StockOwnerProfile) private readonly stockOwnerProfileModel: typeof StockOwnerProfile,
     @InjectModel(ThreePlProfile) private readonly threePlProfileModel: typeof ThreePlProfile,
     @InjectModel(User) private readonly userModel: typeof User,
-    private readonly billingService: BillingService,
+    private readonly subscriptions: SubscriptionsService,
     private readonly financeService: FinanceService,
     private readonly exchangeRatesService: ExchangeRatesService,
   ) {}
@@ -165,8 +165,8 @@ export class OrdersService {
     const lines = await this.resolveLines(companyId, dto.items);
     const fulfillmentType = lines[0].product.fulfillmentType;
 
-    if (await this.billingService.isSeatBlocked(dto.accountHolderId)) {
-      throw new ForbiddenException("This Account Holder's seat is blocked pending payment");
+    if (await this.subscriptions.isUserDisabled(dto.accountHolderId)) {
+      throw new ForbiddenException("This Account Holder's account is deactivated");
     }
     const accountHolderProfile = await this.accountHolderProfileModel.findByPk(dto.accountHolderId);
     if (!accountHolderProfile) {
@@ -320,8 +320,8 @@ export class OrdersService {
    * they're charged from the new holder's current profile, at any status. Issued invoices aren't adjusted.
    */
   private async changeAccountHolder(order: Order, accountHolderId: string) {
-    if (await this.billingService.isSeatBlocked(accountHolderId)) {
-      throw new ForbiddenException("This Account Holder's seat is blocked pending payment");
+    if (await this.subscriptions.isUserDisabled(accountHolderId)) {
+      throw new ForbiddenException("This Account Holder's account is deactivated");
     }
     const profile = await this.accountHolderProfileModel.findByPk(accountHolderId);
     if (!profile) throw new BadRequestException("Account Holder profile not found");
@@ -397,7 +397,7 @@ export class OrdersService {
   /**
    * Loads and validates an order's products. Repeated products are merged. Several products are only
    * allowed when they're all STOCK; a DROPSHIP order has exactly one product. The Stock Owner of every
-   * product being added (i.e. not in `alreadyOnOrder`) must have an active seat.
+   * product being added (i.e. not in `alreadyOnOrder`) must not be deactivated.
    */
   private async resolveLines(
     companyId: string,
@@ -421,8 +421,8 @@ export class OrdersService {
     }
     const addedStockOwners = lines.filter((l) => !alreadyOnOrder.has(l.product.id)).map((l) => l.product.stockOwnerId);
     for (const stockOwnerId of new Set(addedStockOwners.filter((id): id is string => !!id))) {
-      if (await this.billingService.isSeatBlocked(stockOwnerId)) {
-        throw new ForbiddenException("A Stock Owner of one of these products has a seat blocked pending payment");
+      if (await this.subscriptions.isUserDisabled(stockOwnerId)) {
+        throw new ForbiddenException("The Stock Owner of one of these products is deactivated");
       }
     }
     return lines;
@@ -464,8 +464,8 @@ export class OrdersService {
   ) {
     const none = { threePlCurrency: null, threePlPriceChargedOriginal: null, threePlPayoutOriginal: null };
     if (!threePlId) return { ...none, threePlPriceChargedSnapshot: null, threePlPayoutSnapshot: null };
-    if (threePlId !== previousThreePlId && (await this.billingService.isSeatBlocked(threePlId))) {
-      throw new ForbiddenException("This 3PL's seat is blocked pending payment");
+    if (threePlId !== previousThreePlId && (await this.subscriptions.isUserDisabled(threePlId))) {
+      throw new ForbiddenException("This 3PL's account is deactivated");
     }
     const threePlProfile = await this.assertThreePlHandles(threePlId, fulfillmentType);
     // Originals only (Account Holder's / 3PL's currency) — the PKR snapshots are derived by convertOrderAmounts().

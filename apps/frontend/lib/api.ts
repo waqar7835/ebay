@@ -1,6 +1,8 @@
 import type {
   AccountHolderProfileDto,
+  BillingPeriodDto,
   CompanyDto,
+  CompanySubscriptionDto,
   Currency,
   ExchangeRateDto,
   ExchangeRates,
@@ -16,6 +18,8 @@ import type {
   Role,
   StaffPermissionsDto,
   StockOwnerProfileDto,
+  SubscriptionPaymentDto,
+  SubscriptionPlanDto,
   ThreePlProfileDto,
   UserDto,
 } from "@ebay-order-management/shared";
@@ -140,8 +144,8 @@ export function acceptInvite(token: string, password: string, confirmPassword: s
   });
 }
 
-export function seatStatus() {
-  return request<{ paidThroughDate: string | null; blocked: boolean }>("/dashboard/seat-status");
+export function accountStatus() {
+  return request<{ disabled: boolean }>("/dashboard/account-status");
 }
 
 export interface DashboardOrderFilters {
@@ -542,20 +546,31 @@ export function markInvoicePaid(invoiceId: string) {
   return request<InvoiceDto>(`/invoices/${invoiceId}/mark-paid`, { method: "PATCH" });
 }
 
-// --- Billing (seat payments: ADMIN/STAFF-with-canManageUsers) ---
-export function previewSeatCharge(userId: string, months: number) {
-  return request<{ periodStart: string; periodEnd: string; months: number; amount: number }>(
-    `/billing/preview?userId=${userId}&months=${months}`,
-  );
+// --- Subscription (ADMIN / STAFF-with-canManageUsers) ---
+export function getSubscription() {
+  return request<CompanySubscriptionDto>("/subscriptions/me");
 }
 
-export async function submitSeatOrder(items: { userId: string; months: number }[], referenceNote: string, receipt: File | null) {
-  const form = new FormData();
-  form.append("items", JSON.stringify(items));
-  if (referenceNote) form.append("referenceNote", referenceNote);
-  if (receipt) form.append("receipt", receipt);
+export function listSubscriptionPlans() {
+  return request<SubscriptionPlanDto[]>("/subscriptions/plans");
+}
 
-  const res = await fetch(`${API_URL}/billing/seat-orders`, {
+export function listBillingPeriods() {
+  return request<BillingPeriodDto[]>("/subscriptions/billing-periods");
+}
+
+export function listSubscriptionPayments() {
+  return request<SubscriptionPaymentDto[]>("/subscriptions/payments");
+}
+
+export async function submitSubscriptionPayment(planId: string, billingPeriodId: string, referenceNote: string, receipt: File) {
+  const form = new FormData();
+  form.append("planId", planId);
+  form.append("billingPeriodId", billingPeriodId);
+  if (referenceNote) form.append("referenceNote", referenceNote);
+  form.append("receipt", receipt);
+
+  const res = await fetch(`${API_URL}/subscriptions/payments`, {
     method: "POST",
     headers: authHeaders(),
     body: form,
@@ -564,9 +579,12 @@ export async function submitSeatOrder(items: { userId: string; months: number }[
     const body = await res.json().catch(() => ({}));
     throw new Error(body.message ?? `Request failed: ${res.status}`);
   }
-  return res.json();
+  return res.json() as Promise<SubscriptionPaymentDto>;
 }
 
-export function listSeatOrders() {
-  return request<unknown[]>("/billing/seat-orders");
+/** Price of `plan` for `period`, as the backend computes it (PKR, 2 decimals). */
+export function subscriptionPrice(plan: Pick<SubscriptionPlanDto, "pricePerMonth">, period: Pick<BillingPeriodDto, "months" | "discountPercent">) {
+  const subtotal = Math.round(plan.pricePerMonth * period.months * 100) / 100;
+  const total = Math.round(subtotal * (1 - period.discountPercent / 100) * 100) / 100;
+  return { subtotal, total, perMonth: Math.round((total / period.months) * 100) / 100 };
 }

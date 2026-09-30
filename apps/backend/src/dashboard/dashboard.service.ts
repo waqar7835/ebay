@@ -12,7 +12,6 @@ import { AccountHolderProfile } from "../database/models/account-holder-profile.
 import { StockOwnerProfile } from "../database/models/stock-owner-profile.model";
 import { ThreePlProfile } from "../database/models/three-pl-profile.model";
 import { StaffProfile } from "../database/models/staff-profile.model";
-import { SeatBilling } from "../database/models/seat-billing.model";
 import { FinanceService } from "../finance/finance.service";
 import { currentCycle, toDateOnly } from "../invoices/billing-cycle.util";
 import { daysInStatus, isOrderStale } from "../orders/order-staleness.util";
@@ -37,18 +36,9 @@ export class DashboardService {
     @InjectModel(StockOwnerProfile) private readonly stockOwnerProfileModel: typeof StockOwnerProfile,
     @InjectModel(ThreePlProfile) private readonly threePlProfileModel: typeof ThreePlProfile,
     @InjectModel(StaffProfile) private readonly staffProfileModel: typeof StaffProfile,
-    @InjectModel(SeatBilling) private readonly seatBillingModel: typeof SeatBilling,
     @InjectModel(User) private readonly userModel: typeof User,
     private readonly finance: FinanceService,
   ) {}
-
-  async seatStatus(userId: string) {
-    const billing = await this.seatBillingModel.findByPk(userId);
-    return {
-      paidThroughDate: billing?.paidThroughDate ?? null,
-      blocked: billing?.blocked ?? false,
-    };
-  }
 
   async accountHolder(companyId: string, userId: string, filters: DashboardOrderFilters = {}) {
     const profile = await this.accountHolderProfileModel.findByPk(userId);

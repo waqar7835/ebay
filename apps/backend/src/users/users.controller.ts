@@ -1,6 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
-import { UserStatus } from "@ebay-order-management/shared";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { RolesGuard } from "../common/guards/roles.guard";
 import { PermissionsGuard } from "../common/guards/permissions.guard";
@@ -72,13 +71,13 @@ export class UsersController {
   @Patch(":id/disable")
   @RequirePermission("canManageUsers")
   disable(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Query("companyId") companyId?: string) {
-    return this.usersService.setStatus(resolveCompanyId(user, companyId), id, UserStatus.DISABLED);
+    return this.usersService.setEnabled(resolveCompanyId(user, companyId), id, false);
   }
 
   @Patch(":id/enable")
   @RequirePermission("canManageUsers")
   enable(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Query("companyId") companyId?: string) {
-    return this.usersService.setStatus(resolveCompanyId(user, companyId), id, UserStatus.ACTIVE);
+    return this.usersService.setEnabled(resolveCompanyId(user, companyId), id, true);
   }
 
   @Patch(":id/staff-permissions")

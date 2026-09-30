@@ -1,44 +1,45 @@
 "use client";
 
-import { Currency, DEFAULT_CURRENCY, type ProductFulfillmentType, type Role, type StockOwnerPayoutMode } from "@ebay-order-management/shared";
+import { Currency, DEFAULT_CURRENCY, type CompanySubscriptionDto, type ProductFulfillmentType, type Role, type StockOwnerPayoutMode } from "@ebay-order-management/shared";
 import { CarOutlined, CheckCircleFilled, InboxOutlined, MailOutlined, TeamOutlined, UserOutlined } from "@ant-design/icons";
 import { Alert, Button, Card, Form, Input, InputNumber, Select, Switch, Tag } from "antd";
 import { useEffect, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import BackLink from "@/components/BackLink";
 import Nav from "@/components/Nav";
-import { getMyCompany, getToken, inviteUser } from "@/lib/api";
+import { getMyCompany, getSubscription, getToken, inviteUser } from "@/lib/api";
 import { currencyOptions, currencySymbol } from "@/lib/currency";
 
-// Admin/Staff seats are free; the other roles are paid seats (first seat of each type gets a free month).
-const USER_TYPES: { role: Role; label: string; description: string; icon: ReactNode; paidSeat: boolean }[] = [
+// Every type counts against the company's subscription plan limits. Only the non-Staff types have a currency of their own.
+const USER_TYPES: { role: Role; label: string; description: string; icon: ReactNode; hasCurrency: boolean }[] = [
   {
     role: "STAFF" as Role,
     label: "Staff",
     description: "An employee who manages orders, stock, users or invoices on your behalf.",
     icon: <TeamOutlined />,
-    paidSeat: false,
+    hasCurrency: false,
   },
   {
     role: "ACCOUNT_HOLDER" as Role,
     label: "Account Holder",
     description: "Earns a share of profit and is billed on a recurring cycle.",
     icon: <UserOutlined />,
-    paidSeat: true,
+    hasCurrency: true,
   },
   {
     role: "STOCK_OWNER" as Role,
     label: "Stock Owner",
     description: "Supplies stock and is paid a fixed amount or a share of margin.",
     icon: <InboxOutlined />,
-    paidSeat: true,
+    hasCurrency: true,
   },
   {
     role: "THREE_PL" as Role,
     label: "3PL",
     description: "A fulfillment partner paid per order fulfilled.",
     icon: <CarOutlined />,
-    paidSeat: true,
+    hasCurrency: true,
   },
 ];
 
@@ -83,6 +84,13 @@ export default function InviteUserPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [subscription, setSubscription] = useState<CompanySubscriptionDto | null>(null);
+
+  function refreshSubscription() {
+    getSubscription()
+      .then(setSubscription)
+      .catch(() => undefined);
+  }
 
   useEffect(() => {
     if (!getToken()) {
@@ -93,7 +101,10 @@ export default function InviteUserPage() {
     getMyCompany()
       .then((c) => setCurrency(c.defaultCurrency ?? DEFAULT_CURRENCY))
       .catch(() => undefined);
+    refreshSubscription();
   }, [router]);
+
+  const usageFor = (role: Role) => subscription?.usage.find((u) => u.role === role) ?? null;
 
   function switchType(role: Role) {
     setActiveType(role);
@@ -111,7 +122,7 @@ export default function InviteUserPage() {
         email,
         roles: [activeType],
         // Staff have no amounts of their own — only paid roles enter money in their currency.
-        currency: activeMeta.paidSeat ? currency : undefined,
+        currency: activeMeta.hasCurrency ? currency : undefined,
         staffPermissions:
           activeType === ("STAFF" as Role)
             ? {
@@ -146,6 +157,7 @@ export default function InviteUserPage() {
             : undefined,
       });
       const label = USER_TYPES.find((t) => t.role === activeType)?.label ?? activeType;
+      refreshSubscription();
       setSuccessMessage(`Invited ${email} as ${label}. Pick another type above to invite the same person for another user type.`);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to invite user");
@@ -155,6 +167,8 @@ export default function InviteUserPage() {
   }
 
   const activeMeta = USER_TYPES.find((t) => t.role === activeType)!;
+  const activeUsage = usageFor(activeType);
+  const activeFull = !!activeUsage && activeUsage.used >= activeUsage.limit;
 
   const numProps = (value: string, set: (v: string) => void) => ({
     value: value === "" ? null : value,
@@ -197,11 +211,13 @@ export default function InviteUserPage() {
                 </span>
                 <span className="font-semibold text-slate-800">{type.label}</span>
                 <span className="text-xs leading-relaxed text-slate-500">{type.description}</span>
-                <span>
-                  <Tag color={type.paidSeat ? "gold" : "green"} className="mr-0">
-                    {type.paidSeat ? "Paid seat" : "Free seat"}
-                  </Tag>
-                </span>
+                {usageFor(type.role) && (
+                  <span>
+                    <Tag color={usageFor(type.role)!.used >= usageFor(type.role)!.limit ? "red" : "default"} className="mr-0">
+                      {usageFor(type.role)!.used} / {usageFor(type.role)!.limit} used
+                    </Tag>
+                  </span>
+                )}
               </button>
             );
           })}
@@ -211,7 +227,7 @@ export default function InviteUserPage() {
           <div className="grid gap-6 lg:grid-cols-3">
             <div className="flex flex-col gap-6 lg:col-span-2">
               <Card title="Person">
-                <div className={`grid gap-x-4 gap-y-4 sm:grid-cols-2 ${activeMeta.paidSeat ? "xl:grid-cols-3" : ""}`}>
+                <div className={`grid gap-x-4 gap-y-4 sm:grid-cols-2 ${activeMeta.hasCurrency ? "xl:grid-cols-3" : ""}`}>
                   <Form.Item label="Name" className="mb-0">
                     <Input placeholder="Full name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
                   </Form.Item>
@@ -229,7 +245,7 @@ export default function InviteUserPage() {
                       autoComplete="off"
                     />
                   </Form.Item>
-                  {activeMeta.paidSeat && (
+                  {activeMeta.hasCurrency && (
                     <Form.Item label="Currency" tooltip="Their amounts are entered in this currency and converted to PKR on each order" className="mb-0">
                       <Select value={currency} onChange={setCurrency} options={currencyOptions} showSearch={{ optionFilterProp: "label" }} />
                     </Form.Item>
@@ -352,8 +368,8 @@ export default function InviteUserPage() {
                 )}
                 <ul className="mb-0 mt-4 space-y-1 pl-4 text-xs text-slate-500">
                   <li>They get an email to set their password and sign in.</li>
-                  {activeMeta.paidSeat && <li>Their amounts are in {currency}, converted to PKR at the rate on each order.</li>}
-                  {activeMeta.paidSeat && <li>Uses a paid {activeMeta.label} seat — the first seat of each type gets a free month.</li>}
+                  {activeMeta.hasCurrency && <li>Their amounts are in {currency}, converted to PKR at the rate on each order.</li>}
+                  {subscription && <li>Uses one of the {subscription.plan.name} plan&apos;s {activeMeta.label} accounts.</li>}
                   <li>To give the same person another role, invite them again under that type.</li>
                 </ul>
               </Card>
@@ -361,7 +377,20 @@ export default function InviteUserPage() {
               <Card>
                 {formError && <Alert type="error" title={formError} className="mb-4" showIcon />}
                 {successMessage && <Alert type="success" title={successMessage} className="mb-4" showIcon />}
-                <Button type="primary" htmlType="submit" loading={submitting} block size="large">
+                {activeFull && (
+                  <Alert
+                    type="warning"
+                    className="mb-4"
+                    showIcon
+                    title={`All ${activeUsage!.limit} ${activeMeta.label} accounts on your ${subscription!.plan.name} plan are in use`}
+                    description={
+                      <>
+                        <Link href="/subscription">Upgrade your subscription</Link> or disable another {activeMeta.label} first.
+                      </>
+                    }
+                  />
+                )}
+                <Button type="primary" htmlType="submit" loading={submitting} disabled={activeFull} block size="large">
                   {submitting ? "Sending invite..." : `Send invite as ${activeMeta.label}`}
                 </Button>
               </Card>

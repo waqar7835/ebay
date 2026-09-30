@@ -49,6 +49,7 @@ export class AuthService {
       email: dto.email,
       passwordHash,
       status: UserStatus.ACTIVE,
+      inviteAcceptedAt: new Date(),
     });
     await this.userRoleModel.create({ userId: user.id, role: Role.ADMIN });
 
@@ -287,9 +288,14 @@ export class AuthService {
     if (!user) {
       throw new BadRequestException("User not found");
     }
+    // A disabled account (e.g. its company's subscription lapsed) can't be revived through an old invite link.
+    if (user.status === UserStatus.DISABLED) {
+      throw new BadRequestException("This account has been deactivated. Please contact your company admin.");
+    }
 
     user.passwordHash = passwordHash;
     user.status = UserStatus.ACTIVE;
+    user.inviteAcceptedAt = new Date();
     await user.save();
 
     return { message: "Account activated, you can now log in" };

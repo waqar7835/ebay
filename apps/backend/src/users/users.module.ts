@@ -9,7 +9,7 @@ import { AccountHolderProfile } from "../database/models/account-holder-profile.
 import { StockOwnerProfile } from "../database/models/stock-owner-profile.model";
 import { ThreePlProfile } from "../database/models/three-pl-profile.model";
 import { TokensModule } from "../tokens/tokens.module";
-import { BillingModule } from "../billing/billing.module";
+import { SubscriptionsModule } from "../subscriptions/subscriptions.module";
 import { UsersController } from "./users.controller";
 import { UsersService } from "./users.service";
 
@@ -26,7 +26,7 @@ import { UsersService } from "./users.service";
       Company,
     ]),
     TokensModule,
-    BillingModule,
+    SubscriptionsModule,
   ],
   controllers: [UsersController],
   providers: [UsersService],

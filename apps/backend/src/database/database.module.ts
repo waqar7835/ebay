@@ -16,10 +16,9 @@ import { Order } from "./models/order.model";
 import { OrderItem } from "./models/order-item.model";
 import { Invoice } from "./models/invoice.model";
 import { InvoiceLineItem } from "./models/invoice-line-item.model";
-import { PlatformSetting } from "./models/platform-setting.model";
-import { SeatBilling } from "./models/seat-billing.model";
-import { SeatPaymentOrder } from "./models/seat-payment-order.model";
-import { SeatPaymentOrderItem } from "./models/seat-payment-order-item.model";
+import { SubscriptionPlan } from "./models/subscription-plan.model";
+import { SubscriptionBillingPeriod } from "./models/subscription-billing-period.model";
+import { SubscriptionPayment } from "./models/subscription-payment.model";
 import { ExchangeRate } from "./models/exchange-rate.model";
 
 export const ALL_MODELS = [
@@ -38,10 +37,9 @@ export const ALL_MODELS = [
   OrderItem,
   Invoice,
   InvoiceLineItem,
-  PlatformSetting,
-  SeatBilling,
-  SeatPaymentOrder,
-  SeatPaymentOrderItem,
+  SubscriptionPlan,
+  SubscriptionBillingPeriod,
+  SubscriptionPayment,
   ExchangeRate,
 ];
 

@@ -8,10 +8,9 @@ import { AccountHolderProfile } from "../database/models/account-holder-profile.
 import { StockOwnerProfile } from "../database/models/stock-owner-profile.model";
 import { ThreePlProfile } from "../database/models/three-pl-profile.model";
 import { StaffProfile } from "../database/models/staff-profile.model";
-import { SeatBilling } from "../database/models/seat-billing.model";
 import { User } from "../database/models/user.model";
 import { FinanceModule } from "../finance/finance.module";
-import { BillingModule } from "../billing/billing.module";
+import { SubscriptionsModule } from "../subscriptions/subscriptions.module";
 import { DashboardController } from "./dashboard.controller";
 import { DashboardService } from "./dashboard.service";
 
@@ -26,11 +25,10 @@ import { DashboardService } from "./dashboard.service";
       StockOwnerProfile,
       ThreePlProfile,
       StaffProfile,
-      SeatBilling,
       User,
     ]),
     FinanceModule,
-    BillingModule,
+    SubscriptionsModule,
   ],
   controllers: [DashboardController],
   providers: [DashboardService],

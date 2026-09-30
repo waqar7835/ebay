@@ -1,6 +1,7 @@
-import { Column, DataType, HasMany, Model, Table } from "sequelize-typescript";
+import { BelongsTo, Column, DataType, ForeignKey, HasMany, Model, Table } from "sequelize-typescript";
 import { Currency, DEFAULT_CURRENCY } from "@ebay-order-management/shared";
 import { User } from "./user.model";
+import { SubscriptionPlan } from "./subscription-plan.model";
 
 @Table({ tableName: "companies", underscored: true })
 export class Company extends Model {
@@ -30,14 +31,21 @@ export class Company extends Model {
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0, field: "last_invoice_sequence" })
   declare lastInvoiceSequence: number;
 
-  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false, field: "free_account_holder_used" })
-  declare freeAccountHolderUsed: boolean;
+  /** The paid plan the company is on; null = the free plan. */
+  @ForeignKey(() => SubscriptionPlan)
+  @Column({ type: DataType.UUID, allowNull: true, field: "subscription_plan_id" })
+  declare subscriptionPlanId: string | null;
 
-  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false, field: "free_stock_owner_used" })
-  declare freeStockOwnerUsed: boolean;
+  @BelongsTo(() => SubscriptionPlan)
+  declare subscriptionPlan: SubscriptionPlan | null;
 
-  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false, field: "free_three_pl_used" })
-  declare freeThreePlUsed: boolean;
+  /** Last day (inclusive, YYYY-MM-DD) of the paid plan; null on the free plan. */
+  @Column({ type: DataType.DATEONLY, allowNull: true, field: "subscription_ends_at" })
+  declare subscriptionEndsAt: string | null;
+
+  /** Expiry reminders sent for the current term: 1 = the 5-day one, 2 = the 1-day one too. */
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0, field: "subscription_reminders_sent" })
+  declare subscriptionRemindersSent: number;
 
   @HasMany(() => User)
   declare users: User[];

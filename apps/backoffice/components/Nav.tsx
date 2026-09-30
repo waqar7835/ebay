@@ -34,7 +34,7 @@ const LINKS = [
   { href: "/products", label: "Products", icon: <NavIcon icon={<AppstoreOutlined />} bg="#d1fae5" fg="#059669" /> },
   { href: "/users", label: "Users", icon: <NavIcon icon={<TeamOutlined />} bg="#e0f2fe" fg="#0284c7" /> },
   { href: "/invoices", label: "Invoices", icon: <NavIcon icon={<FileTextOutlined />} bg="#fce7f3" fg="#db2777" /> },
-  { href: "/billing", label: "Billing", icon: <NavIcon icon={<CreditCardOutlined />} bg="#fef3c7" fg="#d97706" /> },
+  { href: "/subscriptions", label: "Subscriptions", icon: <NavIcon icon={<CreditCardOutlined />} bg="#fef3c7" fg="#d97706" /> },
 ];
 
 export default function Nav() {

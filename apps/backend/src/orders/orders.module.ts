@@ -9,7 +9,7 @@ import { StockOwnerProfile } from "../database/models/stock-owner-profile.model"
 import { ThreePlProfile } from "../database/models/three-pl-profile.model";
 import { StaffProfile } from "../database/models/staff-profile.model";
 import { BackofficeStaffProfile } from "../database/models/backoffice-staff-profile.model";
-import { BillingModule } from "../billing/billing.module";
+import { SubscriptionsModule } from "../subscriptions/subscriptions.module";
 import { FinanceModule } from "../finance/finance.module";
 import { ExchangeRatesModule } from "../exchange-rates/exchange-rates.module";
 import { User } from "../database/models/user.model";
@@ -30,7 +30,7 @@ import { OrdersService } from "./orders.service";
       BackofficeStaffProfile,
       User,
     ]),
-    BillingModule,
+    SubscriptionsModule,
     FinanceModule,
     ExchangeRatesModule,
   ],

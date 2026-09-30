@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { InjectModel } from "@nestjs/sequelize";
 import { Currency } from "@ebay-order-management/shared";
 import { Company } from "../database/models/company.model";
+import { SubscriptionPlan } from "../database/models/subscription-plan.model";
 
 @Injectable()
 export class CompaniesService {
@@ -42,6 +43,9 @@ export class CompaniesService {
   }
 
   async list() {
-    return this.companyModel.findAll({ order: [["createdAt", "DESC"]] });
+    return this.companyModel.findAll({
+      include: [{ model: SubscriptionPlan, attributes: ["id", "name"] }],
+      order: [["createdAt", "DESC"]],
+    });
   }
 }

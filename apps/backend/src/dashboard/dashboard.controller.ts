@@ -6,7 +6,7 @@ import { RolesGuard } from "../common/guards/roles.guard";
 import { Roles } from "../common/decorators/roles.decorator";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { resolveCompanyId } from "../common/company-scope.util";
-import { BillingService } from "../billing/billing.service";
+import { SubscriptionsService } from "../subscriptions/subscriptions.service";
 import type { JwtPayload } from "../auth/jwt.strategy";
 import { DashboardService } from "./dashboard.service";
 
@@ -17,12 +17,12 @@ import { DashboardService } from "./dashboard.service";
 export class DashboardController {
   constructor(
     private readonly dashboardService: DashboardService,
-    private readonly billingService: BillingService,
+    private readonly subscriptions: SubscriptionsService,
   ) {}
 
-  @Get("seat-status")
-  seatStatus(@CurrentUser() user: JwtPayload) {
-    return this.dashboardService.seatStatus(user.sub);
+  @Get("account-status")
+  async accountStatus(@CurrentUser() user: JwtPayload) {
+    return { disabled: user.realm === "portal" && (await this.subscriptions.isUserDisabled(user.sub)) };
   }
 
   @Get("account-holder")
@@ -34,7 +34,7 @@ export class DashboardController {
     @Query("startDate") startDate?: string,
     @Query("endDate") endDate?: string,
   ) {
-    await this.assertSeatActive(user.sub);
+    await this.assertNotDisabled(user.sub);
     return this.dashboardService.accountHolder(resolveCompanyId(user, companyId), user.sub, { status, startDate, endDate });
   }
 
@@ -47,7 +47,7 @@ export class DashboardController {
     @Query("startDate") startDate?: string,
     @Query("endDate") endDate?: string,
   ) {
-    await this.assertSeatActive(user.sub);
+    await this.assertNotDisabled(user.sub);
     return this.dashboardService.stockOwner(resolveCompanyId(user, companyId), user.sub, { status, startDate, endDate });
   }
 
@@ -60,7 +60,7 @@ export class DashboardController {
     @Query("startDate") startDate?: string,
     @Query("endDate") endDate?: string,
   ) {
-    await this.assertSeatActive(user.sub);
+    await this.assertNotDisabled(user.sub);
     return this.dashboardService.threePl(resolveCompanyId(user, companyId), user.sub, { status, startDate, endDate });
   }
 
@@ -70,9 +70,9 @@ export class DashboardController {
     return this.dashboardService.staff(resolveCompanyId(user, companyId));
   }
 
-  private async assertSeatActive(userId: string) {
-    if (await this.billingService.isSeatBlocked(userId)) {
-      throw new ForbiddenException("Your access is pending payment. Please contact your company admin.");
+  private async assertNotDisabled(userId: string) {
+    if (await this.subscriptions.isUserDisabled(userId)) {
+      throw new ForbiddenException("Your account has been deactivated. Please contact your company admin.");
     }
   }
 }

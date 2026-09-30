@@ -44,7 +44,7 @@ export default function Nav() {
     { href: "/orders", label: "Orders", show: isAdmin || !!perms?.canManageOrders, icon: <NavIcon icon={<ShoppingCartOutlined />} bg="#ede9fe" fg="#7c3aed" /> },
     { href: "/users", label: "Users", show: isAdmin || !!perms?.canManageUsers, icon: <NavIcon icon={<TeamOutlined />} bg="#e0f2fe" fg="#0284c7" /> },
     { href: "/invoices", label: "Invoices", show: true, icon: <NavIcon icon={<FileTextOutlined />} bg="#fce7f3" fg="#db2777" /> },
-    { href: "/billing", label: "Billing", show: isAdmin || !!perms?.canManageUsers, icon: <NavIcon icon={<CreditCardOutlined />} bg="#fef3c7" fg="#d97706" /> },
+    { href: "/subscription", label: "Subscription", show: isAdmin || !!perms?.canManageUsers, icon: <NavIcon icon={<CreditCardOutlined />} bg="#fef3c7" fg="#d97706" /> },
     { href: "/profile", label: "Profile", show: true, icon: <NavIcon icon={<IdcardOutlined />} bg="#ccfbf1" fg="#0d9488" /> },
   ].filter((link) => link.show);
 

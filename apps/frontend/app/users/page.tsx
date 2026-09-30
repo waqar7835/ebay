@@ -1,19 +1,22 @@
 "use client";
 
 import type { Role } from "@ebay-order-management/shared";
-import { Alert, Button, Space, Table, Tag, type TableColumnsType } from "antd";
+import type { CompanySubscriptionDto } from "@ebay-order-management/shared";
+import { Alert, Button, Space, Table, Tag, Tooltip, type TableColumnsType } from "antd";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
-import RoleTag from "@/components/RoleTag";
+import RoleTag, { roleLabel } from "@/components/RoleTag";
 import { EditAction, ToggleStatusAction } from "@/components/RowActions";
-import { getToken, listUsers, setUserStatus } from "@/lib/api";
+import { getSubscription, getToken, listUsers, setUserStatus } from "@/lib/api";
 
 interface UserRow {
   id: string;
   email: string;
   name: string | null;
   status: string;
+  disabledBySubscription: boolean;
   roles: Role[];
 }
 
@@ -22,8 +25,12 @@ export default function UsersPage() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [subscription, setSubscription] = useState<CompanySubscriptionDto | null>(null);
 
   function refresh() {
+    getSubscription()
+      .then(setSubscription)
+      .catch(() => undefined);
     listUsers()
       .then(setUsers)
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"))
@@ -39,9 +46,16 @@ export default function UsersPage() {
   }, [router]);
 
   async function toggleStatus(user: UserRow) {
-    await setUserStatus(user.id, user.status !== "ACTIVE");
+    setError(null);
+    try {
+      await setUserStatus(user.id, user.status === "DISABLED");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update user");
+    }
     refresh();
   }
+
+  const subscriptionDisabledCount = users.filter((u) => u.disabledBySubscription && u.status === "DISABLED").length;
 
   const columns: TableColumnsType<UserRow> = [
     { title: "Name", dataIndex: "name", render: (v) => v ?? "—", sorter: (a, b) => (a.name ?? "").localeCompare(b.name ?? "") },
@@ -50,7 +64,16 @@ export default function UsersPage() {
     {
       title: "Status",
       dataIndex: "status",
-      render: (s: string) => <Tag color={s === "ACTIVE" ? "green" : s === "DISABLED" ? "red" : "default"}>{s}</Tag>,
+      render: (s: string, u) => (
+        <>
+          <Tag color={s === "ACTIVE" ? "green" : s === "DISABLED" ? "red" : "default"}>{s}</Tag>
+          {s === "DISABLED" && u.disabledBySubscription && (
+            <Tooltip title="Deactivated when the subscription expired. Re-enable it, or renew to restore everyone.">
+              <Tag color="orange">Subscription expired</Tag>
+            </Tooltip>
+          )}
+        </>
+      ),
     },
     {
       key: "actions",
@@ -58,7 +81,7 @@ export default function UsersPage() {
         <Space size={2}>
           <EditAction onClick={() => router.push(`/users/${u.id}/edit`)} />
           {!u.roles.includes("ADMIN" as Role) && (
-            <ToggleStatusAction active={u.status === "ACTIVE"} name={u.name ?? u.email} onConfirm={() => toggleStatus(u)} />
+            <ToggleStatusAction active={u.status !== "DISABLED"} name={u.name ?? u.email} onConfirm={() => toggleStatus(u)} />
           )}
         </Space>
       ),
@@ -76,6 +99,32 @@ export default function UsersPage() {
           </Button>
         </div>
 
+        {subscription && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-gray-500">
+            <span>
+              <Link href="/subscription">{subscription.plan.name} plan</Link>:
+            </span>
+            {subscription.usage.map((u) => (
+              <Tag key={u.role} color={u.used >= u.limit ? "red" : "default"}>
+                {roleLabel(u.role)} {u.used}/{u.limit}
+              </Tag>
+            ))}
+          </div>
+        )}
+        {subscriptionDisabledCount > 0 && (
+          <Alert
+            type="warning"
+            className="mt-4"
+            showIcon
+            title={`${subscriptionDisabledCount} account${subscriptionDisabledCount === 1 ? " was" : "s were"} deactivated when your subscription expired`}
+            description={
+              <>
+                You can re-enable accounts up to your current plan&apos;s limits, or <Link href="/subscription">renew your subscription</Link> to
+                restore them all automatically.
+              </>
+            }
+          />
+        )}
         {error && <Alert type="error" title={error} className="mt-4" showIcon />}
 
         <Table<UserRow>

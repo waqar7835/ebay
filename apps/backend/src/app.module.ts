@@ -11,7 +11,7 @@ import { OrdersModule } from "./orders/orders.module";
 import { FinanceModule } from "./finance/finance.module";
 import { InvoicesModule } from "./invoices/invoices.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
-import { BillingModule } from "./billing/billing.module";
+import { SubscriptionsModule } from "./subscriptions/subscriptions.module";
 import { MailerModule } from "./mailer/mailer.module";
 import { TokensModule } from "./tokens/tokens.module";
 import { ExchangeRatesModule } from "./exchange-rates/exchange-rates.module";
@@ -32,7 +32,7 @@ import { ExchangeRatesModule } from "./exchange-rates/exchange-rates.module";
     FinanceModule,
     InvoicesModule,
     DashboardModule,
-    BillingModule,
+    SubscriptionsModule,
     ExchangeRatesModule,
   ],
 })

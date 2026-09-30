@@ -128,6 +128,8 @@ export interface UserDto {
   name: string | null;
   email: string;
   status: UserStatus;
+  /** True when the account was switched off because the company's subscription expired (not by an admin). */
+  disabledBySubscription: boolean;
   /** Currency this user's amounts are entered in (only meaningful for Account Holder / Stock Owner / 3PL). */
   currency: Currency;
   roles: Role[];
@@ -427,4 +429,76 @@ export interface BackofficeUserDto {
   role: Role;
   backofficeStaffProfile: BackofficePermissionsDto | null;
   createdAt: string;
+}
+
+// --- Subscriptions ---
+
+/** Roles whose accounts count against a subscription plan's limits (the company Admin never does). */
+export const SEAT_LIMITED_ROLES: Role[] = [Role.ACCOUNT_HOLDER, Role.STOCK_OWNER, Role.THREE_PL, Role.STAFF];
+
+export enum SubscriptionPaymentStatus {
+  SUBMITTED = "SUBMITTED",
+  APPROVED = "APPROVED",
+  REJECTED = "REJECTED",
+}
+
+export interface SubscriptionPlanDto {
+  id: string;
+  name: string;
+  description: string | null;
+  /** PKR per month, before any billing-period discount. 0 for the free plan. */
+  pricePerMonth: number;
+  maxAccountHolders: number;
+  maxStockOwners: number;
+  maxThreePls: number;
+  maxStaff: number;
+  /** Exactly one plan is free: every company without an active paid subscription is on it. */
+  isFree: boolean;
+  /** Inactive plans can't be bought any more; companies already on them keep them until expiry. */
+  isActive: boolean;
+  sortOrder: number;
+}
+
+/** A duration companies can pay for (1 / 3 / 6 / 12 months…), with its discount off the monthly price. */
+export interface BillingPeriodDto {
+  id: string;
+  months: number;
+  discountPercent: number;
+  isActive: boolean;
+}
+
+export interface SeatUsageDto {
+  role: Role;
+  used: number;
+  limit: number;
+}
+
+export interface SubscriptionPaymentDto {
+  id: string;
+  companyId: string;
+  companyName?: string;
+  planId: string;
+  planName: string;
+  months: number;
+  pricePerMonth: number;
+  discountPercent: number;
+  /** PKR: pricePerMonth × months, less the discount. */
+  amount: number;
+  status: SubscriptionPaymentStatus;
+  receiptFileUrl: string | null;
+  referenceNote: string | null;
+  /** The dates the payment covered, set on approval (inclusive). */
+  periodStart: string | null;
+  periodEnd: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+}
+
+export interface CompanySubscriptionDto {
+  plan: SubscriptionPlanDto;
+  /** Last day (inclusive) of the paid plan; null on the free plan. */
+  endsAt: string | null;
+  daysLeft: number | null;
+  usage: SeatUsageDto[];
+  pendingPayment: SubscriptionPaymentDto | null;
 }

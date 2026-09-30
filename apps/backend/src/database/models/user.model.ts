@@ -39,6 +39,14 @@ export class User extends Model {
   })
   declare status: UserStatus;
 
+  /** Set when the account was disabled because the company's subscription expired (restored on renewal). */
+  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false, field: "disabled_by_subscription" })
+  declare disabledBySubscription: boolean;
+
+  /** When the user set their password. Null = never accepted the invite, so re-enabling returns them to INVITED. */
+  @Column({ type: DataType.DATE, allowNull: true, field: "invite_accepted_at" })
+  declare inviteAcceptedAt: Date | null;
+
   // Currency this user's amounts (3PL fee, product prices, eBay proceeds…) are entered in. Orders
   // convert them to PKR. Only meaningful for Account Holder / Stock Owner / 3PL accounts.
   @Column({ type: DataType.STRING(3), allowNull: false, defaultValue: DEFAULT_CURRENCY })

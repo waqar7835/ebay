@@ -12,7 +12,7 @@ import { StockOwnerProfile } from "../database/models/stock-owner-profile.model"
 import { ThreePlProfile } from "../database/models/three-pl-profile.model";
 import { MailerService } from "../mailer/mailer.service";
 import { TokensService } from "../tokens/tokens.service";
-import { BillingService } from "../billing/billing.service";
+import { SubscriptionsService } from "../subscriptions/subscriptions.service";
 import {
   AccountHolderProfileInput,
   InviteUserDto,
@@ -42,7 +42,7 @@ export class UsersService {
     private readonly tokensService: TokensService,
     private readonly mailer: MailerService,
     private readonly config: ConfigService,
-    private readonly billingService: BillingService,
+    private readonly subscriptions: SubscriptionsService,
   ) {}
 
   async list(companyId: string) {
@@ -64,6 +64,7 @@ export class UsersService {
       name: user.name,
       email: user.email,
       status: user.status,
+      disabledBySubscription: user.disabledBySubscription,
       currency: user.currency,
       roles: user.roleAssignments.map((r) => r.role),
       staffProfile: user.staffProfile,
@@ -89,6 +90,7 @@ export class UsersService {
     if (conflict) {
       throw new ConflictException(`An account with this email already exists for the ${conflict.role} role`);
     }
+    await this.subscriptions.assertSeatsAvailable(companyId, dto.roles);
 
     const user = await this.userModel.create({
       companyId,
@@ -121,14 +123,6 @@ export class UsersService {
         throw new BadRequestException("threePlProfile is required for the 3PL role");
       }
       await this.upsertThreePlProfile(user.id, dto.threePlProfile);
-    }
-
-    const paidRoles = dto.roles.filter((r) => PAID_ROLES.includes(r));
-    if (paidRoles.length > 0) {
-      await this.billingService.ensureSeatBilling(user.id);
-      for (const role of paidRoles) {
-        await this.billingService.grantFreeSeatIfAvailable(companyId, user.id, role);
-      }
     }
 
     await this.sendInviteEmail(user, companyId);
@@ -176,10 +170,23 @@ export class UsersService {
     return { message: "Password updated" };
   }
 
-  async setStatus(companyId: string, userId: string, status: UserStatus) {
-    const user = await this.userModel.findOne({ where: { id: userId, companyId } });
+  /**
+   * Enabling needs a free seat on the company's plan. An account that never accepted its invite goes
+   * back to INVITED (not ACTIVE, which would let the placeholder invite password sign in).
+   */
+  async setEnabled(companyId: string, userId: string, enabled: boolean) {
+    const user = await this.userModel.findOne({ where: { id: userId, companyId }, include: [UserRoleAssignment] });
     if (!user) throw new NotFoundException("User not found");
-    user.status = status;
+    const roles = user.roleAssignments.map((r) => r.role);
+    if (roles.includes(Role.ADMIN)) throw new BadRequestException("The company Admin can't be disabled");
+    if (enabled) {
+      if (user.status !== UserStatus.DISABLED) return this.get(companyId, userId);
+      await this.subscriptions.assertSeatsAvailable(companyId, roles, user.id);
+      user.status = user.inviteAcceptedAt ? UserStatus.ACTIVE : UserStatus.INVITED;
+    } else {
+      user.status = UserStatus.DISABLED;
+    }
+    user.disabledBySubscription = false;
     await user.save();
     return this.toDto(await user.reload({ include: PROFILE_INCLUDES }));
   }
