@@ -1,5 +1,5 @@
 import { BelongsTo, Column, DataType, ForeignKey, HasMany, Model, Table } from "sequelize-typescript";
-import { InvoiceStatus, Role } from "@ebay-order-management/shared";
+import { InvoiceStatus, InvoiceTemplateSnapshot, Role } from "@ebay-order-management/shared";
 import { toDecimal } from "../decimal.util";
 import { Company } from "./company.model";
 import { User } from "./user.model";
@@ -66,6 +66,10 @@ export class Invoice extends Model {
 
   @Column({ type: DataType.DATE, allowNull: true, field: "voided_at" })
   declare voidedAt: Date | null;
+
+  /** Style frozen at approval so the PDF never changes; null = issued before templates (original style). */
+  @Column({ type: DataType.JSONB, allowNull: true })
+  declare template: InvoiceTemplateSnapshot | null;
 
   @HasMany(() => InvoiceLineItem)
   declare lineItems: InvoiceLineItem[];

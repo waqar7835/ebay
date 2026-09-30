@@ -14,6 +14,7 @@ import {
   InvoiceLineKind,
   InvoiceRole,
   InvoiceStatus,
+  InvoiceTemplateSnapshot,
   OrderStatus,
   Role,
 } from "@ebay-order-management/shared";
@@ -31,7 +32,9 @@ import { ExchangeRatesService } from "../exchange-rates/exchange-rates.service";
 import { readUpload } from "../uploads/uploads.util";
 import type { JwtPayload } from "../auth/jwt.strategy";
 import { INVOICE_ROLES, InvoiceDraftDto } from "./dto/invoice-draft.dto";
-import { renderInvoicePdf } from "./invoice-pdf";
+import { InvoicePdfLine, renderInvoicePdf } from "./invoice-pdf";
+import { renderTemplatedInvoicePdf } from "./invoice-pdf-templated";
+import { InvoiceTemplatesService } from "./templates/invoice-templates.service";
 
 /** Stock Owner and 3PL invoices are in PKR; an Account Holder's in their own currency. */
 const PKR = "PKR";
@@ -70,6 +73,18 @@ interface Candidate {
   claimIds: string[];
 }
 
+/** Everything a PDF needs besides the company and its style. */
+interface InvoiceContent {
+  invoiceNumber: string;
+  date: Date;
+  status: string;
+  partnerName: string;
+  role: InvoiceRole;
+  currency: string;
+  lines: InvoicePdfLine[];
+  totalAmount: number;
+}
+
 interface Draft {
   partner: User;
   role: InvoiceRole;
@@ -93,6 +108,7 @@ export class InvoicesService {
     @InjectModel(StaffProfile) private readonly staffProfileModel: typeof StaffProfile,
     private readonly finance: FinanceService,
     private readonly exchangeRates: ExchangeRatesService,
+    private readonly templates: InvoiceTemplatesService,
   ) {}
 
   /** Managers see every company invoice; everyone else only their own. */
@@ -146,12 +162,12 @@ export class InvoicesService {
       ? await this.findEditable(companyId, editingInvoiceId, dto.userId, dto.role)
       : undefined;
     const draft = await this.buildDraft(companyId, dto, editingInvoiceId);
+    const template = await this.templates.snapshot(companyId, dto.templateId);
     const company = await this.companyModel.findByPk(companyId);
-    return renderInvoicePdf({
+    return this.render(company!.name, template, {
       invoiceNumber: editing ? `${editing.invoiceNumber} (DRAFT)` : "DRAFT",
       date: new Date(),
       status: "Draft — not issued",
-      company: { name: company!.name, logo: company!.logoUrl ? await readUpload(company!.logoUrl) : null },
       partnerName: partnerName(draft.partner),
       role: draft.role,
       currency: draft.currency,
@@ -163,6 +179,7 @@ export class InvoicesService {
   async create(companyId: string, requester: JwtPayload, dto: InvoiceDraftDto) {
     this.assertPortal(requester);
     const draft = await this.buildDraft(companyId, dto);
+    const template = await this.templates.snapshot(companyId, dto.templateId);
 
     const sequelize = this.invoiceModel.sequelize!;
     const invoiceId = await sequelize.transaction(async (transaction) => {
@@ -185,6 +202,7 @@ export class InvoicesService {
           totalAmount: draft.totalAmount,
           generatedByUserId: requester.sub,
           generatedAt: now,
+          template,
         },
         { transaction },
       );
@@ -219,6 +237,7 @@ export class InvoicesService {
     this.assertPortal(requester);
     await this.findEditable(companyId, invoiceId, dto.userId, dto.role);
     const draft = await this.buildDraft(companyId, dto, invoiceId);
+    const template = await this.templates.snapshot(companyId, dto.templateId);
 
     const sequelize = this.invoiceModel.sequelize!;
     await sequelize.transaction(async (transaction) => {
@@ -244,6 +263,7 @@ export class InvoicesService {
       );
       invoice.currency = draft.currency;
       invoice.totalAmount = draft.totalAmount;
+      invoice.template = template;
       await invoice.save({ transaction });
       await this.claim(draft, invoiceId, transaction);
     });
@@ -307,18 +327,35 @@ export class InvoicesService {
       throw new NotFoundException("Invoice not found");
     }
     const company = await this.companyModel.findByPk(companyId);
-    const buffer = await renderInvoicePdf({
+    const content: InvoiceContent = {
       invoiceNumber: invoice.invoiceNumber,
       date: invoice.generatedAt,
       status: STATUS_LABELS[invoice.status],
-      company: { name: company!.name, logo: company!.logoUrl ? await readUpload(company!.logoUrl) : null },
       partnerName: partnerName(invoice.user),
       role: invoice.role as InvoiceRole,
       currency: invoice.currency,
       lines: invoice.lineItems,
       totalAmount: invoice.totalAmount,
-    });
+    };
+    // Invoices issued before templates existed keep their original look (and the current company logo).
+    const buffer = invoice.template
+      ? await this.render(company!.name, invoice.template, content)
+      : await renderInvoicePdf({
+          ...content,
+          company: { name: company!.name, logo: company!.logoUrl ? await readUpload(company!.logoUrl) : null },
+        });
     return { buffer, filename: `${invoice.invoiceNumber}.pdf` };
+  }
+
+  /** Draws an invoice in its template's layout, colors and (frozen) logo. */
+  private async render(companyName: string, template: InvoiceTemplateSnapshot, content: InvoiceContent) {
+    return renderTemplatedInvoicePdf({
+      ...content,
+      company: { name: companyName },
+      layout: template.layout,
+      colors: template.colors,
+      logo: template.logoUrl ? await readUpload(template.logoUrl) : null,
+    });
   }
 
   // Creating/deleting/paying invoices is the company's own job (Admin, or Staff with

@@ -23,6 +23,7 @@ import {
   uploadMyAvatar,
 } from "@/lib/api";
 import AvatarUpload from "@/components/AvatarUpload";
+import InvoiceTemplatesCard from "@/components/InvoiceTemplatesCard";
 import { currencyOptions, money as formatMoney } from "@/lib/currency";
 
 const BILLING_ANCHOR_DAY_OPTIONS = [1, 5, 10, 15, 20, 25, 30];
@@ -266,6 +267,8 @@ export default function ProfilePage() {
                 </div>
               </Card>
             </Form>
+
+            {isAdmin && <InvoiceTemplatesCard />}
 
             {user?.staffProfile && (
               <Card title="Staff permissions" extra={lockedTag}>

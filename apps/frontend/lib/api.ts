@@ -9,7 +9,11 @@ import type {
   InvoiceableOrderDto,
   InvoiceDraftInput,
   InvoiceDto,
+  InvoiceLayout,
   InvoiceRole,
+  InvoiceTemplateColors,
+  InvoiceTemplateDto,
+  InvoiceTemplatesDto,
   OrderDto,
   OrderItemInput,
   OrderStatus,
@@ -583,6 +587,81 @@ export function deleteInvoice(invoiceId: string) {
 
 export function markInvoicePaid(invoiceId: string) {
   return request<InvoiceDto>(`/invoices/${invoiceId}/mark-paid`, { method: "PATCH" });
+}
+
+// --- Invoice templates ---
+// ADMIN / STAFF-with-canGenerateInvoices list them (to pick one in the wizard); only ADMIN manages them.
+export function listInvoiceTemplates() {
+  return request<InvoiceTemplatesDto>("/invoice-templates");
+}
+
+export interface InvoiceTemplateInput {
+  name: string;
+  layout: InvoiceLayout;
+  colors: InvoiceTemplateColors;
+}
+
+export function createInvoiceTemplate(input: InvoiceTemplateInput) {
+  return request<InvoiceTemplateDto>("/invoice-templates", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateInvoiceTemplate(id: string, input: InvoiceTemplateInput) {
+  return request<InvoiceTemplateDto>(`/invoice-templates/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+/** Invoices already issued with it keep their frozen copy; a deleted default falls back to Classic. */
+export function deleteInvoiceTemplate(id: string) {
+  return request<{ id: string }>(`/invoice-templates/${id}`, { method: "DELETE" });
+}
+
+export function setDefaultInvoiceTemplate(templateId: string) {
+  return request<{ defaultTemplateId: string }>("/invoice-templates/default", {
+    method: "POST",
+    body: JSON.stringify({ templateId }),
+  });
+}
+
+async function sendForm(path: string, form: FormData): Promise<Response> {
+  const res = await fetch(`${API_URL}${path}`, { method: "POST", headers: authHeaders(), body: form, cache: "no-store" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message ?? `Request failed: ${res.status}`);
+  }
+  return res;
+}
+
+/** PNG or JPEG (PNG keeps a transparent background). */
+export async function uploadInvoiceTemplateLogo(id: string, logo: File) {
+  const form = new FormData();
+  form.append("logo", logo);
+  return (await sendForm(`/invoice-templates/${id}/logo`, form)).json() as Promise<InvoiceTemplateDto>;
+}
+
+/** Back to the company logo. */
+export function removeInvoiceTemplateLogo(id: string) {
+  return request<InvoiceTemplateDto>(`/invoice-templates/${id}/logo`, { method: "DELETE" });
+}
+
+/**
+ * The editor's live preview: a sample invoice drawn with unsaved settings. Logo: the company's when
+ * `useCompanyLogo`, else `logo` (unsaved file), else the saved template's (`templateId`).
+ */
+export async function previewInvoiceTemplate(input: {
+  layout: InvoiceLayout;
+  colors: InvoiceTemplateColors;
+  role: "ACCOUNT_HOLDER" | "STOCK_OWNER";
+  useCompanyLogo: boolean;
+  logo?: File | null;
+  templateId?: string;
+}) {
+  const form = new FormData();
+  form.append("layout", input.layout);
+  form.append("colors", JSON.stringify(input.colors));
+  form.append("role", input.role);
+  form.append("useCompanyLogo", String(input.useCompanyLogo));
+  if (input.templateId) form.append("templateId", input.templateId);
+  if (input.logo) form.append("logo", input.logo);
+  return (await sendForm("/invoice-templates/preview", form)).blob();
 }
 
 // --- Subscription (ADMIN / STAFF-with-canManageUsers) ---

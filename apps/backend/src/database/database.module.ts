@@ -20,6 +20,7 @@ import { SubscriptionPlan } from "./models/subscription-plan.model";
 import { SubscriptionBillingPeriod } from "./models/subscription-billing-period.model";
 import { SubscriptionPayment } from "./models/subscription-payment.model";
 import { ExchangeRate } from "./models/exchange-rate.model";
+import { InvoiceTemplate } from "./models/invoice-template.model";
 
 export const ALL_MODELS = [
   Company,
@@ -37,6 +38,7 @@ export const ALL_MODELS = [
   OrderItem,
   Invoice,
   InvoiceLineItem,
+  InvoiceTemplate,
   SubscriptionPlan,
   SubscriptionBillingPeriod,
   SubscriptionPayment,

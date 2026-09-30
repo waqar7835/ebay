@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import RoleTag from "@/components/RoleTag";
+import InvoiceTemplatesList from "@/components/InvoiceTemplatesList";
 import { downloadInvoicePdf, getToken, listInvoices } from "@/lib/api";
 import { userLabel } from "@/lib/selectOptions";
 import { invoiceMoney } from "@/lib/currency";
@@ -103,6 +104,8 @@ export default function InvoicesPage() {
           pagination={{ pageSize: 50, hideOnSinglePage: true }}
           locale={{ emptyText: "No invoices yet." }}
         />
+
+        <InvoiceTemplatesList />
       </main>
     </>
   );

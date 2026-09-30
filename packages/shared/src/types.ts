@@ -356,6 +356,8 @@ export interface InvoiceDto {
   generatedAt: string;
   paidAt: string | null;
   voidedAt: string | null;
+  /** The template style frozen at approval; null = issued before templates (drawn in the original style). */
+  template: InvoiceTemplateSnapshot | null;
   lineItems: InvoiceLineItemDto[];
   user?: { id: string; name: string | null; email: string };
 }
@@ -393,6 +395,106 @@ export interface InvoiceDraftInput {
   orderIds: string[];
   refundOrderIds: string[];
   miscLines: InvoiceMiscLineInput[];
+  /** Predefined template key or custom template id; omitted = the company's default template. */
+  templateId?: string;
+}
+
+// --- Invoice templates ---
+
+/** Fixed PDF layouts; a template is a layout + colors + (optionally) its own logo. */
+export enum InvoiceLayout {
+  CLASSIC = "CLASSIC",
+  BANNER = "BANNER",
+  MINIMAL = "MINIMAL",
+  EDGE = "EDGE",
+  ELEGANT = "ELEGANT",
+}
+
+export interface InvoiceTemplateColors {
+  /** Page / body base. */
+  background: string;
+  /** Heading backgrounds, table headers, bars, the total panel. */
+  accent: string;
+  /** Text drawn on accent backgrounds. */
+  headingText: string;
+  /** Body text. */
+  text: string;
+  /** Borders, dividers and rules. */
+  border: string;
+}
+
+export const INVOICE_TEMPLATE_COLOR_KEYS: (keyof InvoiceTemplateColors)[] = [
+  "background",
+  "accent",
+  "headingText",
+  "text",
+  "border",
+];
+
+/** Custom templates a company can save, on top of the predefined ones. */
+export const MAX_CUSTOM_INVOICE_TEMPLATES = 5;
+
+/** The predefined templates — one per layout, with its default colors. Their ids are fixed keys. */
+export const PREDEFINED_INVOICE_TEMPLATES: { id: string; name: string; layout: InvoiceLayout; colors: InvoiceTemplateColors }[] = [
+  {
+    id: "classic",
+    name: "Classic",
+    layout: InvoiceLayout.CLASSIC,
+    colors: { background: "#ffffff", accent: "#1e293b", headingText: "#ffffff", text: "#334155", border: "#c9971c" },
+  },
+  {
+    id: "banner",
+    name: "Modern Banner",
+    layout: InvoiceLayout.BANNER,
+    colors: { background: "#ffffff", accent: "#4f46e5", headingText: "#ffffff", text: "#1f2937", border: "#e0e7ff" },
+  },
+  {
+    id: "minimal",
+    name: "Minimal",
+    layout: InvoiceLayout.MINIMAL,
+    colors: { background: "#ffffff", accent: "#0f766e", headingText: "#ffffff", text: "#18181b", border: "#e4e4e7" },
+  },
+  {
+    id: "edge",
+    name: "Edge",
+    layout: InvoiceLayout.EDGE,
+    colors: { background: "#fcfcfd", accent: "#e11d48", headingText: "#ffffff", text: "#1e1b2e", border: "#ececf1" },
+  },
+  {
+    id: "elegant",
+    name: "Elegant",
+    layout: InvoiceLayout.ELEGANT,
+    colors: { background: "#fffdf8", accent: "#1f3a2e", headingText: "#f5e6c4", text: "#2b2b28", border: "#c8b68a" },
+  },
+];
+
+/** Used when a company has no default set (and when its default custom template is deleted). */
+export const DEFAULT_INVOICE_TEMPLATE_ID = "classic";
+
+export interface InvoiceTemplateDto {
+  /** Predefined: its fixed key (e.g. "classic"); custom: a UUID. */
+  id: string;
+  name: string;
+  layout: InvoiceLayout;
+  colors: InvoiceTemplateColors;
+  /** The template's own logo; null = the company logo is used. Always null on predefined ones. */
+  logoUrl: string | null;
+  predefined: boolean;
+}
+
+export interface InvoiceTemplatesDto {
+  templates: InvoiceTemplateDto[];
+  defaultTemplateId: string;
+}
+
+/** Saved on the invoice at approval, so its PDF never changes when the template is later edited. */
+export interface InvoiceTemplateSnapshot {
+  templateId: string;
+  name: string;
+  layout: InvoiceLayout;
+  colors: InvoiceTemplateColors;
+  /** The template's logo, or the company logo at the time; null = none. */
+  logoUrl: string | null;
 }
 
 export interface PaginatedResult<T> {

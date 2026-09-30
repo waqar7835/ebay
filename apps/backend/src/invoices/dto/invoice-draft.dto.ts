@@ -5,6 +5,7 @@ import {
   IsIn,
   IsNotEmpty,
   IsNumber,
+  IsOptional,
   IsString,
   IsUUID,
   MaxLength,
@@ -47,4 +48,10 @@ export class InvoiceDraftDto {
   @ValidateNested({ each: true })
   @Type(() => InvoiceMiscLineDto)
   miscLines!: InvoiceMiscLineDto[];
+
+  /** Predefined template key or custom template id; omitted = the company's default. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  templateId?: string;
 }

@@ -8,6 +8,7 @@ import type {
   ExchangeRateDto,
   ExchangeRates,
   InvoiceDto,
+  InvoiceTemplatesDto,
   OrderDto,
   OrderItemInput,
   OrderStatus,
@@ -258,6 +259,11 @@ export function updateOrder(orderId: string, payload: UpdateOrderPayload) {
 
 export function updateOrderStatus(orderId: string, status: OrderStatus) {
   return request<OrderDto>(`/orders/${orderId}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
+}
+
+// --- Invoice templates (read-only here: the company Admin manages them in the portal) ---
+export function listInvoiceTemplates() {
+  return request<InvoiceTemplatesDto>("/invoice-templates");
 }
 
 // --- Invoices (read-only here: creating/deleting/paying is the company Admin's job in the portal) ---

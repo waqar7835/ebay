@@ -31,6 +31,10 @@ export class Company extends Model {
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0, field: "last_invoice_sequence" })
   declare lastInvoiceSequence: number;
 
+  /** Template the invoice wizard preselects: a predefined key or a custom template id; null = "classic". */
+  @Column({ type: DataType.STRING(64), allowNull: true, field: "default_invoice_template_id" })
+  declare defaultInvoiceTemplateId: string | null;
+
   /** The paid plan the company is on; null = the free plan. */
   @ForeignKey(() => SubscriptionPlan)
   @Column({ type: DataType.UUID, allowNull: true, field: "subscription_plan_id" })

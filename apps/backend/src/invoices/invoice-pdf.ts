@@ -6,6 +6,9 @@ import { InvoiceLineDetails, InvoiceLineKind, InvoiceRole, Role } from "@ebay-or
  * (item sales & profit breakdown → settlement) and the Account Holder "ACCOUNT INVOICE" (product
  * breakdown → what the Account Holder pays the company). The 3PL invoice reuses the Stock Owner
  * layout. Everything is drawn from the invoice's own lines, so a re-download matches what was approved.
+ *
+ * Only invoices issued before invoice templates existed (`invoices.template` null) are still drawn
+ * here, unchanged; everything else goes through `invoice-pdf-templated.ts`.
  */
 export interface InvoicePdfInput {
   invoiceNumber: string;
@@ -540,7 +543,7 @@ function drawAccountHolderPayable(
 // ---------------------------------------------------------------------------------------------
 // Aggregation.
 
-interface StockOwnerRow {
+export interface StockOwnerRow {
   title: string;
   quantity: number;
   cost: number;
@@ -548,7 +551,7 @@ interface StockOwnerRow {
 }
 
 /** One row per product at a given cost/price, summed across the invoice's orders. */
-function aggregateStockOwnerProducts(lines: InvoicePdfLine[]): StockOwnerRow[] {
+export function aggregateStockOwnerProducts(lines: InvoicePdfLine[]): StockOwnerRow[] {
   const rows = new Map<string, StockOwnerRow>();
   for (const line of lines) {
     if (line.details?.role !== "STOCK_OWNER") continue;
@@ -562,7 +565,7 @@ function aggregateStockOwnerProducts(lines: InvoicePdfLine[]): StockOwnerRow[] {
   return [...rows.values()];
 }
 
-interface AccountHolderRow {
+export interface AccountHolderRow {
   title: string;
   quantity: number;
   selling: number;
@@ -571,7 +574,7 @@ interface AccountHolderRow {
   shipping: number;
 }
 
-function aggregateAccountHolderProducts(lines: InvoicePdfLine[]): AccountHolderRow[] {
+export function aggregateAccountHolderProducts(lines: InvoicePdfLine[]): AccountHolderRow[] {
   const rows = new Map<string, AccountHolderRow>();
   for (const line of lines) {
     if (line.details?.role !== "ACCOUNT_HOLDER") continue;
@@ -596,7 +599,7 @@ function aggregateAccountHolderProducts(lines: InvoicePdfLine[]): AccountHolderR
 }
 
 /** Company/partner profit split when every product on the invoice has the same terms. */
-function uniformStockOwnerSplit(lines: InvoicePdfLine[]) {
+export function uniformStockOwnerSplit(lines: InvoicePdfLine[]) {
   const companyPercents = lines.flatMap((l) =>
     l.details?.role === "STOCK_OWNER"
       ? l.details.products.map((p) => (p.payoutMode === "PROFIT_SHARE" ? (p.sharePercent ?? 0) : 0))
@@ -606,12 +609,12 @@ function uniformStockOwnerSplit(lines: InvoicePdfLine[]) {
   return company === null ? null : { company, partner: round2(100 - company) };
 }
 
-function stockOwnerSplitLabel(lines: InvoicePdfLine[]) {
+export function stockOwnerSplitLabel(lines: InvoicePdfLine[]) {
   const split = uniformStockOwnerSplit(lines);
   return split ? `Profit Split: ${split.partner}% / ${split.company}%` : "Profit Split: varies by product";
 }
 
-function billingPeriod(lines: InvoicePdfLine[]): string | null {
+export function billingPeriod(lines: InvoicePdfLine[]): string | null {
   const dates = lines
     .map((l) => (l.details && "orderDate" in l.details ? l.details.orderDate : null))
     .filter((d): d is string => !!d)
@@ -897,16 +900,16 @@ function ensureSpace(doc: Doc, y: number, needed: number) {
 
 const SYMBOLS: Record<string, string> = { PKR: "Rs. ", GBP: "£", USD: "$", EUR: "€", AUD: "A$", CAD: "C$" };
 
-function currencySymbol(currency: string) {
+export function currencySymbol(currency: string) {
   return SYMBOLS[currency] ?? `${currency} `;
 }
 
-function currencyLabel(currency: string) {
+export function currencyLabel(currency: string) {
   return currency === "PKR" ? "PKR (Rs.)" : `${currency} (${currencySymbol(currency).trim()})`;
 }
 
 /** PKR drops ".00" like the samples (Rs. 1,683); other currencies always show pence/cents (£38.03). */
-function formatMoney(value: number, currency: string) {
+export function formatMoney(value: number, currency: string) {
   const v = round2(value);
   const digits =
     currency === "PKR"
@@ -917,7 +920,7 @@ function formatMoney(value: number, currency: string) {
 }
 
 /** `utc` for date-only values (order dates), which are stored as UTC midnight. */
-function formatDate(date: Date, utc = false) {
+export function formatDate(date: Date, utc = false) {
   return date.toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
@@ -926,7 +929,7 @@ function formatDate(date: Date, utc = false) {
   });
 }
 
-function parseDateOnly(value: string) {
+export function parseDateOnly(value: string) {
   return new Date(`${value}T00:00:00Z`);
 }
 
@@ -934,19 +937,19 @@ function monthYear(value: string) {
   return parseDateOnly(value).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
 }
 
-function pct(percent: number | null | undefined, suffix = "") {
+export function pct(percent: number | null | undefined, suffix = "") {
   return percent === null || percent === undefined ? "" : ` (${percent}%${suffix})`;
 }
 
-function uniform(values: (number | null)[]): number | null {
+export function uniform(values: (number | null)[]): number | null {
   if (!values.length || values.some((v) => v === null)) return null;
   return values.every((v) => v === values[0]) ? values[0] : null;
 }
 
-function sum(values: number[]) {
+export function sum(values: number[]) {
   return values.reduce((a, b) => a + b, 0);
 }
 
-function round2(value: number) {
+export function round2(value: number) {
   return Math.round(value * 100) / 100;
 }

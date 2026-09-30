@@ -5,6 +5,7 @@ import type {
   InvoiceDraftInput,
   InvoiceMiscLineInput,
   InvoiceRole,
+  InvoiceTemplatesDto,
   UserDto,
 } from "@ebay-order-management/shared";
 import { DeleteOutlined, PlusCircleOutlined } from "@ant-design/icons";
@@ -28,12 +29,14 @@ import { useRouter } from "next/navigation";
 import BackLink from "@/components/BackLink";
 import Nav from "@/components/Nav";
 import { roleLabel } from "@/components/RoleTag";
+import InvoiceTemplateSwatches, { LAYOUT_LABELS } from "@/components/InvoiceTemplateSwatches";
 import {
   createInvoice,
   getInvoice,
   getStoredUser,
   getToken,
   listInvoiceableOrders,
+  listInvoiceTemplates,
   listUsers,
   previewInvoice,
   updateInvoice,
@@ -71,6 +74,10 @@ export default function InvoiceWizard({ invoiceId }: { invoiceId?: string }) {
   const [miscForm] = Form.useForm<{ lines: MiscLineValue[] }>();
   const miscValues = Form.useWatch("lines", miscForm);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<InvoiceTemplatesDto | null>(null);
+  /** The template picked on the Review step; until then the invoice's own (when editing) or the default. */
+  const [pickedTemplateId, setPickedTemplateId] = useState<string>();
+  const [invoiceTemplateId, setInvoiceTemplateId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -86,6 +93,9 @@ export default function InvoiceWizard({ invoiceId }: { invoiceId?: string }) {
     listUsers()
       .then((all) => setUsers(all.filter((u) => u.roles.some((r) => INVOICE_ROLES.includes(r as InvoiceRole)))))
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load users"));
+    listInvoiceTemplates()
+      .then(setTemplates)
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load invoice templates"));
     if (invoiceId) {
       getInvoice(invoiceId)
         .then((invoice) => {
@@ -97,6 +107,7 @@ export default function InvoiceWizard({ invoiceId }: { invoiceId?: string }) {
           setInvoiceNumber(invoice.invoiceNumber);
           setUserId(invoice.userId);
           setRole(invoiceRole);
+          setInvoiceTemplateId(invoice.template?.templateId);
           const keep = invoice.lineItems
             .filter((l) => l.orderId && (l.kind === "ORDER" || l.kind === "REFUND"))
             .map((l) => rowKey({ kind: l.kind as InvoiceableOrderDto["kind"], orderId: l.orderId! }));
@@ -121,6 +132,13 @@ export default function InvoiceWizard({ invoiceId }: { invoiceId?: string }) {
   // Account Holder invoices are in their own currency; Stock Owner / 3PL invoices in PKR.
   const currency = rows[0]?.currency ?? (isAccountHolder && selectedUser ? selectedUser.currency : "PKR");
   const fmt = (v: number) => invoiceMoney(v, currency);
+
+  // An edited invoice starts on its own template while that still exists, otherwise on the default.
+  const templateId =
+    pickedTemplateId ??
+    (invoiceTemplateId && templates?.templates.some((t) => t.id === invoiceTemplateId)
+      ? invoiceTemplateId
+      : templates?.defaultTemplateId);
 
   function loadRows(nextUserId: string | undefined, nextRole: InvoiceRole | undefined, preselect: string[] = []) {
     setRows([]);
@@ -165,7 +183,26 @@ export default function InvoiceWizard({ invoiceId }: { invoiceId?: string }) {
       orderIds: selectedRows.filter((r) => r.kind === "ORDER").map((r) => r.orderId),
       refundOrderIds: selectedRows.filter((r) => r.kind === "REFUND").map((r) => r.orderId),
       miscLines,
+      templateId,
     };
+  }
+
+  async function renderPreview(draftInput: InvoiceDraftInput) {
+    const blob = await previewInvoice(draftInput, invoiceId);
+    setPdfUrl(URL.createObjectURL(blob));
+  }
+
+  async function changeTemplate(id: string) {
+    setPickedTemplateId(id);
+    setBusy(true);
+    setError(null);
+    try {
+      await renderPreview({ ...draft(), templateId: id });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to render the invoice");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function goToReview() {
@@ -181,8 +218,7 @@ export default function InvoiceWizard({ invoiceId }: { invoiceId?: string }) {
     setBusy(true);
     setError(null);
     try {
-      const blob = await previewInvoice(draft(), invoiceId);
-      setPdfUrl(URL.createObjectURL(blob));
+      await renderPreview(draft());
       setStep(2);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to render the invoice");
@@ -438,6 +474,31 @@ export default function InvoiceWizard({ invoiceId }: { invoiceId?: string }) {
 
         {step === 2 && (
           <Card className="mt-6">
+            <div className="mb-4 flex flex-wrap items-center gap-3 text-sm">
+              <span>Template</span>
+              <Select
+                className="min-w-72"
+                showSearch={searchable}
+                value={templateId}
+                onChange={changeTemplate}
+                disabled={busy || !templates}
+                options={(templates?.templates ?? []).map((t) => ({
+                  value: t.id,
+                  label: `${t.name}${t.id === templates?.defaultTemplateId ? " (default)" : ""}`,
+                  template: t,
+                }))}
+                optionRender={(option) => (
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div>{option.data.label}</div>
+                      <div className="text-xs text-slate-500">{LAYOUT_LABELS[option.data.template.layout].name} layout</div>
+                    </div>
+                    <InvoiceTemplateSwatches colors={option.data.template.colors} />
+                  </div>
+                )}
+              />
+              <span className="text-xs text-slate-500">The PDF keeps this style once approved.</span>
+            </div>
             {pdfUrl ? (
               <iframe
                 src={pdfUrl}
