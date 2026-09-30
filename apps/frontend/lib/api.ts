@@ -649,7 +649,7 @@ export function removeInvoiceTemplateLogo(id: string) {
 export async function previewInvoiceTemplate(input: {
   layout: InvoiceLayout;
   colors: InvoiceTemplateColors;
-  role: "ACCOUNT_HOLDER" | "STOCK_OWNER";
+  role: "ACCOUNT_HOLDER" | "STOCK_OWNER" | "THREE_PL";
   useCompanyLogo: boolean;
   logo?: File | null;
   templateId?: string;

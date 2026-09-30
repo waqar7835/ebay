@@ -55,8 +55,8 @@ export class PreviewInvoiceTemplateDto {
   @IsString()
   colors!: string;
 
-  @IsIn([Role.ACCOUNT_HOLDER, Role.STOCK_OWNER])
-  role!: Role.ACCOUNT_HOLDER | Role.STOCK_OWNER;
+  @IsIn([Role.ACCOUNT_HOLDER, Role.STOCK_OWNER, Role.THREE_PL])
+  role!: Role.ACCOUNT_HOLDER | Role.STOCK_OWNER | Role.THREE_PL;
 
   /** "true" = draw with the company logo; otherwise the uploaded file, else this template's saved logo. */
   @IsIn(["true", "false"])

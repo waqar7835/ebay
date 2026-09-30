@@ -320,7 +320,18 @@ export type InvoiceLineDetails =
       companySharePercent: number;
       products: InvoiceAccountHolderProduct[];
     }
-  | { role: "THREE_PL"; orderRef: string; orderDate: string; units: number };
+  | {
+      role: "THREE_PL";
+      orderRef: string;
+      orderDate: string;
+      units: number;
+      // Snapshotted since 2026-09-30 (absent on older invoices, which show blanks):
+      /** STOCK = the 3PL's fee per order; DROPSHIP = the buy price the 3PL paid for the product. */
+      fulfillment?: ProductFulfillmentType;
+      status?: OrderStatus;
+      trackingNumber?: string | null;
+      products?: { title: string; quantity: number }[];
+    };
 
 export interface InvoiceLineItemDto {
   id: string;
@@ -404,10 +415,10 @@ export interface InvoiceDraftInput {
 /** Fixed PDF layouts; a template is a layout + colors + (optionally) its own logo. */
 export enum InvoiceLayout {
   CLASSIC = "CLASSIC",
-  BANNER = "BANNER",
-  MINIMAL = "MINIMAL",
-  EDGE = "EDGE",
-  ELEGANT = "ELEGANT",
+  SPLIT = "SPLIT",
+  SIDEBAR = "SIDEBAR",
+  CARDS = "CARDS",
+  BOLD = "BOLD",
 }
 
 export interface InvoiceTemplateColors {
@@ -443,28 +454,28 @@ export const PREDEFINED_INVOICE_TEMPLATES: { id: string; name: string; layout: I
     colors: { background: "#ffffff", accent: "#1e293b", headingText: "#ffffff", text: "#334155", border: "#c9971c" },
   },
   {
-    id: "banner",
-    name: "Modern Banner",
-    layout: InvoiceLayout.BANNER,
-    colors: { background: "#ffffff", accent: "#4f46e5", headingText: "#ffffff", text: "#1f2937", border: "#e0e7ff" },
+    id: "split",
+    name: "Split Header",
+    layout: InvoiceLayout.SPLIT,
+    colors: { background: "#ffffff", accent: "#0369a1", headingText: "#ffffff", text: "#0f172a", border: "#bae6fd" },
   },
   {
-    id: "minimal",
-    name: "Minimal",
-    layout: InvoiceLayout.MINIMAL,
-    colors: { background: "#ffffff", accent: "#0f766e", headingText: "#ffffff", text: "#18181b", border: "#e4e4e7" },
+    id: "sidebar",
+    name: "Sidebar",
+    layout: InvoiceLayout.SIDEBAR,
+    colors: { background: "#ffffff", accent: "#064e3b", headingText: "#ecfdf5", text: "#1f2937", border: "#a7f3d0" },
   },
   {
-    id: "edge",
-    name: "Edge",
-    layout: InvoiceLayout.EDGE,
-    colors: { background: "#fcfcfd", accent: "#e11d48", headingText: "#ffffff", text: "#1e1b2e", border: "#ececf1" },
+    id: "cards",
+    name: "Soft Cards",
+    layout: InvoiceLayout.CARDS,
+    colors: { background: "#fff7ed", accent: "#ea580c", headingText: "#ffffff", text: "#431407", border: "#fed7aa" },
   },
   {
-    id: "elegant",
-    name: "Elegant",
-    layout: InvoiceLayout.ELEGANT,
-    colors: { background: "#fffdf8", accent: "#1f3a2e", headingText: "#f5e6c4", text: "#2b2b28", border: "#c8b68a" },
+    id: "bold",
+    name: "Bold",
+    layout: InvoiceLayout.BOLD,
+    colors: { background: "#ffffff", accent: "#be185d", headingText: "#ffffff", text: "#111827", border: "#111827" },
   },
 ];
 

@@ -8,7 +8,7 @@ import {
   type InvoiceTemplateDto,
 } from "@ebay-order-management/shared";
 import { ReloadOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, ColorPicker, Form, Input, Radio, Segmented, Select, Spin } from "antd";
+import { Alert, Button, Card, ColorPicker, Form, Input, Radio, Segmented, Select, Spin, type ColorPickerProps } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import BackLink from "@/components/BackLink";
@@ -26,7 +26,8 @@ import {
   uploadInvoiceTemplateLogo,
 } from "@/lib/api";
 
-type SampleRole = "ACCOUNT_HOLDER" | "STOCK_OWNER";
+type SampleRole = "ACCOUNT_HOLDER" | "STOCK_OWNER" | "THREE_PL";
+type PickerColor = Parameters<NonNullable<ColorPickerProps["onChange"]>>[0];
 
 const layoutDefaults = (layout: InvoiceLayout) => PREDEFINED_INVOICE_TEMPLATES.find((t) => t.layout === layout)!;
 
@@ -44,6 +45,9 @@ export default function InvoiceTemplateEditor({ templateId, fromId }: { template
   const [name, setName] = useState("");
   const [layout, setLayout] = useState<InvoiceLayout>(InvoiceLayout.CLASSIC);
   const [colors, setColors] = useState<InvoiceTemplateColors>(PREDEFINED_INVOICE_TEMPLATES[0].colors);
+  // Each picker's color while it's being dragged. Controlling the pickers with the saved hex alone would
+  // reset them mid-drag (and lose the hue of greys), so the drag never landed.
+  const [liveColors, setLiveColors] = useState<Partial<Record<keyof InvoiceTemplateColors, PickerColor>>>({});
   const [logoMode, setLogoMode] = useState<"company" | "own">("company");
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [savedLogoUrl, setSavedLogoUrl] = useState<string | null>(null);
@@ -73,6 +77,7 @@ export default function InvoiceTemplateEditor({ templateId, fromId }: { template
         setName(templateId ? start.name : `${start.name} (custom)`);
         setLayout(start.layout);
         setColors(start.colors);
+        setLiveColors({});
         if (templateId && start.logoUrl) {
           setLogoMode("own");
           setSavedLogoUrl(start.logoUrl);
@@ -181,7 +186,10 @@ export default function InvoiceTemplateEditor({ templateId, fromId }: { template
             <Card
               title="Colors"
               extra={
-                <Button size="small" icon={<ReloadOutlined />} onClick={() => setColors(layoutDefaults(layout).colors)}>
+                <Button size="small" icon={<ReloadOutlined />} onClick={() => {
+                    setColors(layoutDefaults(layout).colors);
+                    setLiveColors({});
+                  }}>
                   {LAYOUT_LABELS[layout].name} defaults
                 </Button>
               }
@@ -194,10 +202,15 @@ export default function InvoiceTemplateEditor({ templateId, fromId }: { template
                       <div className="text-xs text-slate-500">{COLOR_LABELS[key].help}</div>
                     </div>
                     <ColorPicker
-                      value={colors[key]}
+                      value={liveColors[key] ?? colors[key]}
                       disabledAlpha
                       showText
-                      onChangeComplete={(c) => setColors((prev) => ({ ...prev, [key]: c.toHexString() }))}
+                      onChange={(c) => setLiveColors((prev) => ({ ...prev, [key]: c }))}
+                      onChangeComplete={(c) => {
+                        const hex = c.toHexString();
+                        // Only re-render the preview when the color really changed (a hue move on white/grey doesn't).
+                        setColors((prev) => (prev[key] === hex ? prev : { ...prev, [key]: hex }));
+                      }}
                     />
                   </div>
                 ))}
@@ -253,7 +266,8 @@ export default function InvoiceTemplateEditor({ templateId, fromId }: { template
               onChange={setSampleRole}
               options={[
                 { value: "ACCOUNT_HOLDER", label: "Account Holder" },
-                { value: "STOCK_OWNER", label: "Stock Owner / 3PL" },
+                { value: "STOCK_OWNER", label: "Stock Owner" },
+                { value: "THREE_PL", label: "3PL" },
               ]}
             />
           }

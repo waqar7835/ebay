@@ -16,6 +16,7 @@ import {
   InvoiceStatus,
   InvoiceTemplateSnapshot,
   OrderStatus,
+  ProductFulfillmentType,
   Role,
 } from "@ebay-order-management/shared";
 import { Company } from "../database/models/company.model";
@@ -471,8 +472,9 @@ export class InvoicesService {
         open.set(order.id, { order, line, claimIds: [order.id] });
       }
     } else {
+      const products = await this.productInfo(openOrders.flatMap((o) => o.items));
       for (const order of openOrders)
-        open.set(order.id, { order, line: this.threePlLine(order), claimIds: [order.id] });
+        open.set(order.id, { order, line: this.threePlLine(order, products), claimIds: [order.id] });
     }
 
     const refundedOrders = await this.orderModel.findAll({
@@ -540,11 +542,16 @@ export class InvoicesService {
   }
 
   private async productTitles(items: OrderItem[]) {
+    const products = await this.productInfo(items);
+    return new Map([...products].map(([id, p]) => [id, p.title]));
+  }
+
+  private async productInfo(items: OrderItem[]) {
     const products = await this.productModel.findAll({
-      attributes: ["id", "title"],
+      attributes: ["id", "title", "fulfillmentType"],
       where: { id: [...new Set(items.map((i) => i.productId))] },
     });
-    return new Map(products.map((p) => [p.id, p.title]));
+    return new Map(products.map((p) => [p.id, { title: p.title, fulfillmentType: p.fulfillmentType }]));
   }
 
   /**
@@ -657,12 +664,17 @@ export class InvoicesService {
     };
   }
 
-  private threePlLine(order: Order): DraftLine {
+  /**
+   * STOCK orders pay the 3PL its fee per order; on a DROPSHIP order the payout is the buy price the
+   * 3PL entered (they bought the product). The invoice shows the two in separate sections.
+   */
+  private threePlLine(order: Order, products: Map<string, { title: string; fulfillmentType: ProductFulfillmentType }>): DraftLine {
     const fee = round2(order.threePlPayoutSnapshot ?? 0);
+    const dropship = order.items.some((i) => products.get(i.productId)?.fulfillmentType === ProductFulfillmentType.DROPSHIP);
     return {
       orderId: order.id,
       kind: InvoiceLineKind.ORDER,
-      description: `Order ${order.ebayOrderRef} — fulfillment fee`,
+      description: `Order ${order.ebayOrderRef} — ${dropship ? "dropship buy price" : "fulfillment fee"}`,
       grossAmount: fee,
       deductionAmount: 0,
       netAmount: fee,
@@ -671,6 +683,10 @@ export class InvoicesService {
         orderRef: order.ebayOrderRef,
         orderDate: order.orderDate,
         units: order.items.reduce((sum, i) => sum + i.quantity, 0),
+        fulfillment: dropship ? ProductFulfillmentType.DROPSHIP : ProductFulfillmentType.STOCK,
+        status: order.status,
+        trackingNumber: order.trackingNumber,
+        products: order.items.map((i) => ({ title: products.get(i.productId)?.title ?? "Product", quantity: i.quantity })),
       },
     };
   }

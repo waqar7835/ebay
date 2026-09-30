@@ -8,10 +8,10 @@ import { listInvoiceTemplates, mediaUrl } from "@/lib/api";
 
 const LAYOUT_NAMES: Record<InvoiceLayout, string> = {
   [InvoiceLayout.CLASSIC]: "Classic",
-  [InvoiceLayout.BANNER]: "Modern Banner",
-  [InvoiceLayout.MINIMAL]: "Minimal",
-  [InvoiceLayout.EDGE]: "Edge",
-  [InvoiceLayout.ELEGANT]: "Elegant",
+  [InvoiceLayout.SPLIT]: "Split Header",
+  [InvoiceLayout.SIDEBAR]: "Sidebar",
+  [InvoiceLayout.CARDS]: "Soft Cards",
+  [InvoiceLayout.BOLD]: "Bold",
 };
 
 const COLOR_NAMES: Record<string, string> = {

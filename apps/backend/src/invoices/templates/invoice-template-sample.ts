@@ -1,4 +1,4 @@
-import { InvoiceLineKind, Role, StockOwnerPayoutMode } from "@ebay-order-management/shared";
+import { InvoiceLineKind, OrderStatus, ProductFulfillmentType, Role, StockOwnerPayoutMode } from "@ebay-order-management/shared";
 import type { InvoicePdfLine } from "../invoice-pdf";
 import { round2, sum } from "../invoice-pdf";
 
@@ -6,8 +6,11 @@ import { round2, sum } from "../invoice-pdf";
  * Made-up invoice content for the template editor's live preview — realistic enough (several
  * products, an adjustment line) to show how a layout handles a typical invoice.
  */
-export function sampleInvoice(role: Role.ACCOUNT_HOLDER | Role.STOCK_OWNER) {
-  return role === Role.ACCOUNT_HOLDER ? accountHolderSample() : stockOwnerSample();
+export type SampleRole = Role.ACCOUNT_HOLDER | Role.STOCK_OWNER | Role.THREE_PL;
+
+export function sampleInvoice(role: SampleRole) {
+  if (role === Role.ACCOUNT_HOLDER) return accountHolderSample();
+  return role === Role.THREE_PL ? threePlSample() : stockOwnerSample();
 }
 
 const PRODUCTS = [
@@ -99,4 +102,36 @@ function accountHolderSample() {
   };
   const lines = [...orders, refund];
   return { lines, currency: "GBP", partnerName: "Sample Account Holder", totalAmount: round2(sum(lines.map((l) => l.netAmount))) };
+}
+
+function threePlSample() {
+  // [fulfillment, products, tracking, status, amount (PKR)]
+  const orders: [ProductFulfillmentType, [number, number][], string, OrderStatus, number][] = [
+    [ProductFulfillmentType.STOCK, [[0, 2], [3, 1]], "RM482913056GB", OrderStatus.DELIVERED, 350],
+    [ProductFulfillmentType.STOCK, [[2, 1]], "RM482913102GB", OrderStatus.DELIVERED, 350],
+    [ProductFulfillmentType.STOCK, [[1, 3]], "1Z999AA10123456784", OrderStatus.SHIPPED, 350],
+    [ProductFulfillmentType.DROPSHIP, [[4, 1]], "TBA304918822000", OrderStatus.DELIVERED, 2450],
+    [ProductFulfillmentType.DROPSHIP, [[3, 2]], "TBA304918901000", OrderStatus.SHIPPED, 3300],
+  ];
+  const lines: InvoicePdfLine[] = orders.map(([fulfillment, products, trackingNumber, status, amount], i) => {
+    const orderRef = `12-0${5520 + i}-71${400 + i}`;
+    return {
+      kind: InvoiceLineKind.ORDER,
+      description: `Order ${orderRef}`,
+      deductionAmount: 0,
+      netAmount: amount,
+      details: {
+        role: "THREE_PL",
+        orderRef,
+        orderDate: `2026-09-${String(2 + i * 5).padStart(2, "0")}`,
+        units: sum(products.map(([, q]) => q)),
+        fulfillment,
+        status,
+        trackingNumber,
+        products: products.map(([p, quantity]) => ({ title: PRODUCTS[p], quantity })),
+      },
+    };
+  });
+  lines.push({ kind: InvoiceLineKind.MISC, description: "Extra packaging (fragile items)", deductionAmount: 0, netAmount: 400, details: null });
+  return { lines, currency: "PKR", partnerName: "Sample 3PL", totalAmount: round2(sum(lines.map((l) => l.netAmount))) };
 }

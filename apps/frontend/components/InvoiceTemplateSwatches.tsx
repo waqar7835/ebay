@@ -5,10 +5,10 @@ import { Tooltip } from "antd";
 
 export const LAYOUT_LABELS: Record<InvoiceLayout, { name: string; description: string }> = {
   [InvoiceLayout.CLASSIC]: { name: "Classic", description: "Logo left, large title right, filled table headers" },
-  [InvoiceLayout.BANNER]: { name: "Modern Banner", description: "Full-width colored header band" },
-  [InvoiceLayout.MINIMAL]: { name: "Minimal", description: "No filled boxes — hairline rules and whitespace" },
-  [InvoiceLayout.EDGE]: { name: "Edge", description: "Colored side stripe, amount due shown up top" },
-  [InvoiceLayout.ELEGANT]: { name: "Elegant", description: "Centered, serif headings, framed totals" },
+  [InvoiceLayout.SPLIT]: { name: "Split Header", description: "Solid title block beside a tinted details panel" },
+  [InvoiceLayout.SIDEBAR]: { name: "Sidebar", description: "Colored side column with details and amount due" },
+  [InvoiceLayout.CARDS]: { name: "Soft Cards", description: "Rounded cards, amount due up top, pill section labels" },
+  [InvoiceLayout.BOLD]: { name: "Bold", description: "Oversized type, angled color block, thick rules" },
 };
 
 export const COLOR_LABELS: Record<keyof InvoiceTemplateColors, { name: string; help: string }> = {
