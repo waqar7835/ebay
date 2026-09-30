@@ -1,8 +1,13 @@
 import type {
   AccountHolderProfileDto,
   CompanyDto,
-  InvoiceCycleDto,
+  Currency,
+  ExchangeRateDto,
+  ExchangeRates,
+  InvoiceableOrderDto,
+  InvoiceDraftInput,
   InvoiceDto,
+  InvoiceRole,
   OrderDto,
   OrderItemInput,
   OrderStatus,
@@ -60,6 +65,20 @@ export function getStoredUser(): StoredUser | null {
 function authHeaders(): Record<string, string> {
   const token = getToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/** Like request(), for endpoints that return a file (PDFs). */
+async function requestBlob(path: string, options: RequestInit = {}): Promise<Blob> {
+  const res = await fetch(`${API_URL}${path}`, {
+    ...options,
+    headers: { "Content-Type": "application/json", ...authHeaders(), ...(options.headers ?? {}) },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message ?? `Request failed: ${res.status}`);
+  }
+  return res.blob();
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -243,14 +262,6 @@ export function updateOrderStatus(orderId: string, status: OrderStatus) {
   return request<OrderDto>(`/orders/${orderId}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
 }
 
-export function listMyInvoices(userId: string) {
-  return request<InvoiceDto[]>(`/invoices?userId=${userId}`);
-}
-
-export function generateMyInvoice(userId: string, role: Role, periodStart?: string) {
-  return request<InvoiceDto>("/invoices/generate", { method: "POST", body: JSON.stringify({ userId, role, periodStart }) });
-}
-
 // --- Companies ---
 export function getMyCompany() {
   return request<CompanyDto>("/companies/me");
@@ -258,6 +269,13 @@ export function getMyCompany() {
 
 export function updateCompanyName(name: string) {
   return request<CompanyDto>("/companies/me/name", { method: "POST", body: JSON.stringify({ name }) });
+}
+
+export function updateCompanyDefaultCurrency(defaultCurrency: Currency) {
+  return request<CompanyDto>("/companies/me/default-currency", {
+    method: "POST",
+    body: JSON.stringify({ defaultCurrency }),
+  });
 }
 
 export function updateCompanyBillingAnchorDay(billingAnchorDay: number) {
@@ -307,6 +325,7 @@ export interface InviteUserPayload {
   name?: string;
   email: string;
   roles: Role[];
+  currency?: Currency;
   staffPermissions?: StaffPermissionsDto;
   accountHolderProfile?: Pick<AccountHolderProfileDto, "sharePercent" | "threePlPriceCharged" | "billingCycleStartDay">;
   stockOwnerProfile?: Pick<StockOwnerProfileDto, "payoutMode" | "sharePercent" | "billingCycleStartDay">;
@@ -322,7 +341,7 @@ export function getUser(id: string) {
   return request<UserDto>(`/users/${id}`);
 }
 
-export function updateUser(id: string, payload: { name?: string }) {
+export function updateUser(id: string, payload: { name?: string; currency?: Currency }) {
   return request<UserDto>(`/users/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
 }
 
@@ -448,9 +467,19 @@ export interface CreateOrderPayload {
   ebayNetProceeds: number;
   shippingCost?: number;
   supplierUrl?: string;
+  /** PKR rates typed in by the admin; any currency left out uses the live rate. */
+  exchangeRates?: ExchangeRates;
 }
 
-export type UpdateOrderPayload = Partial<CreateOrderPayload>;
+export type UpdateOrderPayload = Partial<CreateOrderPayload> & {
+  /** Re-convert every amount with today's rates instead of the ones locked on the order. */
+  recalculateRates?: boolean;
+};
+
+/** Current PKR rate per currency (flags an unreachable API / a rate that must be typed in). */
+export function listExchangeRates() {
+  return request<ExchangeRateDto[]>("/exchange-rates");
+}
 
 export function createOrder(payload: CreateOrderPayload) {
   return request<OrderDto>("/orders", { method: "POST", body: JSON.stringify(payload) });
@@ -480,24 +509,33 @@ export async function uploadOrderShippingLabel(orderId: string, shippingLabel: F
   return res.json() as Promise<OrderDto>;
 }
 
-// --- Invoices (company-wide admin view: ADMIN/STAFF-with-canGenerateInvoices/canViewFinancials) ---
+// --- Invoices ---
+// Everyone can list/download their own; ADMIN / STAFF-with-canGenerateInvoices-or-canViewFinancials see the
+// whole company's. Only ADMIN / STAFF-with-canGenerateInvoices create, delete and mark paid.
 export function listInvoices(userId?: string) {
   return request<InvoiceDto[]>(`/invoices${userId ? `?userId=${userId}` : ""}`);
 }
 
-export function generateInvoice(userId: string, role: Role, periodStart?: string) {
-  return request<InvoiceDto>("/invoices/generate", {
-    method: "POST",
-    body: JSON.stringify({ userId, role, periodStart }),
-  });
+export function listInvoiceableOrders(userId: string, role: InvoiceRole) {
+  return request<InvoiceableOrderDto[]>(`/invoices/invoiceable-orders?userId=${userId}&role=${role}`);
 }
 
-export function listInvoiceCycles(userId: string, role: Role) {
-  return request<InvoiceCycleDto[]>(`/invoices/cycles?userId=${userId}&role=${role}`);
+/** The wizard's Review step — a DRAFT PDF of the selection; nothing is saved. */
+export function previewInvoice(draft: InvoiceDraftInput) {
+  return requestBlob("/invoices/preview", { method: "POST", body: JSON.stringify(draft) });
 }
 
+export function createInvoice(draft: InvoiceDraftInput) {
+  return request<InvoiceDto>("/invoices", { method: "POST", body: JSON.stringify(draft) });
+}
+
+export function downloadInvoicePdf(invoiceId: string) {
+  return requestBlob(`/invoices/${invoiceId}/pdf`);
+}
+
+/** UNPAID invoices are deleted, PAID ones voided; either way their orders reopen. */
 export function deleteInvoice(invoiceId: string) {
-  return request<{ id: string }>(`/invoices/${invoiceId}`, { method: "DELETE" });
+  return request<{ id: string; voided: boolean }>(`/invoices/${invoiceId}`, { method: "DELETE" });
 }
 
 export function markInvoicePaid(invoiceId: string) {

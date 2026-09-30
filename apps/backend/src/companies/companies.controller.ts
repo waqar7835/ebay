@@ -12,6 +12,7 @@ import type { JwtPayload } from "../auth/jwt.strategy";
 import { CompaniesService } from "./companies.service";
 import { UpdateCompanyNameDto } from "./dto/update-company-name.dto";
 import { UpdateCompanyBillingAnchorDayDto } from "./dto/update-company-billing-anchor-day.dto";
+import { UpdateCompanyDefaultCurrencyDto } from "./dto/update-company-default-currency.dto";
 
 @ApiTags("companies")
 @ApiBearerAuth()
@@ -56,5 +57,12 @@ export class CompaniesController {
     @Query("companyId") companyId?: string,
   ) {
     return this.companiesService.updateBillingAnchorDay(resolveCompanyId(user, companyId), dto.billingAnchorDay);
+  }
+
+  /** Only changes what's preselected for new users — existing users keep their currency. */
+  @Post("me/default-currency")
+  @Roles(Role.ADMIN)
+  updateDefaultCurrency(@CurrentUser() user: JwtPayload, @Body() dto: UpdateCompanyDefaultCurrencyDto) {
+    return this.companiesService.updateDefaultCurrency(resolveCompanyId(user), dto.defaultCurrency);
   }
 }

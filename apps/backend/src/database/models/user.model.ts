@@ -1,5 +1,5 @@
 import { BelongsTo, Column, DataType, DefaultScope, ForeignKey, HasMany, HasOne, Model, Scopes, Table } from "sequelize-typescript";
-import { UserStatus } from "@ebay-order-management/shared";
+import { Currency, DEFAULT_CURRENCY, UserStatus } from "@ebay-order-management/shared";
 import { Company } from "./company.model";
 import { UserRoleAssignment } from "./user-role.model";
 import { StaffProfile } from "./staff-profile.model";
@@ -38,6 +38,11 @@ export class User extends Model {
     defaultValue: UserStatus.INVITED,
   })
   declare status: UserStatus;
+
+  // Currency this user's amounts (3PL fee, product prices, eBay proceeds…) are entered in. Orders
+  // convert them to PKR. Only meaningful for Account Holder / Stock Owner / 3PL accounts.
+  @Column({ type: DataType.STRING(3), allowNull: false, defaultValue: DEFAULT_CURRENCY })
+  declare currency: Currency;
 
   @HasMany(() => UserRoleAssignment)
   declare roleAssignments: UserRoleAssignment[];

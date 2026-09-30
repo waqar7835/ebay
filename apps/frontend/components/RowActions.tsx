@@ -4,10 +4,27 @@ import { CheckCircleOutlined, DeleteOutlined, EditOutlined, StopOutlined } from 
 import { Button, Popconfirm, Tooltip } from "antd";
 
 /** Icon-only row actions for tables. Destructive ones always go through a Popconfirm. */
-export function EditAction({ onClick, title = "Edit" }: { onClick: () => void; title?: string }) {
+export function EditAction({
+  onClick,
+  title = "Edit",
+  disabled,
+  disabledReason,
+}: {
+  onClick: () => void;
+  title?: string;
+  disabled?: boolean;
+  disabledReason?: string;
+}) {
   return (
-    <Tooltip title={title}>
-      <Button type="text" size="small" icon={<EditOutlined />} onClick={onClick} aria-label={title} />
+    <Tooltip title={disabled && disabledReason ? disabledReason : title}>
+      <Button
+        type="text"
+        size="small"
+        icon={<EditOutlined />}
+        onClick={onClick}
+        aria-label={title}
+        disabled={disabled}
+      />
     </Tooltip>
   );
 }

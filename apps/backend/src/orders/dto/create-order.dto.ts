@@ -1,5 +1,16 @@
 import { Type } from "class-transformer";
-import { ArrayMinSize, IsArray, IsDateString, IsNumber, IsOptional, IsString, Min, ValidateNested } from "class-validator";
+import {
+  ArrayMinSize,
+  IsArray,
+  IsDateString,
+  IsNumber,
+  IsObject,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from "class-validator";
+import type { ExchangeRates } from "@ebay-order-management/shared";
 import { OrderItemInputDto } from "./order-item.dto";
 
 export class CreateOrderDto {
@@ -41,4 +52,9 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString()
   supplierUrl?: string;
+
+  /** PKR rates typed in by the admin (e.g. when the rate API is down), keyed by currency. */
+  @IsOptional()
+  @IsObject()
+  exchangeRates?: ExchangeRates;
 }

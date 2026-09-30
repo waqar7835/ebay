@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync } from "fs";
+import { readFile } from "fs/promises";
 import { extname, join } from "path";
 import { randomUUID } from "crypto";
 import { diskStorage } from "multer";
@@ -104,4 +105,17 @@ export function publicUploadUrl(subfolder: string, filename: string): string {
     return `${process.env.R2_PUBLIC_URL}/${subfolder}/${filename}`;
   }
   return `/uploads/${subfolder}/${filename}`;
+}
+
+/** Reads back a file saved through these helpers (a `/uploads/...` path or an R2 public URL); null if unavailable. */
+export async function readUpload(url: string): Promise<Buffer | null> {
+  try {
+    if (url.startsWith("/uploads/")) {
+      return await readFile(join(uploadsDir, url.slice("/uploads/".length)));
+    }
+    const res = await fetch(url);
+    return res.ok ? Buffer.from(await res.arrayBuffer()) : null;
+  } catch {
+    return null;
+  }
 }

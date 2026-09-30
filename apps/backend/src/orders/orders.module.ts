@@ -11,6 +11,8 @@ import { StaffProfile } from "../database/models/staff-profile.model";
 import { BackofficeStaffProfile } from "../database/models/backoffice-staff-profile.model";
 import { BillingModule } from "../billing/billing.module";
 import { FinanceModule } from "../finance/finance.module";
+import { ExchangeRatesModule } from "../exchange-rates/exchange-rates.module";
+import { User } from "../database/models/user.model";
 import { OrdersController } from "./orders.controller";
 import { OrdersService } from "./orders.service";
 
@@ -26,9 +28,11 @@ import { OrdersService } from "./orders.service";
       ThreePlProfile,
       StaffProfile,
       BackofficeStaffProfile,
+      User,
     ]),
     BillingModule,
     FinanceModule,
+    ExchangeRatesModule,
   ],
   controllers: [OrdersController],
   providers: [OrdersService],

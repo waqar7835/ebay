@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { InjectModel } from "@nestjs/sequelize";
+import { Currency } from "@ebay-order-management/shared";
 import { Company } from "../database/models/company.model";
 
 @Injectable()
@@ -29,6 +30,13 @@ export class CompaniesService {
   async updateBillingAnchorDay(companyId: string, billingAnchorDay: number) {
     const company = await this.get(companyId);
     company.billingAnchorDay = billingAnchorDay;
+    await company.save();
+    return company;
+  }
+
+  async updateDefaultCurrency(companyId: string, defaultCurrency: Currency) {
+    const company = await this.get(companyId);
+    company.defaultCurrency = defaultCurrency;
     await company.save();
     return company;
   }

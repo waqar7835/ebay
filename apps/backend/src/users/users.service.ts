@@ -2,8 +2,9 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException, 
 import { ConfigService } from "@nestjs/config";
 import { InjectModel } from "@nestjs/sequelize";
 import * as bcrypt from "bcrypt";
-import { ProductFulfillmentType, Role, TokenPurpose, UserStatus } from "@ebay-order-management/shared";
+import { DEFAULT_CURRENCY, ProductFulfillmentType, Role, TokenPurpose, UserStatus } from "@ebay-order-management/shared";
 import { User } from "../database/models/user.model";
+import { Company } from "../database/models/company.model";
 import { UserRoleAssignment } from "../database/models/user-role.model";
 import { StaffProfile } from "../database/models/staff-profile.model";
 import { AccountHolderProfile } from "../database/models/account-holder-profile.model";
@@ -19,7 +20,7 @@ import {
   StockOwnerProfileInput,
   ThreePlProfileInput,
 } from "./dto/invite-user.dto";
-import { ChangePasswordDto, UpdateOwnProfileDto } from "./dto/update-own-profile.dto";
+import { ChangePasswordDto, UpdateOwnProfileDto, UpdateUserDto } from "./dto/update-own-profile.dto";
 
 const PROFILE_INCLUDES = [StaffProfile, AccountHolderProfile, StockOwnerProfile, ThreePlProfile, UserRoleAssignment];
 const PAID_ROLES = [Role.ACCOUNT_HOLDER, Role.STOCK_OWNER, Role.THREE_PL];
@@ -32,6 +33,7 @@ const INVITABLE_ROLES = [Role.STAFF, ...PAID_ROLES];
 export class UsersService {
   constructor(
     @InjectModel(User) private readonly userModel: typeof User,
+    @InjectModel(Company) private readonly companyModel: typeof Company,
     @InjectModel(UserRoleAssignment) private readonly userRoleModel: typeof UserRoleAssignment,
     @InjectModel(StaffProfile) private readonly staffProfileModel: typeof StaffProfile,
     @InjectModel(AccountHolderProfile) private readonly accountHolderModel: typeof AccountHolderProfile,
@@ -62,6 +64,7 @@ export class UsersService {
       name: user.name,
       email: user.email,
       status: user.status,
+      currency: user.currency,
       roles: user.roleAssignments.map((r) => r.role),
       staffProfile: user.staffProfile,
       accountHolderProfile: user.accountHolderProfile,
@@ -92,6 +95,7 @@ export class UsersService {
       name: dto.name ?? null,
       email: dto.email,
       status: UserStatus.INVITED,
+      currency: dto.currency ?? (await this.companyModel.findByPk(companyId))?.defaultCurrency ?? DEFAULT_CURRENCY,
       passwordHash: await bcrypt.hash(DEFAULT_INVITE_PASSWORD, 10),
     });
 
@@ -142,11 +146,15 @@ export class UsersService {
     return this.toDto(await user.reload({ include: PROFILE_INCLUDES }));
   }
 
-  async updateUser(companyId: string, userId: string, dto: UpdateOwnProfileDto) {
+  async updateUser(companyId: string, userId: string, dto: UpdateUserDto) {
     const user = await this.userModel.findOne({ where: { id: userId, companyId } });
     if (!user) throw new NotFoundException("User not found");
     if (dto.name !== undefined) {
       user.name = dto.name;
+    }
+    // Existing orders keep the currency snapshotted on them; only new orders use the new one.
+    if (dto.currency !== undefined) {
+      user.currency = dto.currency;
     }
     await user.save();
     return this.toDto(await user.reload({ include: PROFILE_INCLUDES }));

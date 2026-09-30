@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import BackLink from "@/components/BackLink";
 import Nav from "@/components/Nav";
 import OrderForm from "@/components/OrderForm";
-import { createOrder, getToken, uploadOrderShippingLabel } from "@/lib/api";
+import { createOrder, getToken, uploadOrderShippingLabel, type CreateOrderPayload } from "@/lib/api";
 
 export default function NewOrderPage() {
   const router = useRouter();
@@ -24,7 +24,7 @@ export default function NewOrderPage() {
           submitLabel="Create order"
           submittingLabel="Creating..."
           onSubmit={async (payload, shippingLabel) => {
-            const order = await createOrder(payload);
+            const order = await createOrder(payload as CreateOrderPayload);
             if (shippingLabel) await uploadOrderShippingLabel(order.id, shippingLabel);
             router.push("/orders");
           }}

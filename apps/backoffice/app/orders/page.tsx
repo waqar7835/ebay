@@ -1,11 +1,12 @@
 "use client";
 
-import type { OrderDto, OrderStatus, ProductDto } from "@ebay-order-management/shared";
+import type { Currency, ExchangeRateDto, ExchangeRates, OrderDto, OrderStatus, ProductDto } from "@ebay-order-management/shared";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Form,
   Input,
   InputNumber,
@@ -22,12 +23,14 @@ import ProductThumb from "@/components/ProductThumb";
 import {
   createOrder,
   getToken,
+  listExchangeRates,
   listOrders,
   listProducts,
   listUsers,
   updateOrder,
   updateOrderStatus,
 } from "@/lib/api";
+import { currencySymbol, money, pkr } from "@/lib/currency";
 import { searchable, userOptions } from "@/lib/selectOptions";
 
 const STATUSES: OrderStatus[] = ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "REFUNDED"] as OrderStatus[];
@@ -42,6 +45,7 @@ interface UserOption {
   name: string | null;
   email: string;
   roles: string[];
+  currency: Currency;
 }
 
 function todayIsoDate() {
@@ -87,6 +91,10 @@ export default function OrdersPage() {
   const [error, setError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [liveRates, setLiveRates] = useState<ExchangeRateDto[]>([]);
+  // PKR per unit as shown in the rate inputs (prefilled from the live/saved rates, editable).
+  const [rateInputs, setRateInputs] = useState<ExchangeRates>({});
+  const [recalculate, setRecalculate] = useState(false);
 
   function refresh() {
     listOrders()
@@ -103,7 +111,17 @@ export default function OrdersPage() {
     refresh();
     listProducts().then(setProducts).catch(() => undefined);
     listUsers().then(setUsers as never).catch(() => undefined);
+    loadRates();
   }, [router]);
+
+  function loadRates() {
+    listExchangeRates()
+      .then((rates) => {
+        setLiveRates(rates);
+        setRateInputs(Object.fromEntries(rates.filter((r) => r.rate != null).map((r) => [r.currency, r.rate])));
+      })
+      .catch(() => undefined);
+  }
 
   const accountHolders = users.filter((u) => u.roles.includes("ACCOUNT_HOLDER"));
   const productById = new Map(products.map((p) => [p.id, p]));
@@ -114,6 +132,40 @@ export default function OrdersPage() {
   const firstWarehouse = formProducts.find((p) => p?.fulfillmentType === "STOCK")?.threePlId;
   const mixedWarehouses = new Set(formProducts.filter((p) => p?.fulfillmentType === "STOCK").map((p) => p!.threePlId)).size > 1;
   const editingOrder = editingOrderId ? orders.find((o) => o.id === editingOrderId) : undefined;
+
+  // --- Currencies: each party's amounts are in their own currency, converted to PKR on save. ---
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const legacy = !!editingOrder && !editingOrder.exchangeRates; // created before currencies: plain PKR until recalculated
+  const lockedRates = editingOrder?.exchangeRates ?? {};
+  const formAccountHolderId: string | undefined = Form.useWatch("accountHolderId", form);
+  const accountHolderChanged = !!editingOrder && formAccountHolderId !== editingOrder.accountHolderId;
+  const ahCurrency: Currency | null | undefined =
+    legacy && !recalculate && !accountHolderChanged
+      ? null
+      : editingOrder?.accountHolderCurrency && !accountHolderChanged
+        ? editingOrder.accountHolderCurrency
+        : formAccountHolderId
+          ? userById.get(formAccountHolderId)?.currency
+          : undefined;
+  const threePlId = firstWarehouse ?? (isDropship ? editingOrder?.threePlId : undefined);
+  const neededCurrencies: Currency[] =
+    legacy && !recalculate
+      ? []
+      : [
+          ...new Set(
+            [
+              ahCurrency,
+              threePlId ? (threePlId === editingOrder?.threePlId && editingOrder.threePlCurrency) || userById.get(threePlId)?.currency : undefined,
+              ...formProducts.map((p) => (p ? (editingOrder?.items.find((i) => i.productId === p.id)?.currency ?? p.currency) : undefined)),
+            ].filter((c): c is Currency => !!c),
+          ),
+        ];
+  // Without "recalculate", an existing order keeps its locked rates; only currencies new to it take one from the form.
+  const editableRate = (c: Currency) => !editingOrder || recalculate || legacy || lockedRates[c] == null;
+  const rateFor = (c: Currency) => (editableRate(c) ? rateInputs[c] : lockedRates[c]);
+  const missingRates = neededCurrencies.filter((c) => !rateFor(c));
+  const liveByCurrency = new Map(liveRates.map((r) => [r.currency, r]));
+  const ratesStale = neededCurrencies.some((c) => editableRate(c) && liveByCurrency.get(c)?.stale);
 
   /** Options for one item row: other rows' products hidden; with several rows only Stock products at the same 3PL. */
   function productOptionsFor(index: number) {
@@ -133,6 +185,7 @@ export default function OrdersPage() {
   function openForm(values: OrderFormValues, orderId: string | null) {
     setEditingOrderId(orderId);
     setFormError(null);
+    setRecalculate(false);
     setShowForm(true);
     // Form mounts on the same tick it's shown; defer so setFieldsValue hits the mounted fields.
     setTimeout(() => form.setFieldsValue(values));
@@ -151,8 +204,9 @@ export default function OrdersPage() {
         ebayOrderRef: order.ebayOrderRef,
         trackingNumber: order.trackingNumber ?? "",
         buyerDetails: order.buyerDetails,
-        ebayNetProceeds: order.ebayNetProceeds,
-        shippingCost: order.shippingCost,
+        // As entered, in the Account Holder's currency (plain PKR on orders from before currencies).
+        ebayNetProceeds: order.ebayNetProceedsOriginal ?? order.ebayNetProceeds,
+        shippingCost: order.shippingCostOriginal ?? order.shippingCost,
         supplierUrl: order.supplierUrl ?? "",
       },
       order.id,
@@ -167,6 +221,10 @@ export default function OrdersPage() {
 
   async function handleFinish(values: OrderFormValues) {
     if (mixedWarehouses) return;
+    if (missingRates.length) {
+      setFormError(`Enter the PKR exchange rate for ${missingRates.join(", ")}`);
+      return;
+    }
     setFormError(null);
     setSubmitting(true);
     const items = values.items.map((r) => ({ productId: r.productId as string, quantity: Number(r.quantity) }));
@@ -184,10 +242,15 @@ export default function OrdersPage() {
       ebayNetProceeds: Number(values.ebayNetProceeds ?? 0),
       shippingCost: Number(values.shippingCost ?? 0),
       supplierUrl: values.supplierUrl || undefined,
+      exchangeRates: Object.fromEntries(neededCurrencies.filter(editableRate).map((c) => [c, rateInputs[c]])),
     };
     try {
       if (editingOrderId) {
-        await updateOrder(editingOrderId, { ...common, ...(itemsChanged ? { items } : {}) });
+        await updateOrder(editingOrderId, {
+          ...common,
+          ...(itemsChanged ? { items } : {}),
+          ...(recalculate ? { recalculateRates: true } : {}),
+        });
       } else {
         await createOrder({ ...common, items });
       }
@@ -240,7 +303,8 @@ export default function OrdersPage() {
     { title: "Order #", dataIndex: "ebayOrderRef" },
     { title: "Tracking #", dataIndex: "trackingNumber", render: (v) => v ?? "—" },
     { title: "Qty", key: "qty", render: (_, o) => o.items.reduce((sum, i) => sum + i.quantity, 0) },
-    { title: "Payout", dataIndex: "ebayNetProceeds", render: (v: number) => `$${v.toFixed(2)}` },
+    // Order amounts are PKR (converted from each user's currency when the order was saved).
+    { title: "Payout", dataIndex: "ebayNetProceeds", render: (v: number) => pkr(v) },
     {
       title: "Buy Price",
       key: "buyPrice",
@@ -248,7 +312,7 @@ export default function OrdersPage() {
       render: (_, o) =>
         o.items.some((i) => i.buyPriceSnapshot == null)
           ? "Pending"
-          : `$${o.items.reduce((sum, i) => sum + i.buyPriceSnapshot! * i.quantity, 0).toFixed(2)}`,
+          : pkr(o.items.reduce((sum, i) => sum + i.buyPriceSnapshot! * i.quantity, 0)),
     },
     {
       title: "Status",
@@ -331,7 +395,7 @@ export default function OrdersPage() {
                               {product && (
                                 <div className="text-xs text-slate-500">
                                   {product.fulfillmentType === "STOCK" ? `${product.stockQuantity} on hand` : "Dropshipping"}
-                                  {product.sellPrice != null && ` · Sell $${product.sellPrice.toFixed(2)} / unit`}
+                                  {product.sellPrice != null && ` · Sell ${money(product.sellPrice, product.currency)} / unit`}
                                 </div>
                               )}
                             </div>
@@ -371,13 +435,70 @@ export default function OrdersPage() {
               </Form.Item>
 
               <div className="flex gap-3">
-                <Form.Item name="ebayNetProceeds" label="Payout (net profit from eBay)" className="flex-1">
-                  <InputNumber prefix="$" step={0.01} className="w-full" />
+                <Form.Item name="ebayNetProceeds" label="Payout (net profit from eBay)" tooltip="In the client's currency" className="flex-1">
+                  <InputNumber prefix={currencySymbol(ahCurrency)} step={0.01} className="w-full" />
                 </Form.Item>
-                <Form.Item name="shippingCost" label="Shipping label cost (optional)" className="flex-1">
-                  <InputNumber prefix="$" min={0} step={0.01} className="w-full" />
+                <Form.Item name="shippingCost" label="Shipping label cost (optional)" tooltip="In the client's currency" className="flex-1">
+                  <InputNumber prefix={currencySymbol(ahCurrency)} min={0} step={0.01} className="w-full" />
                 </Form.Item>
               </div>
+
+              <Form.Item label="Exchange rates (to PKR)" tooltip="Amounts are converted to PKR with these rates, locked on the order">
+                {editingOrder && (
+                  <Checkbox checked={recalculate} onChange={(e) => setRecalculate(e.target.checked)} className="mb-2">
+                    Recalculate with today&apos;s rates
+                  </Checkbox>
+                )}
+                {legacy && !recalculate ? (
+                  <Alert
+                    type="info"
+                    showIcon
+                    title="Created before currencies — amounts are in PKR. Tick Recalculate to convert them from each user's currency."
+                  />
+                ) : neededCurrencies.length === 0 ? (
+                  <div className="text-sm text-slate-500">Pick a client and products to see the rates used.</div>
+                ) : (
+                  <>
+                    {ratesStale && (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        className="mb-2"
+                        title="Live rates are unavailable — showing the last saved rate. Type in a current rate if you have one."
+                      />
+                    )}
+                    <div className="flex flex-wrap gap-3">
+                      {neededCurrencies.map((c) => {
+                        const live = liveByCurrency.get(c);
+                        const editable = editableRate(c);
+                        return (
+                          <div key={c} className="w-56">
+                            <InputNumber
+                              prefix={`1 ${c} = Rs`}
+                              min={0.000001}
+                              step={0.01}
+                              className="w-full"
+                              disabled={!editable}
+                              status={editable && !rateInputs[c] ? "error" : undefined}
+                              value={rateFor(c) ?? null}
+                              onChange={(v) => setRateInputs((prev) => ({ ...prev, [c]: v == null ? undefined : Number(v) }))}
+                            />
+                            <div className={`mt-1 text-xs ${editable && (live?.stale || live?.unavailable) ? "text-amber-600" : "text-slate-400"}`}>
+                              {!editable
+                                ? "Locked on this order"
+                                : live?.unavailable
+                                  ? "No rate available — enter it"
+                                  : live?.stale
+                                    ? "Saved rate (API down)"
+                                    : "Live rate"}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </Form.Item>
 
               {isDropship && (
                 <Form.Item name="supplierUrl" label="Supplier/product listing URL (optional)">

@@ -14,7 +14,7 @@ import {
   ValidateIf,
   ValidateNested,
 } from "class-validator";
-import { ProductFulfillmentType, Role, StockOwnerPayoutMode } from "@ebay-order-management/shared";
+import { Currency, ProductFulfillmentType, Role, StockOwnerPayoutMode } from "@ebay-order-management/shared";
 
 export class StaffPermissionsInput {
   @IsBoolean() canManageOrders!: boolean;
@@ -60,6 +60,11 @@ export class InviteUserDto {
   @ArrayMinSize(1)
   @IsEnum(Role, { each: true })
   roles!: Role[];
+
+  /** Currency the user's amounts are entered in (Account Holder / Stock Owner / 3PL). Defaults to GBP. */
+  @IsOptional()
+  @IsEnum(Currency)
+  currency?: Currency;
 
   @IsOptional()
   @ValidateNested()

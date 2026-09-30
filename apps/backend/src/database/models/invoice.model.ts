@@ -24,11 +24,16 @@ export class Invoice extends Model {
   @Column({ type: DataType.ENUM(...Object.values(Role)), allowNull: false })
   declare role: Role;
 
-  @Column({ type: DataType.DATEONLY, allowNull: false, field: "period_start" })
-  declare periodStart: string;
+  /** Human-readable, per company (INV-00042); `sequence` is its number, unique per company. */
+  @Column({ type: DataType.STRING(32), allowNull: false, field: "invoice_number" })
+  declare invoiceNumber: string;
 
-  @Column({ type: DataType.DATEONLY, allowNull: false, field: "period_end" })
-  declare periodEnd: string;
+  @Column({ type: DataType.INTEGER, allowNull: false })
+  declare sequence: number;
+
+  /** PKR for Stock Owner / 3PL invoices; the Account Holder's own currency on theirs. */
+  @Column({ type: DataType.STRING(3), allowNull: false, defaultValue: "PKR" })
+  declare currency: string;
 
   @Column({
     type: DataType.ENUM(...Object.values(InvoiceStatus)),
@@ -37,6 +42,7 @@ export class Invoice extends Model {
   })
   declare status: InvoiceStatus;
 
+  // Stock Owner / 3PL: owed to the user. Account Holder: owed by the user to the company.
   @Column({
     type: DataType.DECIMAL(12, 2),
     allowNull: false,
@@ -57,6 +63,9 @@ export class Invoice extends Model {
 
   @Column({ type: DataType.DATE, allowNull: true, field: "paid_at" })
   declare paidAt: Date | null;
+
+  @Column({ type: DataType.DATE, allowNull: true, field: "voided_at" })
+  declare voidedAt: Date | null;
 
   @HasMany(() => InvoiceLineItem)
   declare lineItems: InvoiceLineItem[];

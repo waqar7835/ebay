@@ -20,6 +20,7 @@ import { PlatformSetting } from "./models/platform-setting.model";
 import { SeatBilling } from "./models/seat-billing.model";
 import { SeatPaymentOrder } from "./models/seat-payment-order.model";
 import { SeatPaymentOrderItem } from "./models/seat-payment-order-item.model";
+import { ExchangeRate } from "./models/exchange-rate.model";
 
 export const ALL_MODELS = [
   Company,
@@ -41,6 +42,7 @@ export const ALL_MODELS = [
   SeatBilling,
   SeatPaymentOrder,
   SeatPaymentOrderItem,
+  ExchangeRate,
 ];
 
 @Module({

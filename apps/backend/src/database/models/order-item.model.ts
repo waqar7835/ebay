@@ -1,5 +1,5 @@
 import { BelongsTo, Column, DataType, ForeignKey, Model, Table } from "sequelize-typescript";
-import { StockOwnerPayoutMode } from "@ebay-order-management/shared";
+import { Currency, StockOwnerPayoutMode } from "@ebay-order-management/shared";
 import { toDecimal, toNullableDecimal } from "../decimal.util";
 import { Order } from "./order.model";
 import { Product } from "./product.model";
@@ -88,6 +88,48 @@ export class OrderItem extends Model {
     },
   })
   declare stockOwnerSharePercentSnapshot: number | null;
+
+  // The *Snapshot prices above are in PKR. These hold the prices as entered, in `currency` — the
+  // Stock Owner's (STOCK) or the 3PL's (DROPSHIP buy price). Null on items from before currencies.
+  @Column({ type: DataType.STRING(3), allowNull: true })
+  declare currency: Currency | null;
+
+  @Column({
+    type: DataType.DECIMAL(12, 2),
+    allowNull: true,
+    field: "sell_price_original",
+    get(this: OrderItem) {
+      return toNullableDecimal(this.getDataValue("sellPriceOriginal" as keyof OrderItem));
+    },
+  })
+  declare sellPriceOriginal: number | null;
+
+  @Column({
+    type: DataType.DECIMAL(12, 2),
+    allowNull: true,
+    field: "buy_price_original",
+    get(this: OrderItem) {
+      return toNullableDecimal(this.getDataValue("buyPriceOriginal" as keyof OrderItem));
+    },
+  })
+  declare buyPriceOriginal: number | null;
+
+  @Column({
+    type: DataType.DECIMAL(12, 2),
+    allowNull: true,
+    field: "stock_owner_cost_original",
+    get(this: OrderItem) {
+      return toNullableDecimal(this.getDataValue("stockOwnerCostOriginal" as keyof OrderItem));
+    },
+  })
+  declare stockOwnerCostOriginal: number | null;
+
+  // Invoice that paid this item out to its Stock Owner — null means still open.
+  @Column({ type: DataType.UUID, allowNull: true, field: "stock_owner_invoice_id" })
+  declare stockOwnerInvoiceId: string | null;
+
+  @Column({ type: DataType.UUID, allowNull: true, field: "stock_owner_refund_invoice_id" })
+  declare stockOwnerRefundInvoiceId: string | null;
 
   declare createdAt: Date;
   declare updatedAt: Date;

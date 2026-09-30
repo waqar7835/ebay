@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { SequelizeModule } from "@nestjs/sequelize";
 import { User } from "../database/models/user.model";
+import { Company } from "../database/models/company.model";
 import { UserRoleAssignment } from "../database/models/user-role.model";
 import { StaffProfile } from "../database/models/staff-profile.model";
 import { BackofficeStaffProfile } from "../database/models/backoffice-staff-profile.model";
@@ -22,6 +23,7 @@ import { UsersService } from "./users.service";
       AccountHolderProfile,
       StockOwnerProfile,
       ThreePlProfile,
+      Company,
     ]),
     TokensModule,
     BillingModule,

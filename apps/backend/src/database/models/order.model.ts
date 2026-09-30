@@ -1,5 +1,5 @@
 import { BelongsTo, Column, DataType, DefaultScope, ForeignKey, HasMany, Model, Table } from "sequelize-typescript";
-import { OrderStatus } from "@ebay-order-management/shared";
+import { Currency, ExchangeRates, OrderStatus } from "@ebay-order-management/shared";
 import { toDecimal, toNullableDecimal } from "../decimal.util";
 import { Company } from "./company.model";
 import { User } from "./user.model";
@@ -106,6 +106,87 @@ export class Order extends Model {
     },
   })
   declare accountHolderSharePercentSnapshot: number;
+
+  // Every amount above is in PKR. The fields below record what was entered and how it was converted:
+  // Account Holder amounts (eBay proceeds, shipping, 3PL price charged) are in accountHolderCurrency,
+  // the 3PL payout in threePlCurrency, each item's prices in its own `currency`. All null on orders
+  // from before currencies existed — those amounts are plain PKR until recalculated.
+  @Column({ type: DataType.STRING(3), allowNull: true, field: "account_holder_currency" })
+  declare accountHolderCurrency: Currency | null;
+
+  @Column({ type: DataType.STRING(3), allowNull: true, field: "three_pl_currency" })
+  declare threePlCurrency: Currency | null;
+
+  /** PKR per 1 unit of each currency on the order — locked at creation, changed only by an explicit recalculation. */
+  @Column({
+    type: DataType.JSONB,
+    allowNull: true,
+    field: "exchange_rates",
+    get(this: Order) {
+      const rates = this.getDataValue("exchangeRates" as keyof Order) as Record<string, unknown> | null;
+      if (!rates) return null;
+      return Object.fromEntries(Object.entries(rates).map(([currency, rate]) => [currency, toDecimal(rate)]));
+    },
+  })
+  declare exchangeRates: ExchangeRates | null;
+
+  @Column({ type: DataType.DATE, allowNull: true, field: "exchange_rates_at" })
+  declare exchangeRatesAt: Date | null;
+
+  @Column({
+    type: DataType.DECIMAL(12, 2),
+    allowNull: true,
+    field: "ebay_net_proceeds_original",
+    get(this: Order) {
+      return toNullableDecimal(this.getDataValue("ebayNetProceedsOriginal" as keyof Order));
+    },
+  })
+  declare ebayNetProceedsOriginal: number | null;
+
+  @Column({
+    type: DataType.DECIMAL(12, 2),
+    allowNull: true,
+    field: "shipping_cost_original",
+    get(this: Order) {
+      return toNullableDecimal(this.getDataValue("shippingCostOriginal" as keyof Order));
+    },
+  })
+  declare shippingCostOriginal: number | null;
+
+  @Column({
+    type: DataType.DECIMAL(12, 2),
+    allowNull: true,
+    field: "three_pl_price_charged_original",
+    get(this: Order) {
+      return toNullableDecimal(this.getDataValue("threePlPriceChargedOriginal" as keyof Order));
+    },
+  })
+  declare threePlPriceChargedOriginal: number | null;
+
+  @Column({
+    type: DataType.DECIMAL(12, 2),
+    allowNull: true,
+    field: "three_pl_payout_original",
+    get(this: Order) {
+      return toNullableDecimal(this.getDataValue("threePlPayoutOriginal" as keyof Order));
+    },
+  })
+  declare threePlPayoutOriginal: number | null;
+
+  // Invoice that paid this order out to its Account Holder / 3PL — null means still open for that role.
+  // The *Refund* ones hold the invoice that carried the negative adjustment after a refund.
+  // (Stock Owner status is per item, on order_items.)
+  @Column({ type: DataType.UUID, allowNull: true, field: "account_holder_invoice_id" })
+  declare accountHolderInvoiceId: string | null;
+
+  @Column({ type: DataType.UUID, allowNull: true, field: "account_holder_refund_invoice_id" })
+  declare accountHolderRefundInvoiceId: string | null;
+
+  @Column({ type: DataType.UUID, allowNull: true, field: "three_pl_invoice_id" })
+  declare threePlInvoiceId: string | null;
+
+  @Column({ type: DataType.UUID, allowNull: true, field: "three_pl_refund_invoice_id" })
+  declare threePlRefundInvoiceId: string | null;
 
   @Column({ type: DataType.STRING, allowNull: true, field: "supplier_url" })
   declare supplierUrl: string | null;

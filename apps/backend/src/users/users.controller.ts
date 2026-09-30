@@ -16,7 +16,7 @@ import {
   StockOwnerProfileInput,
   ThreePlProfileInput,
 } from "./dto/invite-user.dto";
-import { ChangePasswordDto, UpdateOwnProfileDto } from "./dto/update-own-profile.dto";
+import { ChangePasswordDto, UpdateOwnProfileDto, UpdateUserDto } from "./dto/update-own-profile.dto";
 
 @ApiTags("users")
 @ApiBearerAuth()
@@ -57,7 +57,7 @@ export class UsersController {
   update(
     @CurrentUser() user: JwtPayload,
     @Param("id") id: string,
-    @Body() dto: UpdateOwnProfileDto,
+    @Body() dto: UpdateUserDto,
     @Query("companyId") companyId?: string,
   ) {
     return this.usersService.updateUser(resolveCompanyId(user, companyId), id, dto);

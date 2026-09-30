@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import { getToken, staffDashboard } from "@/lib/api";
+import { pkr } from "@/lib/currency";
 
 interface DashboardData {
   cycleStart: string;
@@ -68,7 +69,7 @@ export default function DashboardPage() {
 
             <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
               <Card size="small" className="kpi-hero">
-                <Statistic title="Total company profit" value={data.totalCompanyProfit} precision={2} prefix="$" />
+                <Statistic title="Total company profit" value={data.totalCompanyProfit} precision={2} prefix="Rs" />
               </Card>
               <Card size="small" className="kpi-mint">
                 <Statistic title="Orders this cycle" value={data.orderCount} />
@@ -128,7 +129,7 @@ export default function DashboardPage() {
               columns={[
                 { title: "Account Holder", dataIndex: "name" },
                 { title: "Orders", dataIndex: "orderCount" },
-                { title: "Company Profit", dataIndex: "profit", render: (v: number) => `$${v.toFixed(2)}` },
+                { title: "Company Profit", dataIndex: "profit", render: (v: number) => pkr(v) },
               ]}
             />
           </>

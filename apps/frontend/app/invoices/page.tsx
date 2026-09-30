@@ -1,71 +1,39 @@
 "use client";
 
-import type { InvoiceDto, Role } from "@ebay-order-management/shared";
-import { Alert, Button, Card, Popconfirm, Select, Table, Tag, type TableColumnsType } from "antd";
+import type { InvoiceDto } from "@ebay-order-management/shared";
+import { DownloadOutlined, PlusOutlined } from "@ant-design/icons";
+import { Alert, Button, Popconfirm, Table, Tag, Tooltip, type TableColumnsType } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
-import RoleTag, { roleLabel } from "@/components/RoleTag";
+import RoleTag from "@/components/RoleTag";
 import { DeleteAction } from "@/components/RowActions";
-import InvoiceCyclePicker from "@/components/InvoiceCyclePicker";
-import {
-  deleteInvoice,
-  generateInvoice,
-  generateMyInvoice,
-  getStoredUser,
-  getToken,
-  listInvoices,
-  listMyInvoices,
-  listUsers,
-  markInvoicePaid,
-} from "@/lib/api";
-import { searchable, userLabel, userOptions } from "@/lib/selectOptions";
+import { deleteInvoice, downloadInvoicePdf, getStoredUser, getToken, listInvoices, markInvoicePaid } from "@/lib/api";
+import { userLabel } from "@/lib/selectOptions";
+import { invoiceMoney } from "@/lib/currency";
+import { saveBlob } from "@/lib/download";
 
-const EARNER_ROLES: Role[] = ["ACCOUNT_HOLDER", "STOCK_OWNER", "THREE_PL"] as Role[];
-
-interface UserOption {
-  id: string;
-  name: string | null;
-  email: string;
-  roles: Role[];
-}
+const STATUS_COLOR: Record<string, string> = { UNPAID: "orange", PAID: "green", VOID: "red" };
 
 export default function InvoicesPage() {
   const router = useRouter();
   const user = getStoredUser();
+  const isAdmin = user?.roles.includes("ADMIN" as never) ?? false;
+  // Only the company Admin (and Staff allowed to) create/delete/pay invoices; financial Staff can view them all.
+  const canManage = isAdmin || !!user?.staffPermissions?.canGenerateInvoices;
+  const canSeeAll = canManage || !!user?.staffPermissions?.canViewFinancials;
 
-  // --- self-service: my own invoices ---
-  const [myInvoices, setMyInvoices] = useState<InvoiceDto[]>([]);
-  const [role, setRole] = useState<Role>((user?.roles.find((r) => EARNER_ROLES.includes(r)) ?? "ACCOUNT_HOLDER") as Role);
-  const [myError, setMyError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const myRoles = user?.roles.filter((r) => EARNER_ROLES.includes(r)) ?? [];
-  const [myPeriodStart, setMyPeriodStart] = useState<string | undefined>();
-  const [cycleReload, setCycleReload] = useState(0);
-
-  // --- admin view: company-wide invoices ---
-  const isAdmin = user?.roles.includes("ADMIN" as Role) ?? false;
-  const canManageInvoices = isAdmin || !!user?.staffPermissions?.canGenerateInvoices || !!user?.staffPermissions?.canViewFinancials;
   const [invoices, setInvoices] = useState<InvoiceDto[]>([]);
-  const [users, setUsers] = useState<UserOption[]>([]);
-  const [genUserId, setGenUserId] = useState("");
-  const [genRole, setGenRole] = useState<Role>("ACCOUNT_HOLDER" as Role);
-  const [genPeriodStart, setGenPeriodStart] = useState<string | undefined>();
-  const [adminError, setAdminError] = useState<string | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
-  function refreshMine() {
-    if (!user) return;
-    listMyInvoices(user.id)
-      .then(setMyInvoices)
-      .catch((err) => setMyError(err instanceof Error ? err.message : "Failed to load"));
-  }
-
-  function refreshAdmin() {
-    if (!canManageInvoices) return;
+  function refresh() {
+    setLoading(true);
     listInvoices()
       .then(setInvoices)
-      .catch((err) => setAdminError(err instanceof Error ? err.message : "Failed to load"));
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load invoices"))
+      .finally(() => setLoading(false));
   }
 
   useEffect(() => {
@@ -73,85 +41,105 @@ export default function InvoicesPage() {
       router.push("/");
       return;
     }
-    refreshMine();
-    refreshAdmin();
-    if (canManageInvoices) {
-      listUsers().then(setUsers as never).catch(() => undefined);
-    }
+    refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
-  const selectedUser = users.find((u) => u.id === genUserId);
-  const availableRoles = selectedUser?.roles.filter((r) => r !== ("ADMIN" as Role)) ?? [];
+  async function handleDownload(invoice: InvoiceDto) {
+    setError(null);
+    try {
+      saveBlob(await downloadInvoicePdf(invoice.id), `${invoice.invoiceNumber}.pdf`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to download invoice");
+    }
+  }
 
-  async function handleGenerateMine() {
-    if (!user) return;
-    setMyError(null);
+  async function handleDelete(invoice: InvoiceDto) {
+    setError(null);
     setMessage(null);
     try {
-      await generateMyInvoice(user.id, role, myPeriodStart);
-      setMessage("Invoice generated.");
-      refreshMine();
-      refreshAdmin();
-      setCycleReload((n) => n + 1);
+      const { voided } = await deleteInvoice(invoice.id);
+      setMessage(
+        voided
+          ? `${invoice.invoiceNumber} was voided — its orders are open again.`
+          : `${invoice.invoiceNumber} was deleted — its orders are open again.`,
+      );
+      refresh();
     } catch (err) {
-      setMyError(err instanceof Error ? err.message : "Failed to generate invoice");
+      setError(err instanceof Error ? err.message : "Failed to delete invoice");
     }
   }
 
-  async function handleGenerateForUser() {
-    setFormError(null);
+  async function handleMarkPaid(invoice: InvoiceDto) {
+    setError(null);
     try {
-      await generateInvoice(genUserId, genRole, genPeriodStart);
-      refreshAdmin();
-      refreshMine();
-      setCycleReload((n) => n + 1);
+      await markInvoicePaid(invoice.id);
+      refresh();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to generate invoice");
+      setError(err instanceof Error ? err.message : "Failed to mark invoice paid");
     }
   }
 
-  async function handleDelete(id: string) {
-    setAdminError(null);
-    try {
-      await deleteInvoice(id);
-      refreshAdmin();
-      refreshMine();
-      setCycleReload((n) => n + 1);
-    } catch (err) {
-      setAdminError(err instanceof Error ? err.message : "Failed to delete invoice");
-    }
-  }
-
-  async function handleMarkPaid(id: string) {
-    await markInvoicePaid(id);
-    refreshAdmin();
-  }
-
-  const userById = new Map(users.map((u) => [u.id, u]));
-  const statusTag = (status: string) => <Tag color={status === "PAID" ? "green" : "orange"}>{status}</Tag>;
-
-  const myColumns: TableColumnsType<InvoiceDto> = [
+  const columns: TableColumnsType<InvoiceDto> = [
+    { title: "Invoice #", dataIndex: "invoiceNumber", render: (v: string) => <span className="font-medium">{v}</span> },
+    ...(canSeeAll
+      ? [{ title: "User", key: "user", render: (_: unknown, inv: InvoiceDto) => userLabel(inv.user) }]
+      : []),
     { title: "Role", dataIndex: "role", render: (r: string) => <RoleTag role={r} /> },
-    { title: "Period", key: "period", render: (_, inv) => `${inv.periodStart} – ${inv.periodEnd}` },
-    { title: "Total", dataIndex: "totalAmount", render: (v: number) => `$${v.toFixed(2)}` },
-    { title: "Status", dataIndex: "status", render: statusTag },
-  ];
-
-  const companyColumns: TableColumnsType<InvoiceDto> = [
-    { title: "User", dataIndex: "userId", render: (id: string) => (userById.has(id) ? userLabel(userById.get(id)) : id) },
-    ...myColumns,
+    {
+      title: "Orders",
+      key: "orders",
+      render: (_, inv) => inv.lineItems.filter((l) => l.kind === "ORDER").length,
+    },
+    {
+      title: "Total",
+      key: "total",
+      render: (_, inv) => (
+        <div>
+          <div className="font-medium">{invoiceMoney(inv.totalAmount, inv.currency)}</div>
+          <div className="text-xs text-slate-500">
+            {/* Account Holders hold the eBay money, so their invoice is what they owe the company. */}
+            {inv.role === "ACCOUNT_HOLDER"
+              ? canSeeAll
+                ? "owed to company"
+                : "you owe"
+              : canSeeAll
+                ? "payable to user"
+                : "payable to you"}
+          </div>
+        </div>
+      ),
+    },
+    { title: "Status", dataIndex: "status", render: (s: string) => <Tag color={STATUS_COLOR[s]}>{s}</Tag> },
+    { title: "Issued", dataIndex: "generatedAt", render: (v: string) => new Date(v).toLocaleDateString() },
     {
       key: "actions",
       render: (_, inv) => (
-        <div className="flex items-center gap-1">
-          {inv.status === "UNPAID" && (
-            <Popconfirm title="Mark this invoice as paid?" onConfirm={() => handleMarkPaid(inv.id)}>
+        <div className="flex items-center justify-end gap-1">
+          <Tooltip title="Download PDF">
+            <Button
+              type="text"
+              size="small"
+              icon={<DownloadOutlined />}
+              onClick={() => handleDownload(inv)}
+              aria-label="Download PDF"
+            />
+          </Tooltip>
+          {canManage && inv.status === "UNPAID" && (
+            <Popconfirm title="Mark this invoice as paid?" onConfirm={() => handleMarkPaid(inv)}>
               <Button size="small">Mark paid</Button>
             </Popconfirm>
           )}
-          {inv.deletable && (
-            <DeleteAction confirmTitle="Delete this invoice? You can re-generate it for the same cycle." onConfirm={() => handleDelete(inv.id)} />
+          {canManage && inv.status !== "VOID" && (
+            <DeleteAction
+              title={inv.status === "PAID" ? "Void" : "Delete"}
+              confirmTitle={
+                inv.status === "PAID"
+                  ? "Void this paid invoice? It stays on record as VOID and its orders become open again."
+                  : "Delete this invoice? Its orders become open again."
+              }
+              onConfirm={() => handleDelete(inv)}
+            />
           )}
         </div>
       ),
@@ -162,113 +150,30 @@ export default function InvoicesPage() {
     <>
       <Nav />
       <main className="ml-56 p-8">
-        <h1 className="text-2xl font-semibold">My Invoices</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="m-0 text-2xl font-semibold">{canSeeAll ? "Invoices" : "My Invoices"}</h1>
+          {canManage && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => router.push("/invoices/new")}>
+              Create invoice
+            </Button>
+          )}
+        </div>
 
-        {myRoles.length > 0 && (
-          <Card size="small" className="mt-6">
-            <div className="flex items-end gap-3 text-sm">
-              {myRoles.length > 1 && (
-                <label>
-                  Role
-                  <Select
-                    value={role}
-                    onChange={(v) => setRole(v)}
-                    options={myRoles.map((r) => ({ value: r, label: roleLabel(r) }))}
-                    className="mt-1 flex w-44"
-                  />
-                </label>
-              )}
-            </div>
-            <div className="mt-3 flex items-end gap-3 text-sm">
-              <div className="flex-1">
-                <InvoiceCyclePicker
-                  userId={user?.id ?? ""}
-                  role={role}
-                  value={myPeriodStart}
-                  onChange={setMyPeriodStart}
-                  reloadKey={cycleReload}
-                />
-              </div>
-              <Button type="primary" disabled={!myPeriodStart} onClick={handleGenerateMine}>
-                Generate invoice
-              </Button>
-            </div>
-          </Card>
+        {error && <Alert type="error" title={error} className="mt-4" showIcon />}
+        {message && (
+          <Alert type="success" title={message} className="mt-4" showIcon closable onClose={() => setMessage(null)} />
         )}
-
-        {myError && <Alert type="error" title={myError} className="mt-4" showIcon />}
-        {message && <Alert type="success" title={message} className="mt-4" showIcon />}
 
         <Table<InvoiceDto>
           className="mt-6"
           rowKey="id"
           size="small"
-          columns={myColumns}
-          dataSource={myInvoices}
-          pagination={false}
+          loading={loading}
+          columns={columns}
+          dataSource={invoices}
+          pagination={{ pageSize: 50, hideOnSinglePage: true }}
           locale={{ emptyText: "No invoices yet." }}
         />
-
-        {canManageInvoices && (
-          <>
-            <h2 className="mt-12 text-xl font-semibold">Company Invoices</h2>
-            {adminError && <Alert type="error" title={adminError} className="mt-4" showIcon />}
-
-            <Card size="small" className="mt-6">
-              <div className="flex items-end gap-3 text-sm">
-                <label className="flex-1">
-                  User
-                  <Select
-                    showSearch={searchable}
-                    placeholder="Select…"
-                    value={genUserId || undefined}
-                    onChange={(v) => {
-                      setGenUserId(v);
-                      const roles = users.find((u) => u.id === v)?.roles.filter((r) => r !== ("ADMIN" as Role)) ?? [];
-                      if (!roles.includes(genRole) && roles[0]) setGenRole(roles[0]);
-                    }}
-                    options={userOptions(users)}
-                    className="mt-1 flex w-full"
-                  />
-                </label>
-                <label className="flex-1">
-                  Role
-                  <Select
-                    value={availableRoles.includes(genRole) ? genRole : undefined}
-                    onChange={(v) => setGenRole(v)}
-                    options={availableRoles.map((r) => ({ value: r, label: roleLabel(r) }))}
-                    className="mt-1 flex w-full"
-                  />
-                </label>
-              </div>
-              <div className="mt-3 flex items-end gap-3 text-sm">
-                <div className="flex-1">
-                  <InvoiceCyclePicker
-                    userId={availableRoles.includes(genRole) ? genUserId : ""}
-                    role={genRole}
-                    value={genPeriodStart}
-                    onChange={setGenPeriodStart}
-                    reloadKey={cycleReload}
-                  />
-                </div>
-                <Button type="primary" disabled={!genUserId || !genPeriodStart} onClick={handleGenerateForUser}>
-                  Generate invoice
-                </Button>
-              </div>
-            </Card>
-            {formError && <Alert type="error" title={formError} className="mt-2" showIcon />}
-
-            <Table<InvoiceDto>
-              className="mt-6"
-              rowKey="id"
-              size="small"
-              columns={companyColumns}
-              dataSource={invoices}
-              pagination={{ pageSize: 50, hideOnSinglePage: true }}
-              locale={{ emptyText: "No invoices yet." }}
-            />
-          </>
-        )}
       </main>
     </>
   );

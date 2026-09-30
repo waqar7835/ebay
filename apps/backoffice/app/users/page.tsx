@@ -1,13 +1,14 @@
 "use client";
 
-import type { ProductFulfillmentType, Role, StockOwnerPayoutMode } from "@ebay-order-management/shared";
+import { Currency, DEFAULT_CURRENCY, type ProductFulfillmentType, type Role, type StockOwnerPayoutMode } from "@ebay-order-management/shared";
 import { Alert, Button, Card, Checkbox, Form, Input, InputNumber, Select, Table, Tag, type TableColumnsType } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import RoleTag from "@/components/RoleTag";
 import { ToggleStatusAction } from "@/components/RowActions";
-import { getSelectedCompanyId, getStoredUser, getToken, inviteUser, listUsers, setUserStatus } from "@/lib/api";
+import { getMyCompany, getSelectedCompanyId, getStoredUser, getToken, inviteUser, listUsers, setUserStatus } from "@/lib/api";
+import { currencyOptions, currencySymbol } from "@/lib/currency";
 
 const ALL_ROLES: Role[] = ["STAFF", "ACCOUNT_HOLDER", "STOCK_OWNER", "THREE_PL"] as Role[];
 const PORTAL_ROLES: Role[] = ["ACCOUNT_HOLDER", "STOCK_OWNER", "THREE_PL"] as Role[];
@@ -48,6 +49,9 @@ export default function UsersPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [roles, setRoles] = useState<Role[]>([]);
+  const [currency, setCurrency] = useState<Currency>(DEFAULT_CURRENCY);
+  // The selected company's default, preselected on every new invite.
+  const [companyCurrency, setCompanyCurrency] = useState<Currency>(DEFAULT_CURRENCY);
   const [sharePercent, setSharePercent] = useState("20");
   const [threePlPriceCharged, setThreePlPriceCharged] = useState("");
   const [payoutMode, setPayoutMode] = useState<StockOwnerPayoutMode>("FIXED" as StockOwnerPayoutMode);
@@ -76,9 +80,19 @@ export default function UsersPage() {
       return;
     }
     refresh();
+    if (getSelectedCompanyId()) {
+      getMyCompany()
+        .then((c) => {
+          setCompanyCurrency(c.defaultCurrency ?? DEFAULT_CURRENCY);
+          setCurrency(c.defaultCurrency ?? DEFAULT_CURRENCY);
+        })
+        .catch(() => undefined);
+    }
   }, [router]);
 
   const user = getStoredUser();
+  // Account Holder / Stock Owner / 3PL amounts are entered in the user's own currency.
+  const hasAmounts = roles.some((r) => PORTAL_ROLES.includes(r));
   const isBackofficeRealm = user?.roles.includes("SUPER_ADMIN" as Role) || user?.roles.includes("PLATFORM_STAFF" as Role);
   const needsCompanySelection = isBackofficeRealm && !getSelectedCompanyId();
 
@@ -100,6 +114,7 @@ export default function UsersPage() {
         name: name || undefined,
         email,
         roles,
+        currency: hasAmounts ? currency : undefined,
         staffPermissions: roles.includes("STAFF" as Role)
           ? {
               ...staffPermissions,
@@ -133,6 +148,7 @@ export default function UsersPage() {
       setName("");
       setEmail("");
       setRoles([]);
+      setCurrency(companyCurrency);
       setStaffPermissions(DEFAULT_STAFF_PERMISSIONS);
       setHasRevenueShare(false);
       setStaffSharePercent("0");
@@ -254,7 +270,7 @@ export default function UsersPage() {
                       <InputNumber suffix="%" min={0} max={100} className="w-full" {...numProps(sharePercent, setSharePercent)} />
                     </Form.Item>
                     <Form.Item label="3PL price charged (optional)" className="mb-0 flex-1">
-                      <InputNumber prefix="$" min={0} step={0.01} className="w-full" {...numProps(threePlPriceCharged, setThreePlPriceCharged)} />
+                      <InputNumber prefix={currencySymbol(currency)} min={0} step={0.01} className="w-full" {...numProps(threePlPriceCharged, setThreePlPriceCharged)} />
                     </Form.Item>
                   </div>
                 </Card>
@@ -296,7 +312,7 @@ export default function UsersPage() {
                   </Form.Item>
                   {threePlFulfillmentType === ("STOCK" as ProductFulfillmentType) ? (
                     <Form.Item label="Payout per order fulfilled" className="mb-0">
-                      <InputNumber prefix="$" min={0} step={0.01} className="w-full" {...numProps(payoutPerOrder, setPayoutPerOrder)} />
+                      <InputNumber prefix={currencySymbol(currency)} min={0} step={0.01} className="w-full" {...numProps(payoutPerOrder, setPayoutPerOrder)} />
                     </Form.Item>
                   ) : (
                     <p className="text-xs text-gray-500">
@@ -306,10 +322,15 @@ export default function UsersPage() {
                 </Card>
               )}
 
-              {(roles.includes("ACCOUNT_HOLDER" as Role) || roles.includes("STOCK_OWNER" as Role) || roles.includes("THREE_PL" as Role)) && (
-                <Form.Item label="Billing cycle start day (1–28)">
-                  <InputNumber min={1} max={28} precision={0} className="w-full" {...numProps(billingCycleStartDay, setBillingCycleStartDay)} />
-                </Form.Item>
+              {hasAmounts && (
+                <div className="flex gap-3">
+                  <Form.Item label="Currency" tooltip="Their amounts are entered in this currency and converted to PKR on each order" className="flex-1">
+                    <Select value={currency} onChange={setCurrency} options={currencyOptions} showSearch={{ optionFilterProp: "label" }} />
+                  </Form.Item>
+                  <Form.Item label="Billing cycle start day (1–28)" className="flex-1">
+                    <InputNumber min={1} max={28} precision={0} className="w-full" {...numProps(billingCycleStartDay, setBillingCycleStartDay)} />
+                  </Form.Item>
+                </div>
               )}
 
               {formError && <Alert type="error" title={formError} className="mb-4" showIcon />}

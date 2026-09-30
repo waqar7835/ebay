@@ -1,13 +1,14 @@
 "use client";
 
-import type { ProductFulfillmentType, Role, StockOwnerPayoutMode } from "@ebay-order-management/shared";
+import { Currency, DEFAULT_CURRENCY, type ProductFulfillmentType, type Role, type StockOwnerPayoutMode } from "@ebay-order-management/shared";
 import { CarOutlined, CheckCircleFilled, InboxOutlined, MailOutlined, TeamOutlined, UserOutlined } from "@ant-design/icons";
 import { Alert, Button, Card, Form, Input, InputNumber, Select, Switch, Tag } from "antd";
 import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import BackLink from "@/components/BackLink";
 import Nav from "@/components/Nav";
-import { getToken, inviteUser } from "@/lib/api";
+import { getMyCompany, getToken, inviteUser } from "@/lib/api";
+import { currencyOptions, currencySymbol } from "@/lib/currency";
 
 // Admin/Staff seats are free; the other roles are paid seats (first seat of each type gets a free month).
 const USER_TYPES: { role: Role; label: string; description: string; icon: ReactNode; paidSeat: boolean }[] = [
@@ -66,6 +67,7 @@ export default function InviteUserPage() {
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [currency, setCurrency] = useState<Currency>(DEFAULT_CURRENCY);
 
   const [sharePercent, setSharePercent] = useState("20");
   const [threePlPriceCharged, setThreePlPriceCharged] = useState("");
@@ -85,7 +87,12 @@ export default function InviteUserPage() {
   useEffect(() => {
     if (!getToken()) {
       router.push("/");
+      return;
     }
+    // Preselect the company's default currency.
+    getMyCompany()
+      .then((c) => setCurrency(c.defaultCurrency ?? DEFAULT_CURRENCY))
+      .catch(() => undefined);
   }, [router]);
 
   function switchType(role: Role) {
@@ -103,6 +110,8 @@ export default function InviteUserPage() {
         name: name || undefined,
         email,
         roles: [activeType],
+        // Staff have no amounts of their own — only paid roles enter money in their currency.
+        currency: activeMeta.paidSeat ? currency : undefined,
         staffPermissions:
           activeType === ("STAFF" as Role)
             ? {
@@ -202,7 +211,7 @@ export default function InviteUserPage() {
           <div className="grid gap-6 lg:grid-cols-3">
             <div className="flex flex-col gap-6 lg:col-span-2">
               <Card title="Person">
-                <div className="grid gap-x-4 sm:grid-cols-2">
+                <div className={`grid gap-x-4 gap-y-4 sm:grid-cols-2 ${activeMeta.paidSeat ? "xl:grid-cols-3" : ""}`}>
                   <Form.Item label="Name" className="mb-0">
                     <Input placeholder="Full name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
                   </Form.Item>
@@ -220,6 +229,11 @@ export default function InviteUserPage() {
                       autoComplete="off"
                     />
                   </Form.Item>
+                  {activeMeta.paidSeat && (
+                    <Form.Item label="Currency" tooltip="Their amounts are entered in this currency and converted to PKR on each order" className="mb-0">
+                      <Select value={currency} onChange={setCurrency} options={currencyOptions} showSearch={{ optionFilterProp: "label" }} />
+                    </Form.Item>
+                  )}
                 </div>
               </Card>
 
@@ -261,7 +275,7 @@ export default function InviteUserPage() {
                       <InputNumber suffix="%" min={0} max={100} className="w-full" {...numProps(sharePercent, setSharePercent)} />
                     </Form.Item>
                     <Form.Item label="3PL price charged" tooltip="Charged once per order shipped by a 3PL (optional)" className="mb-0">
-                      <InputNumber prefix="$" min={0} step={0.01} className="w-full" {...numProps(threePlPriceCharged, setThreePlPriceCharged)} />
+                      <InputNumber prefix={currencySymbol(currency)} min={0} step={0.01} className="w-full" {...numProps(threePlPriceCharged, setThreePlPriceCharged)} />
                     </Form.Item>
                     {billingDayField}
                   </div>
@@ -306,7 +320,7 @@ export default function InviteUserPage() {
                     </Form.Item>
                     {threePlFulfillmentType === ("STOCK" as ProductFulfillmentType) && (
                       <Form.Item label="Payout per order" tooltip="Paid once per order fulfilled" className="mb-0">
-                        <InputNumber prefix="$" min={0} step={0.01} className="w-full" {...numProps(payoutPerOrder, setPayoutPerOrder)} />
+                        <InputNumber prefix={currencySymbol(currency)} min={0} step={0.01} className="w-full" {...numProps(payoutPerOrder, setPayoutPerOrder)} />
                       </Form.Item>
                     )}
                     {billingDayField}
@@ -338,6 +352,7 @@ export default function InviteUserPage() {
                 )}
                 <ul className="mb-0 mt-4 space-y-1 pl-4 text-xs text-slate-500">
                   <li>They get an email to set their password and sign in.</li>
+                  {activeMeta.paidSeat && <li>Their amounts are in {currency}, converted to PKR at the rate on each order.</li>}
                   {activeMeta.paidSeat && <li>Uses a paid {activeMeta.label} seat — the first seat of each type gets a free month.</li>}
                   <li>To give the same person another role, invite them again under that type.</li>
                 </ul>

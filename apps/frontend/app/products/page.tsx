@@ -1,12 +1,13 @@
 "use client";
 
-import type { ProductFulfillmentType } from "@ebay-order-management/shared";
+import type { Currency, ProductFulfillmentType } from "@ebay-order-management/shared";
 import { Alert, Badge, Button, Image, Table, type TableColumnsType } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import { EditAction } from "@/components/RowActions";
 import { getToken, listProducts, mediaUrl } from "@/lib/api";
+import { money } from "@/lib/currency";
 
 interface ProductRow {
   id: string;
@@ -16,6 +17,7 @@ interface ProductRow {
   fulfillmentType: ProductFulfillmentType;
   stockOwnerId: string | null;
   threePlId: string | null;
+  currency: Currency | null;
   buyPrice: number | null;
   sellPrice: number | null;
   stockQuantity: number;
@@ -44,7 +46,6 @@ export default function ProductsPage() {
     refresh();
   }, [router]);
 
-  const money = (v: number | null) => (v != null ? `$${v.toFixed(2)}` : "—");
 
   const columns: TableColumnsType<ProductRow> = [
     {
@@ -66,8 +67,9 @@ export default function ProductsPage() {
     { title: "Title", dataIndex: "title", sorter: (a, b) => a.title.localeCompare(b.title) },
     { title: "Size", dataIndex: "size", render: (v) => v || "—" },
     { title: "Type", dataIndex: "fulfillmentType" },
-    { title: "Buy", dataIndex: "buyPrice", render: money },
-    { title: "Sell", dataIndex: "sellPrice", render: money },
+    // In the Stock Owner's currency.
+    { title: "Buy", dataIndex: "buyPrice", render: (v: number | null, p) => money(v, p.currency) },
+    { title: "Sell", dataIndex: "sellPrice", render: (v: number | null, p) => money(v, p.currency) },
     { title: "Stock", key: "stock", render: (_, p) => (p.fulfillmentType === "DROPSHIP" ? "—" : p.stockQuantity) },
     {
       key: "actions",

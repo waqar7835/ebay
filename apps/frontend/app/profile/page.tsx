@@ -1,6 +1,6 @@
 "use client";
 
-import type { CompanyDto, UserDto } from "@ebay-order-management/shared";
+import { DEFAULT_CURRENCY, type CompanyDto, type Currency, type UserDto } from "@ebay-order-management/shared";
 import { LockOutlined, MailOutlined, ShopOutlined, UserOutlined } from "@ant-design/icons";
 import { Alert, Avatar, Button, Card, Descriptions, Form, Image, Input, Select, Tag, Tooltip } from "antd";
 import { useEffect, useState } from "react";
@@ -16,10 +16,12 @@ import {
   getToken,
   mediaUrl,
   updateCompanyBillingAnchorDay,
+  updateCompanyDefaultCurrency,
   updateCompanyName,
   updateMyProfile,
   uploadCompanyLogo,
 } from "@/lib/api";
+import { currencyOptions, money as formatMoney } from "@/lib/currency";
 
 const BILLING_ANCHOR_DAY_OPTIONS = [1, 5, 10, 15, 20, 25, 30];
 
@@ -35,6 +37,7 @@ export default function ProfilePage() {
   const [name, setName] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [billingAnchorDay, setBillingAnchorDay] = useState(1);
+  const [defaultCurrency, setDefaultCurrency] = useState<Currency>(DEFAULT_CURRENCY);
   const [logoFile, setLogoFile] = useState<File | null>(null);
 
   const [saving, setSaving] = useState(false);
@@ -58,6 +61,7 @@ export default function ProfilePage() {
         setCompany(c);
         setCompanyName(c.name);
         setBillingAnchorDay(c.billingAnchorDay);
+        setDefaultCurrency(c.defaultCurrency ?? DEFAULT_CURRENCY);
       })
       .catch((err) => setLoadError(err instanceof Error ? err.message : "Failed to load company"));
   }
@@ -94,6 +98,10 @@ export default function ProfilePage() {
         const updated = await updateCompanyBillingAnchorDay(billingAnchorDay);
         setCompany(updated);
       }
+      if (isAdmin && company && defaultCurrency !== company.defaultCurrency) {
+        const updated = await updateCompanyDefaultCurrency(defaultCurrency);
+        setCompany(updated);
+      }
       setSaveMessage("Profile saved");
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Failed to save");
@@ -118,7 +126,9 @@ export default function ProfilePage() {
   }
 
   const yesNo = (v: boolean) => (v ? <Tag color="green">Yes</Tag> : <Tag>No</Tag>);
-  const money = (v: number | null | undefined) => (v != null ? `$${Number(v).toFixed(2)}` : "—");
+  // Terms are in the user's own currency.
+  const money = (v: number | null | undefined) => formatMoney(v, user?.currency);
+  const currencyItem = user && <Descriptions.Item label="Currency">{user.currency}</Descriptions.Item>;
   const percent = (v: number | null | undefined) => (v != null ? `${v}%` : "—");
   const displayName = user?.name || user?.email || "";
   const initials =
@@ -228,6 +238,19 @@ export default function ProfilePage() {
                         options={BILLING_ANCHOR_DAY_OPTIONS.map((day) => ({ value: day, label: `Day ${day}` }))}
                       />
                     </Form.Item>
+                    <Form.Item
+                      label="Default currency"
+                      tooltip="Preselected when inviting Account Holders, Stock Owners and 3PLs. Existing users keep their own currency"
+                      className="mb-0"
+                    >
+                      <Select
+                        value={defaultCurrency}
+                        onChange={setDefaultCurrency}
+                        disabled={!isAdmin}
+                        options={currencyOptions}
+                        showSearch={{ optionFilterProp: "label" }}
+                      />
+                    </Form.Item>
                   </div>
                 </div>
               </Card>
@@ -254,6 +277,7 @@ export default function ProfilePage() {
                   <Descriptions.Item label="Share of profit">{percent(user.accountHolderProfile.sharePercent)}</Descriptions.Item>
                   <Descriptions.Item label="3PL price charged">{money(user.accountHolderProfile.threePlPriceCharged)}</Descriptions.Item>
                   <Descriptions.Item label="Billing cycle starts">Day {user.accountHolderProfile.billingCycleStartDay}</Descriptions.Item>
+                  {currencyItem}
                 </Descriptions>
               </Card>
             )}
@@ -266,6 +290,7 @@ export default function ProfilePage() {
                   </Descriptions.Item>
                   <Descriptions.Item label="Share of margin">{percent(user.stockOwnerProfile.sharePercent)}</Descriptions.Item>
                   <Descriptions.Item label="Billing cycle starts">Day {user.stockOwnerProfile.billingCycleStartDay}</Descriptions.Item>
+                  {currencyItem}
                 </Descriptions>
               </Card>
             )}
@@ -278,6 +303,7 @@ export default function ProfilePage() {
                   </Descriptions.Item>
                   <Descriptions.Item label="Payout per order">{money(user.threePlProfile.payoutPerOrder)}</Descriptions.Item>
                   <Descriptions.Item label="Billing cycle starts">Day {user.threePlProfile.billingCycleStartDay}</Descriptions.Item>
+                  {currencyItem}
                 </Descriptions>
               </Card>
             )}

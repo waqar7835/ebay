@@ -2,7 +2,9 @@ import type {
   AccountHolderProfileDto,
   BackofficePermissionsDto,
   BackofficeUserDto,
-  InvoiceCycleDto,
+  Currency,
+  ExchangeRateDto,
+  ExchangeRates,
   InvoiceDto,
   OrderDto,
   OrderItemInput,
@@ -116,7 +118,9 @@ export function acceptInvite(token: string, password: string, confirmPassword: s
 
 // --- Companies ---
 export function getMyCompany() {
-  return request<{ id: string; name: string; logoUrl: string | null; emailVerifiedAt: string | null }>("/companies/me");
+  return request<{ id: string; name: string; logoUrl: string | null; emailVerifiedAt: string | null; defaultCurrency: Currency }>(
+    "/companies/me",
+  );
 }
 
 // --- Users ---
@@ -128,6 +132,7 @@ export interface InviteUserPayload {
   name?: string;
   email: string;
   roles: Role[];
+  currency?: Currency;
   staffPermissions?: StaffPermissionsDto;
   accountHolderProfile?: Pick<AccountHolderProfileDto, "sharePercent" | "threePlPriceCharged" | "billingCycleStartDay">;
   stockOwnerProfile?: Pick<StockOwnerProfileDto, "payoutMode" | "sharePercent" | "billingCycleStartDay">;
@@ -220,9 +225,19 @@ export interface CreateOrderPayload {
   ebayNetProceeds: number;
   shippingCost?: number;
   supplierUrl?: string;
+  /** PKR rates typed in by the admin; any currency left out uses the live rate. */
+  exchangeRates?: ExchangeRates;
 }
 
-export type UpdateOrderPayload = Partial<CreateOrderPayload>;
+export type UpdateOrderPayload = Partial<CreateOrderPayload> & {
+  /** Re-convert every amount with today's rates instead of the ones locked on the order. */
+  recalculateRates?: boolean;
+};
+
+/** Current PKR rate per currency (flags an unreachable API / a rate that must be typed in). */
+export function listExchangeRates() {
+  return request<ExchangeRateDto[]>("/exchange-rates");
+}
 
 export function createOrder(payload: CreateOrderPayload) {
   return request<OrderDto>("/orders", { method: "POST", body: JSON.stringify(payload) });
@@ -236,28 +251,21 @@ export function updateOrderStatus(orderId: string, status: OrderStatus) {
   return request<OrderDto>(`/orders/${orderId}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
 }
 
-// --- Invoices ---
+// --- Invoices (read-only here: creating/deleting/paying is the company Admin's job in the portal) ---
 export function listInvoices(userId?: string) {
   return request<InvoiceDto[]>(`/invoices${userId ? `?userId=${userId}` : ""}`);
 }
 
-export function generateInvoice(userId: string, role: Role, periodStart?: string) {
-  return request<InvoiceDto>("/invoices/generate", {
-    method: "POST",
-    body: JSON.stringify({ userId, role, periodStart }),
+export async function downloadInvoicePdf(invoiceId: string): Promise<Blob> {
+  const res = await fetch(`${API_URL}${withSelectedCompany(`/invoices/${invoiceId}/pdf`)}`, {
+    headers: authHeaders(),
+    cache: "no-store",
   });
-}
-
-export function listInvoiceCycles(userId: string, role: Role) {
-  return request<InvoiceCycleDto[]>(`/invoices/cycles?userId=${userId}&role=${role}`);
-}
-
-export function deleteInvoice(invoiceId: string) {
-  return request<{ id: string }>(`/invoices/${invoiceId}`, { method: "DELETE" });
-}
-
-export function markInvoicePaid(invoiceId: string) {
-  return request<InvoiceDto>(`/invoices/${invoiceId}/mark-paid`, { method: "PATCH" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message ?? `Request failed: ${res.status}`);
+  }
+  return res.blob();
 }
 
 // --- Dashboard ---

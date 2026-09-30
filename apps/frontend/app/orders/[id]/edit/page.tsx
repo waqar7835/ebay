@@ -7,6 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import BackLink from "@/components/BackLink";
 import Nav from "@/components/Nav";
 import OrderForm from "@/components/OrderForm";
+import { isInvoiced } from "@/components/InvoiceStatusTags";
 import { getToken, listOrders, updateOrder, uploadOrderShippingLabel } from "@/lib/api";
 
 export default function EditOrderPage() {
@@ -40,7 +41,16 @@ export default function EditOrderPage() {
 
         {loadError && <Alert type="error" title={loadError} className="mt-4" showIcon />}
 
-        {order && (
+        {order && isInvoiced(order) && (
+          <Alert
+            type="warning"
+            title="This order is on an invoice and can't be edited. Delete (or void) that invoice first, then edit and re-invoice."
+            className="mt-4"
+            showIcon
+          />
+        )}
+
+        {order && !isInvoiced(order) && (
           <OrderForm
             initial={order}
             submitLabel="Save changes"

@@ -2,6 +2,15 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { InjectModel } from "@nestjs/sequelize";
 import { PRODUCT_MAX_IMAGES, ProductFulfillmentType } from "@ebay-order-management/shared";
 import { Product } from "../database/models/product.model";
+import { User } from "../database/models/user.model";
+
+// Prices are in the Stock Owner's currency, so every product response carries it.
+const WITH_CURRENCY = { include: [{ model: User, as: "stockOwner", attributes: ["id", "currency"] }] };
+
+function withCurrency(product: Product) {
+  const { stockOwner, ...json } = product.toJSON() as Product & { stockOwner?: User | null };
+  return { ...json, currency: stockOwner?.currency ?? null };
+}
 import { CreateProductDto, UpdateProductDto, UpdateStockDto } from "./dto/product.dto";
 
 @Injectable()
@@ -9,16 +18,22 @@ export class ProductsService {
   constructor(@InjectModel(Product) private readonly productModel: typeof Product) {}
 
   async list(companyId: string, stockOwnerId?: string) {
-    return this.productModel.findAll({
+    const products = await this.productModel.findAll({
       where: { companyId, ...(stockOwnerId ? { stockOwnerId } : {}) },
       order: [["createdAt", "DESC"]],
+      ...WITH_CURRENCY,
     });
+    return products.map(withCurrency);
   }
 
   async get(companyId: string, id: string) {
-    const product = await this.productModel.findOne({ where: { id, companyId } });
+    const product = await this.productModel.findOne({ where: { id, companyId }, ...WITH_CURRENCY });
     if (!product) throw new NotFoundException("Product not found");
     return product;
+  }
+
+  async getWithCurrency(companyId: string, id: string) {
+    return withCurrency(await this.get(companyId, id));
   }
 
   async create(companyId: string, dto: CreateProductDto) {

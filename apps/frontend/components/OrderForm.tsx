@@ -1,13 +1,14 @@
 "use client";
 
-import type { OrderDto, OrderItemInput, ProductDto, UserDto } from "@ebay-order-management/shared";
+import type { Currency, ExchangeRateDto, ExchangeRates, OrderDto, OrderItemInput, ProductDto, UserDto } from "@ebay-order-management/shared";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Form, Input, InputNumber, Select, Tag } from "antd";
+import { Alert, Button, Card, Checkbox, Form, Input, InputNumber, Select, Tag } from "antd";
 import { useEffect, useState } from "react";
 import DateField from "@/components/DateField";
 import FileUpload from "@/components/FileUpload";
 import ProductThumb from "@/components/ProductThumb";
-import { listProducts, listUsers, localDateOnly, mediaUrl, type CreateOrderPayload } from "@/lib/api";
+import { listExchangeRates, listProducts, listUsers, localDateOnly, mediaUrl, type UpdateOrderPayload } from "@/lib/api";
+import { currencySymbol, money, pkr } from "@/lib/currency";
 import { searchable, userOptions } from "@/lib/selectOptions";
 
 interface OrderFormProps {
@@ -16,7 +17,7 @@ interface OrderFormProps {
   submitLabel: string;
   submittingLabel: string;
   // On edit, `items`/`threePlId` are only included when they changed (see handleFinish).
-  onSubmit: (payload: CreateOrderPayload, shippingLabel: File | null) => Promise<void>;
+  onSubmit: (payload: UpdateOrderPayload, shippingLabel: File | null) => Promise<void>;
 }
 
 interface ItemRow {
@@ -37,7 +38,14 @@ interface OrderFormValues {
   supplierUrl?: string;
 }
 
-const money = (v: number) => `$${v.toFixed(2)}`;
+function timeAgo(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours} h ago`;
+  return `${Math.round(hours / 24)} days ago`;
+}
 
 /** Shared by /orders/new and /orders/[id]/edit so both stay field-for-field identical. */
 export default function OrderForm({ initial, submitLabel, submittingLabel, onSubmit }: OrderFormProps) {
@@ -47,11 +55,31 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [shippingLabel, setShippingLabel] = useState<File | null>(null);
+  const [liveRates, setLiveRates] = useState<ExchangeRateDto[]>([]);
+  const [ratesError, setRatesError] = useState<string | null>(null);
+  // PKR per unit, as shown in the rate inputs (prefilled from the live/saved rates, editable by the admin).
+  const [rateInputs, setRateInputs] = useState<ExchangeRates>({});
+  const [recalculate, setRecalculate] = useState(false);
 
   useEffect(() => {
     listProducts().then(setProducts).catch(() => undefined);
     listUsers().then(setUsers).catch(() => undefined);
+    loadRates();
   }, []);
+
+  function loadRates() {
+    setRatesError(null);
+    listExchangeRates()
+      .then((rates) => {
+        setLiveRates(rates);
+        setRateInputs((prev) => {
+          const next = { ...prev };
+          for (const r of rates) if (next[r.currency] == null && r.rate != null) next[r.currency] = r.rate;
+          return next;
+        });
+      })
+      .catch((err) => setRatesError(err instanceof Error ? err.message : "Failed to load exchange rates"));
+  }
 
   const productById = new Map(products.map((p) => [p.id, p]));
   const accountHolders = users.filter((u) => u.roles.includes("ACCOUNT_HOLDER" as never));
@@ -63,13 +91,49 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
   const isDropship = fulfillmentType === "DROPSHIP";
   const warehouses = new Set(chosen.filter((p) => p.fulfillmentType === "STOCK").map((p) => p.threePlId).filter(Boolean));
   const mixedWarehouses = warehouses.size > 1;
-  const sellTotal = rows.reduce((sum, r, i) => sum + (selected[i]?.sellPrice ?? 0) * (r?.quantity ?? 0), 0);
   const unitCount = rows.reduce((sum, r) => sum + (r?.quantity ?? 0), 0);
 
   const eligibleThreePls = users.filter(
     (u) => u.roles.includes("THREE_PL" as never) && u.threePlProfile?.fulfillmentType === fulfillmentType,
   );
   const userById = new Map(users.map((u) => [u.id, u]));
+
+  // --- Currencies: each party's amounts are entered in their own currency, converted to PKR on save. ---
+  const legacy = !!initial && !initial.exchangeRates; // created before currencies: plain PKR until recalculated
+  const lockedRates = initial?.exchangeRates ?? {};
+  const accountHolderId: string | undefined = Form.useWatch("accountHolderId", form) ?? initial?.accountHolderId;
+  const threePlId: string | undefined = Form.useWatch("threePlId", form) ?? undefined;
+  const accountHolderChanged = !!initial && accountHolderId !== initial.accountHolderId;
+  const ahUserCurrency = accountHolderId ? userById.get(accountHolderId)?.currency : undefined;
+  const ahCurrency: Currency | null | undefined =
+    legacy && !recalculate && !accountHolderChanged
+      ? null
+      : initial?.accountHolderCurrency && !accountHolderChanged
+        ? initial.accountHolderCurrency
+        : ahUserCurrency;
+  const convertsToPkr = !legacy || recalculate;
+  const neededCurrencies: Currency[] = convertsToPkr
+    ? [
+        ...new Set(
+          [
+            ahCurrency,
+            threePlId ? (threePlId === initial?.threePlId && initial.threePlCurrency) || userById.get(threePlId)?.currency : undefined,
+            ...chosen.map((p) => initial?.items.find((i) => i.productId === p.id)?.currency ?? p.currency),
+          ].filter((c): c is Currency => !!c),
+        ),
+      ]
+    : [];
+  // Without "recalculate", an existing order keeps its locked rates; only currencies new to it take one from the form.
+  const editableRate = (c: Currency) => !initial || recalculate || legacy || lockedRates[c] == null;
+  const rateFor = (c: Currency) => (editableRate(c) ? rateInputs[c] : lockedRates[c]);
+  const missingRates = neededCurrencies.filter((c) => !rateFor(c));
+  const liveByCurrency = new Map(liveRates.map((r) => [r.currency, r]));
+  const staleCurrencies = neededCurrencies.filter((c) => editableRate(c) && liveByCurrency.get(c)?.stale);
+  const sellTotalPkr = rows.reduce((sum, r, i) => {
+    const p = selected[i];
+    if (!p?.sellPrice || !p.currency) return sum;
+    return sum + p.sellPrice * (rateFor(p.currency) ?? 0) * (r?.quantity ?? 0);
+  }, 0);
 
   const initialItems: ItemRow[] = initial?.items.map((i) => ({ productId: i.productId, quantity: i.quantity })) ?? [{ quantity: 1 }];
   const itemsChanged =
@@ -110,6 +174,10 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
 
   async function handleFinish(values: OrderFormValues) {
     if (mixedWarehouses) return;
+    if (missingRates.length) {
+      setFormError(`Enter the PKR exchange rate for ${missingRates.join(", ")}`);
+      return;
+    }
     setFormError(null);
     setSubmitting(true);
     const items: OrderItemInput[] = values.items.map((r) => ({ productId: r.productId!, quantity: Number(r.quantity) }));
@@ -129,7 +197,9 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
           ebayNetProceeds: Number(values.ebayNetProceeds ?? 0),
           shippingCost: Number(values.shippingCost ?? 0),
           supplierUrl: values.supplierUrl || undefined,
-        } as CreateOrderPayload,
+          exchangeRates: Object.fromEntries(neededCurrencies.filter(editableRate).map((c) => [c, rateInputs[c]])),
+          ...(initial && recalculate ? { recalculateRates: true } : {}),
+        },
         shippingLabel,
       );
     } catch (err) {
@@ -152,8 +222,9 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
         ebayOrderRef: initial?.ebayOrderRef ?? "",
         trackingNumber: initial?.trackingNumber ?? "",
         buyerDetails: initial?.buyerDetails ?? "",
-        ebayNetProceeds: initial?.ebayNetProceeds ?? 0,
-        shippingCost: initial?.shippingCost ?? 0,
+        // As entered, in the Account Holder's currency (plain PKR on orders from before currencies).
+        ebayNetProceeds: initial ? (initial.ebayNetProceedsOriginal ?? initial.ebayNetProceeds) : 0,
+        shippingCost: initial ? (initial.shippingCostOriginal ?? initial.shippingCost) : 0,
         supplierUrl: initial?.supplierUrl ?? "",
       }}
     >
@@ -240,7 +311,7 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
                               </span>
                               {product.size && <span>Size {product.size}</span>}
                               {product.fulfillmentType === "STOCK" && <span>{product.stockQuantity} on hand</span>}
-                              {product.sellPrice != null && <span>Sell {money(product.sellPrice)} / unit</span>}
+                              {product.sellPrice != null && <span>Sell {money(product.sellPrice, product.currency)} / unit</span>}
                               {product.threePlId && <span>3PL: {userById.get(product.threePlId)?.name ?? userById.get(product.threePlId)?.email ?? "—"}</span>}
                             </div>
                           )}
@@ -308,18 +379,82 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
         </div>
 
         <div className="flex flex-col gap-6">
-          <Card title="Amounts">
-            <Form.Item name="ebayNetProceeds" label="eBay payout" tooltip="Net proceeds from eBay for this order">
-              <InputNumber prefix="$" step={0.01} className="w-full" />
+          <Card title="Amounts" extra={ahCurrency !== undefined && <Tag className="mr-0">{ahCurrency ?? "PKR"}</Tag>}>
+            <Form.Item name="ebayNetProceeds" label="eBay payout" tooltip="Net proceeds from eBay, in the client's currency">
+              <InputNumber prefix={currencySymbol(ahCurrency)} step={0.01} className="w-full" />
             </Form.Item>
-            <Form.Item name="shippingCost" label="Shipping label cost" className="mb-3">
-              <InputNumber prefix="$" min={0} step={0.01} className="w-full" />
+            <Form.Item name="shippingCost" label="Shipping label cost" tooltip="In the client's currency" className="mb-3">
+              <InputNumber prefix={currencySymbol(ahCurrency)} min={0} step={0.01} className="w-full" />
             </Form.Item>
-            {!isDropship && chosen.length > 0 && (
+            {!isDropship && chosen.length > 0 && convertsToPkr && missingRates.length === 0 && (
               <div className="flex justify-between border-t border-slate-100 pt-3 text-sm text-slate-500">
                 <span>Products at sell price</span>
-                <span className="font-medium text-slate-700">{money(sellTotal)}</span>
+                <span className="font-medium text-slate-700">{pkr(sellTotalPkr)}</span>
               </div>
+            )}
+          </Card>
+
+          <Card title="Exchange rates" extra={<Tag className="mr-0">to PKR</Tag>}>
+            {initial && (
+              <Checkbox checked={recalculate} onChange={(e) => setRecalculate(e.target.checked)} className="mb-3">
+                Recalculate with today&apos;s rates
+              </Checkbox>
+            )}
+            {legacy && !recalculate ? (
+              <Alert
+                type="info"
+                showIcon
+                title="Created before currencies — amounts are in PKR. Tick Recalculate to convert them from each user's currency."
+              />
+            ) : neededCurrencies.length === 0 ? (
+              <p className="mb-0 text-sm text-slate-500">Pick a client and products to see the rates used.</p>
+            ) : (
+              <>
+                {ratesError && (
+                  <Alert type="warning" showIcon className="mb-3" title={ratesError} action={<Button size="small" onClick={loadRates}>Retry</Button>} />
+                )}
+                {staleCurrencies.length > 0 && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    className="mb-3"
+                    title="Live rates are unavailable"
+                    description="Showing the last saved rate — type in a current rate if you have one."
+                  />
+                )}
+                <div className="flex flex-col gap-3">
+                  {neededCurrencies.map((c) => {
+                    const live = liveByCurrency.get(c);
+                    const editable = editableRate(c);
+                    const note = !editable
+                      ? `Locked${initial?.exchangeRatesAt ? ` · ${new Date(initial.exchangeRatesAt).toLocaleDateString()}` : ""}`
+                      : live?.unavailable
+                        ? "No rate available — enter it"
+                        : live?.fetchedAt
+                          ? `${live.stale ? "Saved" : "Live"} · ${timeAgo(live.fetchedAt)}`
+                          : "";
+                    return (
+                      <div key={c}>
+                        <InputNumber
+                          prefix={`1 ${c} = Rs`}
+                          min={0.000001}
+                          step={0.01}
+                          className="w-full"
+                          disabled={!editable}
+                          status={editable && !rateInputs[c] ? "error" : undefined}
+                          value={rateFor(c) ?? null}
+                          onChange={(v) => setRateInputs((prev) => ({ ...prev, [c]: v == null ? undefined : Number(v) }))}
+                        />
+                        {note && (
+                          <div className={`mt-1 text-xs ${editable && (live?.stale || live?.unavailable) ? "text-amber-600" : "text-slate-400"}`}>
+                            {note}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </Card>
 

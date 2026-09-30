@@ -1,6 +1,6 @@
 "use client";
 
-import type { ProductFulfillmentType } from "@ebay-order-management/shared";
+import type { Currency, ProductFulfillmentType } from "@ebay-order-management/shared";
 import { Alert, Badge, Button, Card, Form, Image, Input, InputNumber, Select, Table, type TableColumnsType } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -8,6 +8,7 @@ import Nav from "@/components/Nav";
 import { EditAction } from "@/components/RowActions";
 import ProductImagesUpload, { productImageItems, type ProductImageItem } from "@/components/ProductImagesUpload";
 import { createProduct, getToken, listProducts, listUsers, mediaUrl, setProductImages, updateProduct } from "@/lib/api";
+import { currencySymbol, money } from "@/lib/currency";
 import { searchable, userOptions } from "@/lib/selectOptions";
 
 interface ProductRow {
@@ -18,6 +19,8 @@ interface ProductRow {
   fulfillmentType: ProductFulfillmentType;
   stockOwnerId: string | null;
   threePlId: string | null;
+  /** The Stock Owner's currency — prices are in it. */
+  currency: Currency | null;
   stockOwnerCost: number | null;
   buyPrice: number | null;
   sellPrice: number | null;
@@ -31,6 +34,7 @@ interface UserOption {
   name: string | null;
   email: string;
   roles: string[];
+  currency: Currency;
 }
 
 interface ProductFormValues {
@@ -81,6 +85,10 @@ export default function ProductsPage() {
   const editingProduct = editingId ? products.find((p) => p.id === editingId) : undefined;
   const fulfillmentType = Form.useWatch("fulfillmentType", form) ?? ("STOCK" as ProductFulfillmentType);
   const isStock = fulfillmentType === ("STOCK" as ProductFulfillmentType);
+  // Prices are entered in the selected Stock Owner's currency.
+  const selectedStockOwnerId = Form.useWatch("stockOwnerId", form);
+  const priceCurrency = stockOwners.find((u) => u.id === selectedStockOwnerId)?.currency;
+  const pricePrefix = priceCurrency ? currencySymbol(priceCurrency) : "";
 
   // Loads a row into the create form (or blanks it for a new product) — one form serves both.
   function fillForm(p: ProductRow | null) {
@@ -139,7 +147,6 @@ export default function ProductsPage() {
     }
   }
 
-  const money = (v: number | null) => (v != null ? `$${v.toFixed(2)}` : "—");
 
   const columns: TableColumnsType<ProductRow> = [
     {
@@ -161,8 +168,9 @@ export default function ProductsPage() {
     { title: "Title", dataIndex: "title", sorter: (a, b) => a.title.localeCompare(b.title) },
     { title: "Size", dataIndex: "size", render: (v) => v || "—" },
     { title: "Type", dataIndex: "fulfillmentType" },
-    { title: "Buy", dataIndex: "buyPrice", render: money },
-    { title: "Sell", dataIndex: "sellPrice", render: money },
+    // In the Stock Owner's currency.
+    { title: "Buy", dataIndex: "buyPrice", render: (v: number | null, p) => money(v, p.currency) },
+    { title: "Sell", dataIndex: "sellPrice", render: (v: number | null, p) => money(v, p.currency) },
     { title: "Stock", key: "stock", render: (_, p) => (p.fulfillmentType === "DROPSHIP" ? "—" : p.stockQuantity) },
     {
       key: "actions",
@@ -235,13 +243,13 @@ export default function ProductsPage() {
               {isStock && (
                 <div className="flex gap-3">
                   <Form.Item name="stockOwnerCost" label="Stock Owner cost" className="flex-1">
-                    <InputNumber prefix="$" min={0} step={0.01} className="w-full" />
+                    <InputNumber prefix={pricePrefix} min={0} step={0.01} className="w-full" />
                   </Form.Item>
                   <Form.Item name="buyPrice" label="Buy price (paid to Stock Owner)" className="flex-1">
-                    <InputNumber prefix="$" min={0} step={0.01} className="w-full" />
+                    <InputNumber prefix={pricePrefix} min={0} step={0.01} className="w-full" />
                   </Form.Item>
                   <Form.Item name="sellPrice" label="Sell price (charged to Account Holder)" className="flex-1">
-                    <InputNumber prefix="$" min={0} step={0.01} className="w-full" />
+                    <InputNumber prefix={pricePrefix} min={0} step={0.01} className="w-full" />
                   </Form.Item>
                   <Form.Item name="stockQuantity" label="Stock quantity" className="flex-1">
                     <InputNumber min={0} precision={0} className="w-full" />

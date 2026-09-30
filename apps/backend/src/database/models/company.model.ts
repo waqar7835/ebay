@@ -1,4 +1,5 @@
 import { Column, DataType, HasMany, Model, Table } from "sequelize-typescript";
+import { Currency, DEFAULT_CURRENCY } from "@ebay-order-management/shared";
 import { User } from "./user.model";
 
 @Table({ tableName: "companies", underscored: true })
@@ -18,8 +19,16 @@ export class Company extends Model {
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 1, field: "billing_anchor_day" })
   declare billingAnchorDay: number;
 
+  // Preselected when inviting Account Holders / Stock Owners / 3PLs; each user keeps their own currency.
+  @Column({ type: DataType.STRING(3), allowNull: false, defaultValue: DEFAULT_CURRENCY, field: "default_currency" })
+  declare defaultCurrency: Currency;
+
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 3, field: "stale_order_days" })
   declare staleOrderDays: number;
+
+  /** Last invoice number handed out, so a deleted invoice's number is never reused. */
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0, field: "last_invoice_sequence" })
+  declare lastInvoiceSequence: number;
 
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false, field: "free_account_holder_used" })
   declare freeAccountHolderUsed: boolean;

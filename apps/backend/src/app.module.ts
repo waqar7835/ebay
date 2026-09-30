@@ -14,6 +14,7 @@ import { DashboardModule } from "./dashboard/dashboard.module";
 import { BillingModule } from "./billing/billing.module";
 import { MailerModule } from "./mailer/mailer.module";
 import { TokensModule } from "./tokens/tokens.module";
+import { ExchangeRatesModule } from "./exchange-rates/exchange-rates.module";
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { TokensModule } from "./tokens/tokens.module";
     InvoicesModule,
     DashboardModule,
     BillingModule,
+    ExchangeRatesModule,
   ],
 })
 export class AppModule {}

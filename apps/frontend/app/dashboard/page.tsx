@@ -43,6 +43,7 @@ import {
   threePlDashboard,
   updateOrderStatus,
 } from "@/lib/api";
+import { pkr } from "@/lib/currency";
 
 const STATUS_OPTIONS: OrderStatus[] = ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "REFUNDED"] as OrderStatus[];
 const STATUS_COLORS: Record<string, string> = {
@@ -301,7 +302,8 @@ export default function DashboardPage() {
     key: "product",
     render: (_: unknown, o: { items: DashboardOrderItem[] }) => <ProductsCell items={o.items} productById={productById} />,
   };
-  const money = (v: number) => `$${v.toFixed(2)}`;
+  // All dashboard figures are PKR.
+  const money = (v: number) => pkr(v);
 
   if (blocked) {
     return (
@@ -329,12 +331,12 @@ export default function DashboardPage() {
           <section className="mt-6">
             <h2 className="text-lg font-medium">Company overview</h2>
             <p className="text-sm text-gray-500">
-              {staff.orderCount} orders this cycle — total company profit ${staff.totalCompanyProfit.toFixed(2)}
+              {staff.orderCount} orders this cycle — total company profit {pkr(staff.totalCompanyProfit)}
             </p>
 
             <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
               <Card size="small" className="kpi-hero">
-                <Statistic title="Company profit this cycle" value={staff.totalCompanyProfit} precision={2} prefix="$" />
+                <Statistic title="Company profit this cycle" value={staff.totalCompanyProfit} precision={2} prefix="Rs" />
               </Card>
               <Card size="small" className="kpi-mint">
                 <Statistic title="Active users" value={staff.userStats.active} />
@@ -414,11 +416,11 @@ export default function DashboardPage() {
           <section className="mt-8">
             <h2 className="text-lg font-medium">Account Holder</h2>
             <p className="text-sm text-gray-500">
-              {ah.orderCount} orders this cycle — total profit ${ah.totalProfit.toFixed(2)}
+              {ah.orderCount} orders this cycle — total profit {pkr(ah.totalProfit)}
             </p>
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <ChartCard title="Your payout per day">
-                <DailyLineChart data={ah.payoutByDay} color="#10b981" valueLabel="$" />
+                <DailyLineChart data={ah.payoutByDay} color="#10b981" valueLabel="PKR" />
               </ChartCard>
               <ChartCard title="Your orders per day">
                 <DailyLineChart data={ah.ordersByDay} color="#3b82f6" valueLabel="orders" />
@@ -448,7 +450,7 @@ export default function DashboardPage() {
           <section className="mt-8">
             <h2 className="text-lg font-medium">Stock Owner</h2>
             <p className="text-sm text-gray-500">
-              {so.itemsSold} items sold this cycle — total profit ${so.totalProfit.toFixed(2)}
+              {so.itemsSold} items sold this cycle — total profit {pkr(so.totalProfit)}
             </p>
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <ChartCard title="Items sold per day">
@@ -484,7 +486,7 @@ export default function DashboardPage() {
         {tp && (
           <section className="mt-8">
             <h2 className="text-lg font-medium">3PL</h2>
-            <p className="text-sm text-gray-500">Earnings this cycle: ${tp.totalEarnings.toFixed(2)}</p>
+            <p className="text-sm text-gray-500">Earnings this cycle: {pkr(tp.totalEarnings)}</p>
             <div className="mt-3 grid grid-cols-1 sm:grid-cols-2">
               <ChartCard title="Orders fulfilled per day">
                 <DailyLineChart data={tp.fulfilledByDay} color="#8b5cf6" valueLabel="orders" />

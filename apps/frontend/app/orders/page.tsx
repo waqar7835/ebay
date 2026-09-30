@@ -1,6 +1,6 @@
 "use client";
 
-import { Role, type OrderDto, type OrderStatus, type ProductDto } from "@ebay-order-management/shared";
+import { Role, type Currency, type OrderDto, type OrderStatus, type ProductDto } from "@ebay-order-management/shared";
 import { PrinterOutlined } from "@ant-design/icons";
 import {
   Alert,
@@ -17,12 +17,15 @@ import {
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
+import InvoiceStatusTags, { isInvoiced } from "@/components/InvoiceStatusTags";
 import { EditAction } from "@/components/RowActions";
+import { currencySymbol, pkr } from "@/lib/currency";
 import ProductThumb from "@/components/ProductThumb";
 import DateField from "@/components/DateField";
 import {
   computeCurrentCycle,
   getMyCompany,
+  getMyProfile,
   getStoredUser,
   getToken,
   listOrders,
@@ -64,6 +67,8 @@ export default function OrdersPage() {
   const [filterInit, setFilterInit] = useState(false);
   const [buyPriceDrafts, setBuyPriceDrafts] = useState<Record<string, string>>({});
   const [buyPriceSaving, setBuyPriceSaving] = useState<string | null>(null);
+  // A 3PL enters dropship buy prices in their own currency.
+  const [myCurrency, setMyCurrency] = useState<Currency | null>(null);
 
   const currentUser = getStoredUser();
   const isThreePl = currentUser?.roles.includes(Role.THREE_PL) ?? false;
@@ -94,6 +99,7 @@ export default function OrdersPage() {
     listProducts().then(setProducts).catch(() => undefined);
     listUsers().then(setUsers as never).catch(() => undefined);
     refresh(filter);
+    if (isThreePl) getMyProfile().then((me) => setMyCurrency(me.currency)).catch(() => undefined);
 
     if (isManager) {
       getMyCompany()
@@ -145,7 +151,8 @@ export default function OrdersPage() {
     }
   }
 
-  const money = (v: number | null | undefined, empty = "—") => (v != null ? `$${v.toFixed(2)}` : empty);
+  // Order amounts are stored in PKR (converted from each user's currency when the order was saved).
+  const money = pkr;
   // Buy price × qty across the order's items; null while a dropship item still awaits its buy price.
   const buyTotal = (o: OrderDto) =>
     o.items.some((i) => i.buyPriceSnapshot == null) ? null : o.items.reduce((sum, i) => sum + i.buyPriceSnapshot! * i.quantity, 0);
@@ -194,6 +201,7 @@ export default function OrdersPage() {
           { title: "Buy Price", key: "buyPrice", render: (_: unknown, o: OrderDto) => money(buyTotal(o), "Pending") },
           { title: "3PL Fee", key: "threePlFee", render: (_: unknown, o: OrderDto) => money(o.threePlPayoutSnapshot) },
           { title: "Profit", key: "profit", render: (_: unknown, o: OrderDto) => money(o.companyProfit) },
+          { title: "Invoiced", key: "invoiced", render: (_: unknown, o: OrderDto) => <InvoiceStatusTags order={o} /> },
         ]
       : []),
     ...(isThreePl
@@ -213,9 +221,10 @@ export default function OrdersPage() {
                     value={buyPriceDrafts[order.id] ? Number(buyPriceDrafts[order.id]) : null}
                     onChange={(v) => setBuyPriceDrafts((d) => ({ ...d, [order.id]: v == null ? "" : String(v) }))}
                     placeholder="0.00"
+                    prefix={myCurrency ? currencySymbol(myCurrency) : undefined}
                     min={0}
                     step={0.01}
-                    className="w-20"
+                    className="w-28"
                   />
                   <Button onClick={() => handleSubmitBuyPrice(order.id)} loading={buyPriceSaving === order.id}>
                     Save
@@ -272,7 +281,11 @@ export default function OrdersPage() {
           {
             key: "actions",
             render: (_: unknown, order: OrderDto) => (
-              <EditAction onClick={() => router.push(`/orders/${order.id}/edit`)} />
+              <EditAction
+                onClick={() => router.push(`/orders/${order.id}/edit`)}
+                disabled={isInvoiced(order)}
+                disabledReason="On an invoice — delete the invoice to edit this order"
+              />
             ),
           },
         ]

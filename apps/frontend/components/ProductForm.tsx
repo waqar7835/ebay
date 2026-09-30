@@ -5,6 +5,7 @@ import { Alert, Button, Card, Form, Input, InputNumber, Select } from "antd";
 import { useEffect, useState } from "react";
 import ProductImagesUpload, { productImageItems, type ProductImageItem } from "@/components/ProductImagesUpload";
 import { listUsers, type CreateProductPayload } from "@/lib/api";
+import { currencySymbol } from "@/lib/currency";
 import { searchable, userOptions } from "@/lib/selectOptions";
 
 interface ProductFormProps {
@@ -46,6 +47,11 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
 
   const fulfillmentType = Form.useWatch("fulfillmentType", form) ?? initial?.fulfillmentType ?? "STOCK";
   const isStock = fulfillmentType === ("STOCK" as ProductFulfillmentType);
+  // Prices are entered in the selected Stock Owner's currency (converted to PKR on each order).
+  const stockOwnerId = Form.useWatch("stockOwnerId", form) ?? initial?.stockOwnerId;
+  const priceCurrency =
+    stockOwners.find((u) => u.id === stockOwnerId)?.currency ?? (stockOwnerId === initial?.stockOwnerId ? initial?.currency : undefined);
+  const pricePrefix = priceCurrency ? currencySymbol(priceCurrency) : "";
 
   async function handleFinish(values: ProductFormValues) {
     setFormError(null);
@@ -129,16 +135,16 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
           )}
 
           {isStock && (
-            <Card title="Pricing & stock">
+            <Card title={priceCurrency ? `Pricing & stock (${priceCurrency})` : "Pricing & stock"}>
               <div className="grid gap-x-4 sm:grid-cols-2 xl:grid-cols-4">
                 <Form.Item name="stockOwnerCost" label="Stock Owner cost" tooltip="What the item costs the Stock Owner" className="mb-0">
-                  <InputNumber prefix="$" min={0} step={0.01} className="w-full" />
+                  <InputNumber prefix={pricePrefix} min={0} step={0.01} className="w-full" />
                 </Form.Item>
                 <Form.Item name="buyPrice" label="Buy price" tooltip="Paid to the Stock Owner per unit sold" className="mb-0">
-                  <InputNumber prefix="$" min={0} step={0.01} className="w-full" />
+                  <InputNumber prefix={pricePrefix} min={0} step={0.01} className="w-full" />
                 </Form.Item>
                 <Form.Item name="sellPrice" label="Sell price" tooltip="Charged to the Account Holder per unit" className="mb-0">
-                  <InputNumber prefix="$" min={0} step={0.01} className="w-full" />
+                  <InputNumber prefix={pricePrefix} min={0} step={0.01} className="w-full" />
                 </Form.Item>
                 <Form.Item name="stockQuantity" label="Stock quantity" className="mb-0">
                   <InputNumber min={0} precision={0} className="w-full" />

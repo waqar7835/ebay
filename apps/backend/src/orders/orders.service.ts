@@ -7,7 +7,7 @@ import {
 } from "@nestjs/common";
 import { InjectModel } from "@nestjs/sequelize";
 import { Op, Transaction, UniqueConstraintError } from "sequelize";
-import { OrderStatus, ProductFulfillmentType, Role } from "@ebay-order-management/shared";
+import { Currency, ExchangeRates, OrderStatus, ProductFulfillmentType, Role } from "@ebay-order-management/shared";
 import { Order } from "../database/models/order.model";
 import { OrderItem } from "../database/models/order-item.model";
 import { Company } from "../database/models/company.model";
@@ -15,14 +15,23 @@ import { Product } from "../database/models/product.model";
 import { AccountHolderProfile } from "../database/models/account-holder-profile.model";
 import { StockOwnerProfile } from "../database/models/stock-owner-profile.model";
 import { ThreePlProfile } from "../database/models/three-pl-profile.model";
+import { User } from "../database/models/user.model";
 import { BillingService } from "../billing/billing.service";
 import { FinanceService } from "../finance/finance.service";
+import { ExchangeRatesService } from "../exchange-rates/exchange-rates.service";
 import type { JwtPayload } from "../auth/jwt.strategy";
 import { CreateOrderDto } from "./dto/create-order.dto";
 import { UpdateOrderDto } from "./dto/update-order.dto";
 import { UpdateOrderStatusDto } from "./dto/update-status.dto";
 import { OrderItemInputDto } from "./dto/order-item.dto";
 import { daysInStatus, isOrderStale } from "./order-staleness.util";
+import {
+  adoptLegacyAmounts,
+  cleanManualRates,
+  convertOrderAmounts,
+  keepLegacyAmounts,
+  orderCurrencies,
+} from "./order-currency.util";
 
 const TERMINAL_RESTOCK_STATUSES = [OrderStatus.CANCELLED, OrderStatus.REFUNDED];
 // 3PLs no longer see PENDING orders at all (a manager must make that first move), so they only
@@ -55,8 +64,10 @@ export class OrdersService {
     @InjectModel(AccountHolderProfile) private readonly accountHolderProfileModel: typeof AccountHolderProfile,
     @InjectModel(StockOwnerProfile) private readonly stockOwnerProfileModel: typeof StockOwnerProfile,
     @InjectModel(ThreePlProfile) private readonly threePlProfileModel: typeof ThreePlProfile,
+    @InjectModel(User) private readonly userModel: typeof User,
     private readonly billingService: BillingService,
     private readonly financeService: FinanceService,
+    private readonly exchangeRatesService: ExchangeRatesService,
   ) {}
 
   async list(companyId: string, requester: JwtPayload, filters: OrderListFilters = {}) {
@@ -166,6 +177,21 @@ export class OrdersService {
     const threePlSnapshot = await this.snapshotThreePl(threePlId, fulfillmentType, accountHolderProfile, null);
     const itemRows = await Promise.all(lines.map((line, position) => this.snapshotItem(line, position)));
 
+    // Amounts are entered in each party's currency and converted to PKR with rates locked on the order.
+    const amounts = {
+      accountHolderCurrency: await this.currencyOf(dto.accountHolderId),
+      ebayNetProceeds: 0,
+      ebayNetProceedsOriginal: dto.ebayNetProceeds,
+      shippingCost: 0,
+      shippingCostOriginal: dto.shippingCost ?? 0,
+      ...threePlSnapshot,
+    };
+    const rates = await this.exchangeRatesService.resolve(
+      orderCurrencies(amounts, itemRows),
+      cleanManualRates(dto.exchangeRates),
+    );
+    convertOrderAmounts(amounts, itemRows, rates);
+
     const sequelize = this.orderModel.sequelize!;
     const orderId = await this.saveWithUniqueRef(ebayOrderRef, () =>
       sequelize.transaction(async (transaction) => {
@@ -180,10 +206,10 @@ export class OrdersService {
             ebayOrderRef,
             trackingNumber: dto.trackingNumber ?? null,
             buyerDetails: dto.buyerDetails,
-            ebayNetProceeds: dto.ebayNetProceeds,
-            shippingCost: dto.shippingCost ?? 0,
             supplierUrl: dto.supplierUrl ?? null,
-            ...threePlSnapshot,
+            ...amounts,
+            exchangeRates: rates,
+            exchangeRatesAt: new Date(),
             accountHolderSharePercentSnapshot: accountHolderProfile.sharePercent,
           },
           { transaction },
@@ -203,6 +229,11 @@ export class OrdersService {
 
   async update(companyId: string, id: string, dto: UpdateOrderDto) {
     const order = await this.get(companyId, id);
+    assertNotInvoiced(order);
+    // An order from before currencies holds plain PKR amounts. Treat them as entered in each party's
+    // current currency while editing; finalizeAmounts() either converts them (recalculate) or puts them back.
+    const legacy = !order.exchangeRates;
+    if (legacy) await this.adoptLegacy(order, []);
 
     if (dto.orderDate !== undefined) order.orderDate = dto.orderDate;
     if (dto.accountHolderId !== undefined && dto.accountHolderId !== order.accountHolderId) {
@@ -216,8 +247,9 @@ export class OrdersService {
     }
     if (dto.trackingNumber !== undefined) order.trackingNumber = dto.trackingNumber;
     if (dto.buyerDetails !== undefined) order.buyerDetails = dto.buyerDetails;
-    if (dto.ebayNetProceeds !== undefined) order.ebayNetProceeds = dto.ebayNetProceeds;
-    if (dto.shippingCost !== undefined) order.shippingCost = dto.shippingCost;
+    // Entered in the Account Holder's currency; converted to PKR in finalizeAmounts().
+    if (dto.ebayNetProceeds !== undefined) order.ebayNetProceedsOriginal = dto.ebayNetProceeds;
+    if (dto.shippingCost !== undefined) order.shippingCostOriginal = dto.shippingCost;
     if (dto.supplierUrl !== undefined) order.supplierUrl = dto.supplierUrl;
 
     const sequelize = this.orderModel.sequelize!;
@@ -226,10 +258,61 @@ export class OrdersService {
         if (dto.items !== undefined || (dto.threePlId !== undefined && dto.threePlId !== order.threePlId)) {
           await this.changeItems(companyId, order, dto.items, dto.threePlId, transaction);
         }
+        await this.finalizeAmounts(order, legacy, dto, transaction);
         await order.save({ transaction });
       }),
     );
     return this.get(companyId, order.id);
+  }
+
+  /**
+   * Converts the order's entered amounts to PKR after an edit. By default the order keeps the rates
+   * locked on it — only a currency that's new to the order (e.g. a new Account Holder in AUD) gets
+   * today's rate. With `recalculateRates` every rate is refreshed (the admin's typed-in rates win).
+   * A pre-currency order edited without recalculating stays as it was: plain PKR, no rates.
+   */
+  private async finalizeAmounts(order: Order, legacy: boolean, dto: UpdateOrderDto, transaction: Transaction) {
+    const items = await this.orderItemModel.findAll({ where: { orderId: order.id }, transaction });
+    // Items kept from before currencies (new ones already carry their currency).
+    if (legacy) await this.adoptLegacy(order, items);
+    if (legacy && !dto.recalculateRates) {
+      keepLegacyAmounts(order, items);
+    } else {
+      const manual = cleanManualRates(dto.exchangeRates);
+      const currencies = orderCurrencies(order, items);
+      let rates: ExchangeRates;
+      if (legacy || dto.recalculateRates) {
+        rates = await this.exchangeRatesService.resolve(currencies, manual);
+        order.exchangeRatesAt = new Date();
+      } else {
+        const locked = order.exchangeRates ?? {};
+        const missing = [...currencies].filter((c) => !locked[c]);
+        rates = { ...locked, ...(await this.exchangeRatesService.resolve(missing, manual)) };
+      }
+      convertOrderAmounts(order, items, rates);
+      order.exchangeRates = Object.fromEntries([...currencies].map((c) => [c, rates[c]]));
+    }
+    for (const item of items) if (item.changed()) await item.save({ transaction });
+  }
+
+  private async adoptLegacy(order: Order, items: OrderItem[]) {
+    const stockOwnerIds = items.map((i) => i.stockOwnerId).filter((id): id is string => !!id);
+    const users = await this.userModel.findAll({
+      attributes: ["id", "currency"],
+      where: { id: [order.accountHolderId, ...(order.threePlId ? [order.threePlId] : []), ...stockOwnerIds] },
+    });
+    const currencyById = new Map(users.map((u) => [u.id, u.currency]));
+    adoptLegacyAmounts(order, items, (party) => {
+      if (party === "accountHolder") return currencyById.get(order.accountHolderId) ?? null;
+      if (party === "threePl") return order.threePlId ? (currencyById.get(order.threePlId) ?? null) : null;
+      return currencyById.get(party.stockOwnerId) ?? null;
+    });
+  }
+
+  private async currencyOf(userId: string): Promise<Currency> {
+    const user = await this.userModel.findByPk(userId, { attributes: ["id", "currency"] });
+    if (!user) throw new BadRequestException("User not found");
+    return user.currency;
   }
 
   /**
@@ -245,7 +328,9 @@ export class OrdersService {
 
     order.accountHolderId = accountHolderId;
     order.accountHolderSharePercentSnapshot = profile.sharePercent;
-    if (order.threePlId) order.threePlPriceChargedSnapshot = profile.threePlPriceCharged ?? 0;
+    // The order's Account Holder amounts (eBay proceeds, shipping, 3PL price) are now in the new holder's currency.
+    order.accountHolderCurrency = await this.currencyOf(accountHolderId);
+    if (order.threePlId) order.threePlPriceChargedOriginal = profile.threePlPriceCharged ?? 0;
   }
 
   /**
@@ -377,14 +462,19 @@ export class OrdersService {
     accountHolderProfile: AccountHolderProfile | null,
     previousThreePlId: string | null,
   ) {
-    if (!threePlId) return { threePlPriceChargedSnapshot: null, threePlPayoutSnapshot: null };
+    const none = { threePlCurrency: null, threePlPriceChargedOriginal: null, threePlPayoutOriginal: null };
+    if (!threePlId) return { ...none, threePlPriceChargedSnapshot: null, threePlPayoutSnapshot: null };
     if (threePlId !== previousThreePlId && (await this.billingService.isSeatBlocked(threePlId))) {
       throw new ForbiddenException("This 3PL's seat is blocked pending payment");
     }
     const threePlProfile = await this.assertThreePlHandles(threePlId, fulfillmentType);
+    // Originals only (Account Holder's / 3PL's currency) — the PKR snapshots are derived by convertOrderAmounts().
     return {
-      threePlPriceChargedSnapshot: accountHolderProfile?.threePlPriceCharged ?? 0,
-      threePlPayoutSnapshot: threePlProfile.payoutPerOrder,
+      threePlCurrency: await this.currencyOf(threePlId),
+      threePlPriceChargedOriginal: accountHolderProfile?.threePlPriceCharged ?? 0,
+      threePlPayoutOriginal: threePlProfile.payoutPerOrder,
+      threePlPriceChargedSnapshot: null as number | null,
+      threePlPayoutSnapshot: null as number | null,
     };
   }
 
@@ -404,9 +494,14 @@ export class OrdersService {
       stockOwnerId: product.stockOwnerId,
       position,
       quantity,
-      sellPriceSnapshot: product.sellPrice,
-      buyPriceSnapshot: product.buyPrice,
-      stockOwnerCostSnapshot: product.stockOwnerCost,
+      // Product prices are in the Stock Owner's currency; the PKR snapshots are derived by convertOrderAmounts().
+      currency: product.stockOwnerId ? await this.currencyOf(product.stockOwnerId) : null,
+      sellPriceOriginal: product.sellPrice,
+      buyPriceOriginal: product.buyPrice,
+      stockOwnerCostOriginal: product.stockOwnerCost,
+      sellPriceSnapshot: null as number | null,
+      buyPriceSnapshot: null as number | null,
+      stockOwnerCostSnapshot: null as number | null,
       stockOwnerPayoutModeSnapshot: stockOwnerProfile?.payoutMode ?? null,
       stockOwnerSharePercentSnapshot: stockOwnerProfile?.sharePercent ?? null,
     };
@@ -421,6 +516,7 @@ export class OrdersService {
     if (order.status === OrderStatus.PENDING) {
       throw new ForbiddenException("This order is not visible to 3PL users yet");
     }
+    assertNotInvoiced(order);
 
     // DROPSHIP orders always have exactly one item.
     const item = order.items[0];
@@ -429,10 +525,24 @@ export class OrdersService {
       throw new BadRequestException("Buy price can only be entered for DROPSHIP orders");
     }
 
-    item.buyPriceSnapshot = buyPrice;
-    await item.save();
     // The buy price the 3PL enters IS their payout for a DROPSHIP order — no separate rate.
-    order.threePlPayoutSnapshot = buyPrice;
+    if (!order.exchangeRates) {
+      // Pre-currency order: amounts stay plain PKR.
+      item.buyPriceSnapshot = buyPrice;
+      order.threePlPayoutSnapshot = buyPrice;
+    } else {
+      // Entered in the 3PL's own currency, converted with the order's locked rate for it.
+      const currency = order.threePlCurrency ?? (await this.currencyOf(requester.sub));
+      order.threePlCurrency = currency;
+      item.currency = currency;
+      item.buyPriceOriginal = buyPrice;
+      order.threePlPayoutOriginal = buyPrice;
+      if (!order.exchangeRates[currency]) {
+        order.exchangeRates = { ...order.exchangeRates, ...(await this.exchangeRatesService.resolve([currency])) };
+      }
+      convertOrderAmounts(order, [item], order.exchangeRates);
+    }
+    await item.save();
     await order.save();
     return order;
   }
@@ -478,6 +588,16 @@ export class OrdersService {
     }
 
     throw new ForbiddenException("You do not have permission to make this status change");
+  }
+}
+
+/**
+ * An order on any invoice (Account Holder, Stock Owner or 3PL) is locked: the invoice was drawn from
+ * its figures. To change it, delete (or void) the invoice first. Status changes stay allowed.
+ */
+function assertNotInvoiced(order: Order) {
+  if (order.accountHolderInvoiceId || order.threePlInvoiceId || order.items.some((i) => i.stockOwnerInvoiceId)) {
+    throw new BadRequestException("This order is on an invoice and can't be edited — delete that invoice first");
   }
 }
 

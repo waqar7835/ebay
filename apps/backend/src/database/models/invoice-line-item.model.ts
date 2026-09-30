@@ -1,4 +1,5 @@
 import { BelongsTo, Column, DataType, ForeignKey, Model, Table } from "sequelize-typescript";
+import { InvoiceLineDetails, InvoiceLineKind } from "@ebay-order-management/shared";
 import { toDecimal } from "../decimal.util";
 import { Invoice } from "./invoice.model";
 import { Order } from "./order.model";
@@ -55,6 +56,13 @@ export class InvoiceLineItem extends Model {
   })
   declare netAmount: number;
 
-  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false, field: "is_adjustment" })
-  declare isAdjustment: boolean;
+  @Column({ type: DataType.STRING(16), allowNull: false, defaultValue: InvoiceLineKind.ORDER })
+  declare kind: InvoiceLineKind;
+
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
+  declare position: number;
+
+  /** Breakdown the PDF is drawn from, snapshotted at approval (null on MISC lines). */
+  @Column({ type: DataType.JSONB, allowNull: true })
+  declare details: InvoiceLineDetails | null;
 }

@@ -39,7 +39,7 @@ export class ProductsController {
 
   @Get(":id")
   get(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Query("companyId") companyId?: string) {
-    return this.productsService.get(resolveCompanyId(user, companyId), id);
+    return this.productsService.getWithCurrency(resolveCompanyId(user, companyId), id);
   }
 
   @Post()

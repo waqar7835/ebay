@@ -1,6 +1,6 @@
 "use client";
 
-import type { ProductFulfillmentType, StockOwnerPayoutMode, UserDto } from "@ebay-order-management/shared";
+import { DEFAULT_CURRENCY, type Currency, type ProductFulfillmentType, type StockOwnerPayoutMode, type UserDto } from "@ebay-order-management/shared";
 import { MailOutlined } from "@ant-design/icons";
 import { Alert, Avatar, Button, Card, Form, Input, InputNumber, Select, Switch, Tag } from "antd";
 import { useEffect, useState } from "react";
@@ -17,6 +17,7 @@ import {
   updateThreePlProfile,
   updateUser,
 } from "@/lib/api";
+import { currencyOptions, currencySymbol } from "@/lib/currency";
 
 const STAFF_PERMISSIONS = [
   { key: "canManageOrders", label: "Manage orders", hint: "Create, edit and update orders" },
@@ -46,6 +47,7 @@ export default function EditUserPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const [name, setName] = useState("");
+  const [currency, setCurrency] = useState<Currency>(DEFAULT_CURRENCY);
 
   const [staffPermissions, setStaffPermissions] = useState<StaffPermissionsState>({
     canManageOrders: false,
@@ -78,6 +80,7 @@ export default function EditUserPage() {
       .then((u) => {
         setUser(u);
         setName(u.name ?? "");
+        setCurrency(u.currency ?? DEFAULT_CURRENCY);
         if (u.staffProfile) {
           setStaffPermissions({
             canManageOrders: u.staffProfile.canManageOrders,
@@ -115,8 +118,9 @@ export default function EditUserPage() {
     setFormError(null);
     setSubmitting(true);
     try {
-      if (name !== (user.name ?? "")) {
-        await updateUser(userId, { name });
+      const currencyChanged = hasAmounts && currency !== user.currency;
+      if (name !== (user.name ?? "") || currencyChanged) {
+        await updateUser(userId, { name, ...(currencyChanged ? { currency } : {}) });
       }
       if (user.staffProfile) {
         await updateStaffPermissions(userId, {
@@ -153,6 +157,9 @@ export default function EditUserPage() {
     }
   }
 
+  // Only Account Holders, Stock Owners and 3PLs enter amounts in their own currency.
+  const hasAmounts = !!(user?.accountHolderProfile || user?.stockOwnerProfile || user?.threePlProfile);
+
   const numProps = (value: string, set: (v: string) => void) => ({
     value: value === "" ? null : value,
     onChange: (v: string | number | null) => set(v == null ? "" : String(v)),
@@ -186,14 +193,31 @@ export default function EditUserPage() {
             <div className="grid gap-6 lg:grid-cols-3">
               <div className="flex flex-col gap-6 lg:col-span-2">
                 <Card title="Person">
-                  <div className="grid gap-x-4 sm:grid-cols-2">
+                  <div className={`grid gap-x-4 gap-y-4 sm:grid-cols-2 ${hasAmounts ? "xl:grid-cols-3" : ""}`}>
                     <Form.Item label="Name" className="mb-0">
                       <Input placeholder="Full name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
                     </Form.Item>
                     <Form.Item label="Email" tooltip="The sign-in email can't be changed" className="mb-0">
                       <Input value={user.email} disabled prefix={<MailOutlined className="text-slate-400" />} />
                     </Form.Item>
+                    {hasAmounts && (
+                      <Form.Item
+                        label="Currency"
+                        tooltip="Their amounts are entered in this currency. Changing it affects new orders only — re-enter their fee/prices in the new currency"
+                        className="mb-0"
+                      >
+                        <Select value={currency} onChange={setCurrency} options={currencyOptions} showSearch={{ optionFilterProp: "label" }} />
+                      </Form.Item>
+                    )}
                   </div>
+                  {hasAmounts && currency !== user.currency && (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      className="mt-4"
+                      title={`Existing orders stay in ${user.currency}. Re-enter this user's fees and product prices in ${currency}.`}
+                    />
+                  )}
                 </Card>
 
                 {user.staffProfile && (
@@ -234,7 +258,7 @@ export default function EditUserPage() {
                         <InputNumber suffix="%" min={0} max={100} className="w-full" {...numProps(ahSharePercent, setAhSharePercent)} />
                       </Form.Item>
                       <Form.Item label="3PL price charged" tooltip="Charged once per order shipped by a 3PL (optional)" className="mb-0">
-                        <InputNumber prefix="$" min={0} step={0.01} className="w-full" {...numProps(ahThreePlPriceCharged, setAhThreePlPriceCharged)} />
+                        <InputNumber prefix={currencySymbol(currency)} min={0} step={0.01} className="w-full" {...numProps(ahThreePlPriceCharged, setAhThreePlPriceCharged)} />
                       </Form.Item>
                       {billingDayField(ahBillingCycleStartDay, setAhBillingCycleStartDay)}
                     </div>
@@ -279,7 +303,7 @@ export default function EditUserPage() {
                       </Form.Item>
                       {fulfillmentType === ("STOCK" as ProductFulfillmentType) && (
                         <Form.Item label="Payout per order" tooltip="Paid once per order fulfilled" className="mb-0">
-                          <InputNumber prefix="$" min={0} step={0.01} className="w-full" {...numProps(payoutPerOrder, setPayoutPerOrder)} />
+                          <InputNumber prefix={currencySymbol(currency)} min={0} step={0.01} className="w-full" {...numProps(payoutPerOrder, setPayoutPerOrder)} />
                         </Form.Item>
                       )}
                       {billingDayField(tpBillingCycleStartDay, setTpBillingCycleStartDay)}
