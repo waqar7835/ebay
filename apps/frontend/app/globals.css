@@ -101,6 +101,13 @@ body {
   filter: brightness(1.07);
 }
 
+/* Steps: the current step's circle matches the gradient primary buttons. */
+.ant-steps .ant-steps-item-process .ant-steps-item-icon {
+  background: linear-gradient(135deg, var(--btn-a), var(--btn-b), var(--btn-c));
+  border-color: transparent;
+  color: #fff;
+}
+
 /* KPI cards: one gradient hero, the rest each tinted a different theme color. */
 .kpi-hero.ant-card {
   background: linear-gradient(120deg, var(--theme-a), var(--theme-b) 55%, var(--theme-c));

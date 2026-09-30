@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import RoleTag from "@/components/RoleTag";
-import { DeleteAction } from "@/components/RowActions";
+import { DeleteAction, EditAction } from "@/components/RowActions";
 import { deleteInvoice, downloadInvoicePdf, getStoredUser, getToken, listInvoices, markInvoicePaid } from "@/lib/api";
 import { userLabel } from "@/lib/selectOptions";
 import { invoiceMoney } from "@/lib/currency";
@@ -125,6 +125,9 @@ export default function InvoicesPage() {
               aria-label="Download PDF"
             />
           </Tooltip>
+          {canManage && inv.status === "UNPAID" && (
+            <EditAction onClick={() => router.push(`/invoices/${inv.id}/edit`)} />
+          )}
           {canManage && inv.status === "UNPAID" && (
             <Popconfirm title="Mark this invoice as paid?" onConfirm={() => handleMarkPaid(inv)}>
               <Button size="small">Mark paid</Button>

@@ -27,15 +27,20 @@ export class InvoicesController {
   /** Open SHIPPED/DELIVERED orders (and pending refund adjustments) the wizard can put on an invoice. */
   @Get("invoiceable-orders")
   @RequirePermission("canGenerateInvoices")
-  invoiceable(@CurrentUser() user: JwtPayload, @Query("userId") userId: string, @Query("role") role: InvoiceRole) {
-    return this.invoicesService.invoiceable(resolveCompanyId(user), user, userId, role);
+  invoiceable(
+    @CurrentUser() user: JwtPayload,
+    @Query("userId") userId: string,
+    @Query("role") role: InvoiceRole,
+    @Query("invoiceId") invoiceId?: string,
+  ) {
+    return this.invoicesService.invoiceable(resolveCompanyId(user), user, userId, role, invoiceId);
   }
 
   /** The wizard's Review step: renders the selection as a DRAFT PDF without saving anything. */
   @Post("preview")
   @RequirePermission("canGenerateInvoices")
-  async preview(@CurrentUser() user: JwtPayload, @Body() dto: InvoiceDraftDto) {
-    const pdf = await this.invoicesService.preview(resolveCompanyId(user), user, dto);
+  async preview(@CurrentUser() user: JwtPayload, @Body() dto: InvoiceDraftDto, @Query("invoiceId") invoiceId?: string) {
+    const pdf = await this.invoicesService.preview(resolveCompanyId(user), user, dto, invoiceId);
     return new StreamableFile(pdf, { type: "application/pdf", disposition: 'inline; filename="invoice-draft.pdf"' });
   }
 
@@ -43,6 +48,19 @@ export class InvoicesController {
   @RequirePermission("canGenerateInvoices")
   create(@CurrentUser() user: JwtPayload, @Body() dto: InvoiceDraftDto) {
     return this.invoicesService.create(resolveCompanyId(user), user, dto);
+  }
+
+  @Get(":id")
+  @RequirePermission("canGenerateInvoices")
+  get(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.invoicesService.get(resolveCompanyId(user), user, id);
+  }
+
+  /** Re-issues an UNPAID invoice from a new selection (same user and role, same number). */
+  @Patch(":id")
+  @RequirePermission("canGenerateInvoices")
+  update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: InvoiceDraftDto) {
+    return this.invoicesService.update(resolveCompanyId(user), user, id, dto);
   }
 
   @Get(":id/pdf")

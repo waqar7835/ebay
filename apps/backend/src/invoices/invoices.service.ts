@@ -115,13 +115,15 @@ export class InvoicesService {
     requester: JwtPayload,
     userId: string,
     role: InvoiceRole,
+    editingInvoiceId?: string,
   ): Promise<InvoiceableOrderDto[]> {
     this.assertPortal(requester);
+    if (editingInvoiceId) await this.findEditable(companyId, editingInvoiceId, userId, role);
     if (!INVOICE_ROLES.includes(role))
       throw new BadRequestException("Invoices are made for Account Holders, Stock Owners or 3PLs");
     const partner = await this.findPartner(companyId, userId, role);
     const currency = invoiceCurrency(partner, role);
-    const { open, refunds } = await this.candidates(companyId, userId, role, currency);
+    const { open, refunds } = await this.candidates(companyId, userId, role, currency, editingInvoiceId);
     return [...open.values(), ...refunds.values()].map(({ order, line }) => ({
       orderId: order.id,
       ebayOrderRef: order.ebayOrderRef,
@@ -138,12 +140,15 @@ export class InvoicesService {
   }
 
   /** Renders the wizard's selection as a DRAFT PDF without saving anything. */
-  async preview(companyId: string, requester: JwtPayload, dto: InvoiceDraftDto): Promise<Buffer> {
+  async preview(companyId: string, requester: JwtPayload, dto: InvoiceDraftDto, editingInvoiceId?: string): Promise<Buffer> {
     this.assertPortal(requester);
-    const draft = await this.buildDraft(companyId, dto);
+    const editing = editingInvoiceId
+      ? await this.findEditable(companyId, editingInvoiceId, dto.userId, dto.role)
+      : undefined;
+    const draft = await this.buildDraft(companyId, dto, editingInvoiceId);
     const company = await this.companyModel.findByPk(companyId);
     return renderInvoicePdf({
-      invoiceNumber: "DRAFT",
+      invoiceNumber: editing ? `${editing.invoiceNumber} (DRAFT)` : "DRAFT",
       date: new Date(),
       status: "Draft — not issued",
       company: { name: company!.name, logo: company!.logoUrl ? await readUpload(company!.logoUrl) : null },
@@ -191,6 +196,57 @@ export class InvoicesService {
       return invoice.id;
     });
 
+    return this.invoiceModel.findByPk(invoiceId, { include: [InvoiceLineItem] });
+  }
+
+  /** One invoice with its lines — for the edit wizard (managers only). */
+  async get(companyId: string, requester: JwtPayload, invoiceId: string) {
+    const invoice = await this.invoiceModel.findOne({
+      where: { id: invoiceId, companyId },
+      include: [InvoiceLineItem, { model: User, attributes: ["id", "name", "email"] }],
+      order: [["lineItems", "position", "ASC"]],
+    });
+    if (!invoice || !(await this.canSeeCompanyInvoices(requester))) throw new NotFoundException("Invoice not found");
+    return invoice;
+  }
+
+  /**
+   * Re-issues an UNPAID invoice from a new selection, keeping its number and date: its orders are
+   * released and the new selection claimed in one transaction. Same user and role only. PAID invoices
+   * can't be edited — void and re-issue them.
+   */
+  async update(companyId: string, requester: JwtPayload, invoiceId: string, dto: InvoiceDraftDto) {
+    this.assertPortal(requester);
+    await this.findEditable(companyId, invoiceId, dto.userId, dto.role);
+    const draft = await this.buildDraft(companyId, dto, invoiceId);
+
+    const sequelize = this.invoiceModel.sequelize!;
+    await sequelize.transaction(async (transaction) => {
+      const invoice = await this.invoiceModel.findOne({
+        where: { id: invoiceId, companyId },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+      if (!invoice || invoice.status !== InvoiceStatus.UNPAID) {
+        throw new ConflictException("This invoice was just paid or deleted — reload and try again");
+      }
+      const blocker = await this.refundInvoiceFor(invoice, transaction);
+      if (blocker) {
+        throw new BadRequestException(
+          `Invoice ${blocker} has a refund adjustment for an order on this invoice — delete that invoice first`,
+        );
+      }
+      await this.release(invoice, transaction);
+      await this.lineItemModel.destroy({ where: { invoiceId }, transaction });
+      await this.lineItemModel.bulkCreate(
+        draft.lines.map((line, position) => ({ ...line, position, invoiceId })),
+        { transaction },
+      );
+      invoice.currency = draft.currency;
+      invoice.totalAmount = draft.totalAmount;
+      await invoice.save({ transaction });
+      await this.claim(draft, invoiceId, transaction);
+    });
     return this.invoiceModel.findByPk(invoiceId, { include: [InvoiceLineItem] });
   }
 
@@ -273,6 +329,18 @@ export class InvoicesService {
     }
   }
 
+  private async findEditable(companyId: string, invoiceId: string, userId: string, role: InvoiceRole) {
+    const invoice = await this.invoiceModel.findOne({ where: { id: invoiceId, companyId } });
+    if (!invoice) throw new NotFoundException("Invoice not found");
+    if (invoice.status !== InvoiceStatus.UNPAID) {
+      throw new BadRequestException("Only unpaid invoices can be edited — void a paid invoice and issue a new one");
+    }
+    if (invoice.userId !== userId || invoice.role !== role) {
+      throw new BadRequestException("An invoice's user and role can't be changed — create a new invoice instead");
+    }
+    return invoice;
+  }
+
   private async canSeeCompanyInvoices(requester: JwtPayload): Promise<boolean> {
     if (requester.realm === "backoffice" || requester.roles.includes(Role.ADMIN)) return true;
     if (!requester.roles.includes(Role.STAFF)) return false;
@@ -289,10 +357,11 @@ export class InvoicesService {
     return user;
   }
 
-  private async buildDraft(companyId: string, dto: InvoiceDraftDto): Promise<Draft> {
+  /** `editingInvoiceId`: that invoice's own orders count as open (it's being re-issued). */
+  private async buildDraft(companyId: string, dto: InvoiceDraftDto, editingInvoiceId?: string): Promise<Draft> {
     const partner = await this.findPartner(companyId, dto.userId, dto.role);
     const currency = invoiceCurrency(partner, dto.role);
-    const { open, refunds } = await this.candidates(companyId, dto.userId, dto.role, currency);
+    const { open, refunds } = await this.candidates(companyId, dto.userId, dto.role, currency, editingInvoiceId);
 
     const pick = (ids: string[], from: Map<string, Candidate>) =>
       [...new Set(ids)].map((id) => {
@@ -333,16 +402,24 @@ export class InvoicesService {
   }
 
   /** Open orders and pending refund adjustments for this user+role, keyed by order id. */
-  private async candidates(companyId: string, userId: string, role: InvoiceRole, currency: string) {
-    if (role === Role.STOCK_OWNER) return this.stockOwnerCandidates(companyId, userId);
+  private async candidates(
+    companyId: string,
+    userId: string,
+    role: InvoiceRole,
+    currency: string,
+    editingInvoiceId?: string,
+  ) {
+    if (role === Role.STOCK_OWNER) return this.stockOwnerCandidates(companyId, userId, editingInvoiceId);
 
     const cols = ORDER_CLAIM_COLUMNS[role];
+    // Not yet on an invoice — or on the one being edited.
+    const unclaimed = editingInvoiceId ? { [Op.or]: [null, editingInvoiceId] } : null;
     const openOrders = await this.orderModel.findAll({
       where: {
         companyId,
         status: INVOICEABLE_STATUSES,
         [cols.owner]: userId,
-        [cols.invoice]: null,
+        [cols.invoice]: unclaimed,
         // A DROPSHIP 3PL isn't owed anything until they've entered their buy price.
         ...(role === Role.THREE_PL ? { threePlPayoutSnapshot: { [Op.ne]: null } } : {}),
       } as WhereOptions<Order>,
@@ -367,20 +444,28 @@ export class InvoicesService {
         status: OrderStatus.REFUNDED,
         [cols.owner]: userId,
         [cols.invoice]: { [Op.ne]: null },
-        [cols.refund]: null,
+        [cols.refund]: unclaimed,
       } as WhereOptions<Order>,
       order: [["orderDate", "ASC"]],
     });
     const refunds = await this.refundCandidates(
-      refundedOrders.map((order) => ({ order, invoiceId: order[cols.invoice]!, claimIds: [order.id] })),
+      refundedOrders
+        // A refunded order on the invoice being edited just drops off it — no adjustment against itself.
+        .filter((order) => order[cols.invoice] !== editingInvoiceId)
+        .map((order) => ({ order, invoiceId: order[cols.invoice]!, claimIds: [order.id] })),
       currency,
     );
     return { open, refunds };
   }
 
-  private async stockOwnerCandidates(companyId: string, userId: string) {
+  private async stockOwnerCandidates(companyId: string, userId: string, editingInvoiceId?: string) {
+    // Not yet on an invoice — or on the one being edited.
+    const isOpen = (invoiceId: string | null) => !invoiceId || invoiceId === editingInvoiceId;
     const items = await this.orderItemModel.findAll({
-      where: { stockOwnerId: userId, stockOwnerRefundInvoiceId: null },
+      where: {
+        stockOwnerId: userId,
+        stockOwnerRefundInvoiceId: editingInvoiceId ? { [Op.or]: [null, editingInvoiceId] } : null,
+      },
     });
     const orders = await this.orderModel.findAll({
       where: {
@@ -395,17 +480,17 @@ export class InvoicesService {
     const open = new Map<string, Candidate>();
     const refundable: { order: Order; invoiceId: string; claimIds: string[] }[] = [];
     for (const order of orders) {
-      const mine = order.items.filter((i) => i.stockOwnerId === userId && !i.stockOwnerRefundInvoiceId);
+      const mine = order.items.filter((i) => i.stockOwnerId === userId && isOpen(i.stockOwnerRefundInvoiceId));
       if (order.status === OrderStatus.REFUNDED) {
         // Group by the invoice that paid them out (the same one, unless the order was edited in between).
         const byInvoice = new Map<string, string[]>();
-        for (const item of mine.filter((i) => i.stockOwnerInvoiceId)) {
+        for (const item of mine.filter((i) => !isOpen(i.stockOwnerInvoiceId))) {
           byInvoice.set(item.stockOwnerInvoiceId!, [...(byInvoice.get(item.stockOwnerInvoiceId!) ?? []), item.id]);
         }
         for (const [invoiceId, claimIds] of byInvoice) refundable.push({ order, invoiceId, claimIds });
         continue;
       }
-      const openItems = mine.filter((i) => !i.stockOwnerInvoiceId);
+      const openItems = mine.filter((i) => isOpen(i.stockOwnerInvoiceId));
       if (openItems.length) {
         open.set(order.id, {
           order,

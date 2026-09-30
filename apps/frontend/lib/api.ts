@@ -544,13 +544,28 @@ export function listInvoices(userId?: string) {
   return request<InvoiceDto[]>(`/invoices${userId ? `?userId=${userId}` : ""}`);
 }
 
-export function listInvoiceableOrders(userId: string, role: InvoiceRole) {
-  return request<InvoiceableOrderDto[]>(`/invoices/invoiceable-orders?userId=${userId}&role=${role}`);
+/** `invoiceId`: when editing, that invoice's own orders are included (and count as open). */
+export function listInvoiceableOrders(userId: string, role: InvoiceRole, invoiceId?: string) {
+  return request<InvoiceableOrderDto[]>(
+    `/invoices/invoiceable-orders?userId=${userId}&role=${role}${invoiceId ? `&invoiceId=${invoiceId}` : ""}`,
+  );
 }
 
 /** The wizard's Review step — a DRAFT PDF of the selection; nothing is saved. */
-export function previewInvoice(draft: InvoiceDraftInput) {
-  return requestBlob("/invoices/preview", { method: "POST", body: JSON.stringify(draft) });
+export function previewInvoice(draft: InvoiceDraftInput, invoiceId?: string) {
+  return requestBlob(`/invoices/preview${invoiceId ? `?invoiceId=${invoiceId}` : ""}`, {
+    method: "POST",
+    body: JSON.stringify(draft),
+  });
+}
+
+export function getInvoice(invoiceId: string) {
+  return request<InvoiceDto>(`/invoices/${invoiceId}`);
+}
+
+/** Re-issues an UNPAID invoice from a new selection (same user, role and number). */
+export function updateInvoice(invoiceId: string, draft: InvoiceDraftInput) {
+  return request<InvoiceDto>(`/invoices/${invoiceId}`, { method: "PATCH", body: JSON.stringify(draft) });
 }
 
 export function createInvoice(draft: InvoiceDraftInput) {
