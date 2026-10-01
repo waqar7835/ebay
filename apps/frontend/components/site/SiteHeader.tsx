@@ -7,7 +7,7 @@ import { getToken } from "@/lib/api";
 import BrandLogo from "./BrandLogo";
 
 const LINKS = [
-  { href: "/#features", label: "Features", match: null },
+  { href: "/", label: "Home", match: "/" },
   { href: "/how-it-works", label: "How it works", match: "/how-it-works" },
   { href: "/pricing", label: "Pricing", match: "/pricing" },
   { href: "/contact", label: "Contact", match: "/contact" },
