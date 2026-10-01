@@ -72,7 +72,7 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.push("/");
+      router.push("/login");
       return;
     }
     load();

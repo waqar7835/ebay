@@ -76,7 +76,7 @@ export default function EditUserPage() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.push("/");
+      router.push("/login");
       return;
     }
     getUser(userId)

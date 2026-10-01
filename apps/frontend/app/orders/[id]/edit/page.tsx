@@ -18,7 +18,7 @@ export default function EditOrderPage() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.push("/");
+      router.push("/login");
       return;
     }
     listOrders()

@@ -17,7 +17,7 @@ export default function EditProductPage() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.push("/");
+      router.push("/login");
       return;
     }
     getProduct(id)

@@ -11,7 +11,7 @@ export default function NewOrderPage() {
   const router = useRouter();
 
   useEffect(() => {
-    if (!getToken()) router.push("/");
+    if (!getToken()) router.push("/login");
   }, [router]);
 
   return (

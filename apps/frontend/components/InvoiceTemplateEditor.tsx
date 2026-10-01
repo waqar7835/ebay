@@ -65,7 +65,7 @@ export default function InvoiceTemplateEditor({ templateId, fromId }: { template
 
   useEffect(() => {
     if (!getToken()) {
-      router.push("/");
+      router.push("/login");
       return;
     }
     if (!isAdmin) return;

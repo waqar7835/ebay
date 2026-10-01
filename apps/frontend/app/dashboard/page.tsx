@@ -258,7 +258,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.push("/");
+      router.push("/login");
       return;
     }
     accountStatus().then((s) => setBlocked(s.disabled)).catch(() => undefined);

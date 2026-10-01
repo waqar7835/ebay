@@ -59,7 +59,7 @@ pnpm dev
 - Backoffice (admin/staff): http://localhost:3001
 - Backend API + Swagger: http://localhost:4000/docs
 
-Since SMTP isn't configured by default, verification/invite/reminder emails are logged to the backend console instead of actually sent (`apps/backend/src/mailer/mailer.service.ts`) — copy the link out of the log when testing registration or invite flows.
+Until a Super Admin saves an SMTP server on the backoffice **Settings** page, verification/invite/reminder emails are logged to the backend console instead of actually sent (`apps/backend/src/mailer/mailer.service.ts`) — copy the link out of the log when testing registration or invite flows. SMTP, the sender address, where contact-form messages go and the public site's brand name/logo/contact details all live in the `platform_settings` table, edited from that page.
 
 ### Seeded login credentials
 

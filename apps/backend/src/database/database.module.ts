@@ -21,6 +21,7 @@ import { SubscriptionBillingPeriod } from "./models/subscription-billing-period.
 import { SubscriptionPayment } from "./models/subscription-payment.model";
 import { ExchangeRate } from "./models/exchange-rate.model";
 import { InvoiceTemplate } from "./models/invoice-template.model";
+import { PlatformSetting } from "./models/platform-setting.model";
 
 export const ALL_MODELS = [
   Company,
@@ -43,6 +44,7 @@ export const ALL_MODELS = [
   SubscriptionBillingPeriod,
   SubscriptionPayment,
   ExchangeRate,
+  PlatformSetting,
 ];
 
 @Module({

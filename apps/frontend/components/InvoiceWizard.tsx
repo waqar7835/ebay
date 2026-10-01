@@ -83,7 +83,7 @@ export default function InvoiceWizard({ invoiceId }: { invoiceId?: string }) {
 
   useEffect(() => {
     if (!getToken()) {
-      router.push("/");
+      router.push("/login");
       return;
     }
     if (!canManage) {

@@ -40,7 +40,7 @@ export default function ProductsPage() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.push("/");
+      router.push("/login");
       return;
     }
     refresh();

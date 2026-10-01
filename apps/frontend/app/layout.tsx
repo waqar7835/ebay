@@ -3,13 +3,15 @@ import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import AntdProvider from "@/components/AntdProvider";
 import { ROLE_THEME_BOOT_SCRIPT } from "@/lib/roleTheme";
+import { TAGLINE } from "@/lib/brand";
+import { getSiteSettings } from "@/lib/siteSettings";
 
 const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-jakarta" });
 
-export const metadata: Metadata = {
-  title: "eBay Order Management",
-  description: "Seller dashboard for eBay order management",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { brandName } = await getSiteSettings();
+  return { title: { default: brandName, template: `%s · ${brandName}` }, description: TAGLINE };
+}
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

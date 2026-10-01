@@ -38,7 +38,7 @@ export default function InvoicesPage() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.push("/");
+      router.push("/login");
       return;
     }
     refresh();

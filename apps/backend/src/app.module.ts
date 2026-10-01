@@ -15,12 +15,15 @@ import { SubscriptionsModule } from "./subscriptions/subscriptions.module";
 import { MailerModule } from "./mailer/mailer.module";
 import { TokensModule } from "./tokens/tokens.module";
 import { ExchangeRatesModule } from "./exchange-rates/exchange-rates.module";
+import { PublicModule } from "./public/public.module";
+import { PlatformSettingsModule } from "./platform-settings/platform-settings.module";
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
     DatabaseModule,
+    PlatformSettingsModule,
     MailerModule,
     TokensModule,
     AuthModule,
@@ -34,6 +37,7 @@ import { ExchangeRatesModule } from "./exchange-rates/exchange-rates.module";
     DashboardModule,
     SubscriptionsModule,
     ExchangeRatesModule,
+    PublicModule,
   ],
 })
 export class AppModule {}

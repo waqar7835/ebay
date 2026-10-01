@@ -94,7 +94,7 @@ export default function InviteUserPage() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.push("/");
+      router.push("/login");
       return;
     }
     // Preselect the company's default currency.

@@ -93,7 +93,7 @@ export default function OrdersPage() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.push("/");
+      router.push("/login");
       return;
     }
     listProducts().then(setProducts).catch(() => undefined);

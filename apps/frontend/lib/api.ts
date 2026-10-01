@@ -2,6 +2,7 @@ import type {
   AccountHolderProfileDto,
   BillingPeriodDto,
   CompanyDto,
+  ContactMessageInput,
   CompanySubscriptionDto,
   Currency,
   ExchangeRateDto,
@@ -19,6 +20,7 @@ import type {
   OrderStatus,
   ProductDto,
   ProductFulfillmentType,
+  PublicPricingDto,
   Role,
   StaffPermissionsDto,
   StockOwnerProfileDto,
@@ -130,6 +132,10 @@ export function verifyEmailCode(email: string, code: string) {
   });
 }
 
+export function resendVerification(email: string) {
+  return request<{ message: string }>("/auth/resend-verification", { method: "POST", body: JSON.stringify({ email }) });
+}
+
 export function forgotPassword(email: string) {
   return request<{ message: string }>("/auth/forgot-password", { method: "POST", body: JSON.stringify({ email }) });
 }
@@ -146,6 +152,16 @@ export function acceptInvite(token: string, password: string, confirmPassword: s
     method: "POST",
     body: JSON.stringify({ token, password, confirmPassword }),
   });
+}
+
+// --- Public marketing site (no login) ---
+
+export function getPublicPricing() {
+  return request<PublicPricingDto>("/public/pricing");
+}
+
+export function sendContactMessage(input: ContactMessageInput) {
+  return request<{ message: string }>("/public/contact", { method: "POST", body: JSON.stringify(input) });
 }
 
 export function accountStatus() {

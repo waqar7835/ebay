@@ -12,7 +12,7 @@ export default function AddProductPage() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.push("/");
+      router.push("/login");
     }
   }, [router]);
 

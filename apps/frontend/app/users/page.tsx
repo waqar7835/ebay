@@ -40,7 +40,7 @@ export default function UsersPage() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.push("/");
+      router.push("/login");
       return;
     }
     refresh();

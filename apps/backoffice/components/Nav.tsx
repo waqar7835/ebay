@@ -7,6 +7,7 @@ import {
   DashboardOutlined,
   FileTextOutlined,
   LogoutOutlined,
+  SettingOutlined,
   ShoppingCartOutlined,
   SolutionOutlined,
   TeamOutlined,
@@ -16,7 +17,24 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { Role } from "@ebay-order-management/shared";
-import { getSelectedCompanyId, getStoredUser, listAllCompanies, setSelectedCompanyId } from "@/lib/api";
+import { getPublicSite, getSelectedCompanyId, getStoredUser, listAllCompanies, mediaUrl, setSelectedCompanyId } from "@/lib/api";
+
+const LOGO_CACHE_KEY = "platformLogoUrl";
+
+/** The platform's main logo: the image uploaded in Settings, or the four role-colored squares (same mark as the public site). */
+function PlatformLogo({ logoUrl }: { logoUrl: string | null }) {
+  if (logoUrl) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={mediaUrl(logoUrl)} alt="" className="h-7 w-7 shrink-0 rounded-lg object-contain" />;
+  }
+  return (
+    <span className="grid h-7 w-7 shrink-0 grid-cols-2 gap-[3px] p-[2px]" aria-hidden>
+      {["#dc2626", "#9333ea", "#0891b2", "#3b82f6"].map((c) => (
+        <i key={c} className="rounded-[4px]" style={{ background: c }} />
+      ))}
+    </span>
+  );
+}
 import { searchable } from "@/lib/selectOptions";
 
 /** Each nav item gets its own Aurora tint so the sidebar reads as multicolor. */
@@ -47,6 +65,22 @@ export default function Nav() {
 
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
   const [selected, setSelected] = useState<string>("");
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      setLogoUrl(localStorage.getItem(LOGO_CACHE_KEY) || null);
+    } catch {
+      /* storage blocked: fall back to the default mark */
+    }
+    getPublicSite()
+      .then((site) => {
+        setLogoUrl(site.logoUrl);
+        if (site.logoUrl) localStorage.setItem(LOGO_CACHE_KEY, site.logoUrl);
+        else localStorage.removeItem(LOGO_CACHE_KEY);
+      })
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     setUser(getStoredUser());
@@ -80,6 +114,7 @@ export default function Nav() {
       ? [
           { href: "/super-admin", label: "Super Admin", icon: <NavIcon icon={<CrownOutlined />} bg="#ccfbf1" fg="#0d9488" /> },
           { href: "/platform-staff", label: "Platform Staff", icon: <NavIcon icon={<SolutionOutlined />} bg="#e0e7ff" fg="#4f46e5" /> },
+          { href: "/settings", label: "Settings", icon: <NavIcon icon={<SettingOutlined />} bg="#f1f5f9" fg="#475569" /> },
         ]
       : []),
   ];
@@ -89,8 +124,8 @@ export default function Nav() {
     <nav className="app-sider fixed inset-y-0 left-0 z-10 flex w-56 flex-col py-5">
       <div className="flex-1 overflow-y-auto px-2">
         <div className="mb-4 flex items-center gap-2 px-4">
-          <span className="app-logo grid h-7 w-7 place-items-center rounded-lg text-xs font-bold text-white">OM</span>
-          <span className="text-sm font-bold text-slate-800">eBay Order Mgmt</span>
+          <PlatformLogo logoUrl={logoUrl} />
+          <span className="text-sm font-bold text-slate-800">Backoffice</span>
         </div>
         <Menu
           mode="inline"

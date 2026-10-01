@@ -617,3 +617,78 @@ export interface CompanySubscriptionDto {
   usage: SeatUsageDto[];
   pendingPayment: SubscriptionPaymentDto | null;
 }
+
+// --- Public marketing site ---
+
+/** GET /public/pricing: active plans and billing periods, no login needed. */
+export interface PublicPricingDto {
+  plans: SubscriptionPlanDto[];
+  periods: BillingPeriodDto[];
+}
+
+export enum ContactTopic {
+  SALES = "SALES",
+  SUPPORT = "SUPPORT",
+  BILLING = "BILLING",
+  OTHER = "OTHER",
+}
+
+/** POST /public/contact. `website` is a honeypot real visitors leave empty. */
+export interface ContactMessageInput {
+  topic: ContactTopic;
+  name: string;
+  email: string;
+  company?: string;
+  role: string;
+  message: string;
+  website?: string;
+}
+
+// --- Platform settings (Super Admin, backoffice) ---
+
+export interface ReplyHoursRow {
+  days: string;
+  hours: string;
+}
+
+/** What the public site may show: no contact-form destination, no SMTP details. GET /public/site. */
+export interface PublicSiteDto {
+  brandName: string;
+  logoUrl: string | null;
+  helloEmail: string | null;
+  supportEmail: string | null;
+  replyHours: ReplyHoursRow[];
+  replyTimezone: string | null;
+}
+
+/** GET /platform-settings (Super Admin). The SMTP password is never returned, only whether one is saved. */
+export interface PlatformSettingsDto extends PublicSiteDto {
+  contactEmail: string | null;
+  smtpHost: string | null;
+  smtpPort: number;
+  smtpSecure: boolean;
+  smtpUser: string | null;
+  smtpPasswordSet: boolean;
+  mailFromName: string | null;
+  mailFromEmail: string | null;
+  /** "smtp" when a host is set and emails are really sent; "log" when they are only written to the server log. */
+  emailDelivery: "smtp" | "log";
+}
+
+/** PATCH /platform-settings. Omit `smtpPassword` to keep the saved one; send `clearSmtpPassword: true` to remove it. */
+export interface UpdatePlatformSettingsInput {
+  brandName: string;
+  helloEmail: string | null;
+  supportEmail: string | null;
+  contactEmail: string | null;
+  replyHours: ReplyHoursRow[];
+  replyTimezone: string | null;
+  smtpHost: string | null;
+  smtpPort: number;
+  smtpSecure: boolean;
+  smtpUser: string | null;
+  smtpPassword?: string;
+  clearSmtpPassword?: boolean;
+  mailFromName: string | null;
+  mailFromEmail: string | null;
+}

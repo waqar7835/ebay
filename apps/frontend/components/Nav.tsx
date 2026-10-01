@@ -14,8 +14,27 @@ import { Button, Menu } from "antd";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import type { Role } from "@ebay-order-management/shared";
-import { getStoredUser, type StoredUser } from "@/lib/api";
+import type { CompanyDto, Role } from "@ebay-order-management/shared";
+import { getMyCompany, getStoredUser, getToken, mediaUrl, type StoredUser } from "@/lib/api";
+
+const COMPANY_CACHE_KEY = "navCompany";
+type NavCompany = Pick<CompanyDto, "name" | "logoUrl">;
+
+/** "Alpha Drop" → "AD"; single word → first two letters. */
+function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "";
+  return (words.length === 1 ? words[0].slice(0, 2) : words[0][0] + words[1][0]).toUpperCase();
+}
+
+function readCachedCompany(): NavCompany | null {
+  try {
+    const raw = localStorage.getItem(COMPANY_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as NavCompany) : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Each nav item gets its own Aurora tint so the sidebar reads as multicolor. */
 function NavIcon({ icon, bg, fg }: { icon: React.ReactNode; bg: string; fg: string }) {
@@ -30,9 +49,20 @@ export default function Nav() {
   const router = useRouter();
   const pathname = usePathname();
   const [user, setUser] = useState<StoredUser | null>(null);
+  const [company, setCompany] = useState<NavCompany | null>(null);
 
+  // The sidebar header shows the user's company (logo + name). Cached so it doesn't flash on every page change.
   useEffect(() => {
     setUser(getStoredUser());
+    setCompany(readCachedCompany());
+    if (!getToken()) return;
+    getMyCompany()
+      .then((c) => {
+        const next = { name: c.name, logoUrl: c.logoUrl };
+        setCompany(next);
+        localStorage.setItem(COMPANY_CACHE_KEY, JSON.stringify(next));
+      })
+      .catch(() => undefined);
   }, []);
 
   const isAdmin = user?.roles.includes("ADMIN" as Role) ?? false;
@@ -51,7 +81,8 @@ export default function Nav() {
   function logout() {
     localStorage.removeItem("accessToken");
     localStorage.removeItem("user");
-    router.push("/");
+    localStorage.removeItem(COMPANY_CACHE_KEY);
+    router.push("/login");
   }
 
   const selectedKey = links.find((link) => pathname?.startsWith(link.href))?.href;
@@ -60,8 +91,17 @@ export default function Nav() {
     <nav className="app-sider fixed inset-y-0 left-0 z-10 flex w-56 flex-col py-5">
       <div className="flex-1 overflow-y-auto px-2">
         <div className="mb-4 flex items-center gap-2 px-4">
-          <span className="app-logo grid h-7 w-7 place-items-center rounded-lg text-xs font-bold text-white">OM</span>
-          <span className="text-sm font-bold text-slate-800">Partner Portal</span>
+          {company?.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={mediaUrl(company.logoUrl)} alt="" className="h-7 w-7 shrink-0 rounded-lg bg-white object-contain" />
+          ) : (
+            <span className="app-logo grid h-7 w-7 shrink-0 place-items-center rounded-lg text-xs font-bold text-white">
+              {company ? initials(company.name) : ""}
+            </span>
+          )}
+          <span className="truncate text-sm font-bold text-slate-800" title={company?.name}>
+            {company?.name ?? ""}
+          </span>
         </div>
         <Menu
           mode="inline"

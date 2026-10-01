@@ -12,6 +12,8 @@ import type {
   OrderDto,
   OrderItemInput,
   OrderStatus,
+  PlatformSettingsDto,
+  PublicSiteDto,
   ProductDto,
   ProductFulfillmentType,
   Role,
@@ -21,6 +23,7 @@ import type {
   SubscriptionPaymentStatus,
   SubscriptionPlanDto,
   ThreePlProfileDto,
+  UpdatePlatformSettingsInput,
   UserDto,
 } from "@ebay-order-management/shared";
 
@@ -397,4 +400,38 @@ export function setBackofficeUserStatus(id: string, enable: boolean) {
 
 export function updateBackofficeStaffPermissions(id: string, dto: BackofficePermissionsDto) {
   return request<unknown>(`/backoffice-users/${id}/permissions`, { method: "PATCH", body: JSON.stringify(dto) });
+}
+
+// --- Platform settings (Super Admin) ---
+
+/** Public brand settings (no auth); the sidebar uses the platform logo. */
+export function getPublicSite() {
+  return request<PublicSiteDto>("/public/site");
+}
+
+export function getPlatformSettings() {
+  return request<PlatformSettingsDto>("/platform-settings");
+}
+
+export function updatePlatformSettings(input: UpdatePlatformSettingsInput) {
+  return request<PlatformSettingsDto>("/platform-settings", { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export async function uploadPlatformLogo(logo: File) {
+  const form = new FormData();
+  form.append("logo", logo);
+  const res = await fetch(`${API_URL}/platform-settings/logo`, { method: "POST", headers: authHeaders(), body: form });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message ?? `Request failed: ${res.status}`);
+  }
+  return res.json() as Promise<PlatformSettingsDto>;
+}
+
+export function removePlatformLogo() {
+  return request<PlatformSettingsDto>("/platform-settings/logo", { method: "DELETE" });
+}
+
+export function sendTestEmail(to: string) {
+  return request<{ message: string }>("/platform-settings/test-email", { method: "POST", body: JSON.stringify({ to }) });
 }
