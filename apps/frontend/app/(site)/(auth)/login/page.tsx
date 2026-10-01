@@ -1,11 +1,11 @@
 "use client";
 
 import { Role } from "@ebay-order-management/shared";
-import { Alert, Button, Form, Input, Radio } from "antd";
+import { Button, Form, Input, Radio } from "antd";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import AuthShell, { AuthNote } from "@/components/site/AuthShell";
+import AuthShell, { AuthNote, useAuthToasts } from "@/components/site/AuthShell";
 import { login } from "@/lib/api";
 import { ROLE_COLORS } from "@/lib/brand";
 
@@ -25,11 +25,10 @@ interface LoginValues {
 
 export default function LoginPage() {
   const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
+  const { onFinishFailed, showError } = useAuthToasts();
   const [loading, setLoading] = useState(false);
 
   async function handleFinish({ userType, email, password }: LoginValues) {
-    setError(null);
     setLoading(true);
     try {
       const { accessToken, user } = await login(email, password, userType);
@@ -38,7 +37,7 @@ export default function LoginPage() {
       localStorage.removeItem("navCompany"); // the portal sidebar re-reads this account's company
       router.push("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      showError(err, "Login failed");
       setLoading(false);
     }
   }
@@ -47,23 +46,23 @@ export default function LoginPage() {
     <AuthShell variant="login" topLink={{ text: "New company?", href: "/register", label: "Register" }}>
       <div className="card">
         <h1>Log in</h1>
-        <p className="sub">Use the email and password for the role you&apos;re logging in as.</p>
+        <AuthNote>
+          <b>One email, several roles?</b> Each role has its own account and password. Choose the role below that matches the
+          account you&apos;re logging in to.
+        </AuthNote>
         <Form<LoginValues>
           className="af"
           layout="vertical"
           requiredMark={false}
           onFinish={handleFinish}
+          onFinishFailed={onFinishFailed}
           initialValues={{ userType: Role.ADMIN }}
-          style={{ marginTop: 24 }}
+          style={{ marginTop: 18 }}
         >
           <Form.Item name="userType" label="I'm logging in as">
             <Radio.Group className="role-pick">
               {USER_TYPES.map((t) => (
-                <Radio.Button
-                  key={t.role}
-                  value={t.role}
-                  style={{ "--rc": t.color, "--rbg": t.bg } as React.CSSProperties}
-                >
+                <Radio.Button key={t.role} value={t.role} style={{ "--rc": t.color, "--rbg": t.bg } as React.CSSProperties}>
                   <i style={{ background: t.color }} />
                   {t.label}
                 </Radio.Button>
@@ -84,7 +83,6 @@ export default function LoginPage() {
           >
             <Input.Password autoComplete="current-password" placeholder="Your password" />
           </Form.Item>
-          {error && <Alert type="error" title={error} showIcon />}
           <Button className="submit" type="primary" htmlType="submit" loading={loading} block>
             {loading ? "Signing in..." : "Log in"}
           </Button>
@@ -93,10 +91,6 @@ export default function LoginPage() {
           New company? <Link href="/register">Register here</Link>
         </p>
       </div>
-      <AuthNote>
-        <b>One email, several roles?</b> Each role has its own account and password. Choose the role above that matches the
-        account you&apos;re logging in to.
-      </AuthNote>
     </AuthShell>
   );
 }

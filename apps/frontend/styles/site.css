@@ -157,12 +157,6 @@
 .site .auth .roles-pick span i{width:9px;height:9px;border-radius:50%;flex:0 0 9px}
 .site .auth .roles-pick input:checked+span{border:2px solid var(--rc);background:var(--rbg);color:var(--ink);padding:0 11px}
 .site .auth .roles-pick input:focus-visible+span{outline:2px solid var(--ink);outline-offset:2px}
-.site .auth .strength{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:2px}
-.site .auth .strength i{height:4px;border-radius:2px;background:var(--line)}
-.site .auth .strength.s1 i:nth-child(-n+1){background:#dc2626}
-.site .auth .strength.s2 i:nth-child(-n+2){background:#f59e0b}
-.site .auth .strength.s3 i:nth-child(-n+3){background:#10b981}
-.site .auth .strength.s4 i{background:#047857}
 .site .auth .af .btn{height:50px}
 .site .auth .alt{text-align:center;font-size:14px;color:var(--muted);margin-top:18px}
 .site .auth .alt a{color:var(--ink);font-weight:700;text-decoration:underline;text-underline-offset:3px}
@@ -617,7 +611,6 @@
 /* antd inside the auth and contact cards */
 .site .auth .af{display:block}
 .site .auth .ant-form-item{margin-bottom:18px}
-.site .auth .ant-form-item:last-of-type{margin-bottom:0}
 .site .auth .lab-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;width:100%}
 .site .auth .lab-row a{font-size:13px;font-weight:700;color:var(--ink);text-decoration:underline;text-underline-offset:3px}
 .site .auth .ant-form-item-label>label{width:100%}
@@ -656,5 +649,39 @@
 .site .ant-btn.ant-btn-color-primary.ant-btn-variant-solid:not(:disabled){background:var(--ink);box-shadow:none}
 .site .ant-btn.ant-btn-color-primary.ant-btn-variant-solid:not(:disabled):hover{background:#252a40;filter:none}
 .site .auth .ant-form-item-extra{font-size:12px;margin-top:4px}
-.site .auth .strength{margin-block:2px 4px}
 .site .logo .logo-img{height:30px;width:auto;max-width:120px;object-fit:contain;display:block}
+.site .auth .pw-rules{list-style:none;margin:-4px 0 18px;padding:12px 14px;display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;border-radius:12px;background:var(--bg);font-size:13px}
+.site .auth .pw-rules li{display:flex;align-items:center;gap:8px;color:var(--muted);white-space:nowrap;transition:color .15s}
+.site .auth .pw-rules li i{flex:0 0 16px;height:16px;border-radius:50%;border:1.5px solid #c5c8d6;display:grid;place-items:center;transition:background .15s,border-color .15s}
+.site .auth .pw-rules li i svg{width:12px;height:12px;color:#fff}
+.site .auth .pw-rules li.ok{color:var(--good);font-weight:600}
+.site .auth .pw-rules li.ok i{background:var(--good);border-color:var(--good)}
+.site .auth .pw-rules li.bad{color:#b91c1c;font-weight:600}
+.site .auth .pw-rules li.bad i{background:#dc2626;border-color:#dc2626}
+.site .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media (max-width:600px){.site .auth .pw-rules{grid-template-columns:1fr}}
+/* compact auth cards: note inside the card under the heading, tighter rhythm */
+.site .auth .panel .card{padding:26px 28px}
+.site .auth .panel h1{font-size:26px}
+.site .auth .stepper{margin-bottom:14px}
+.site .auth .ant-form-item{margin-bottom:14px}
+.site .auth .ant-form-item-label{padding-bottom:4px}
+.site .auth .submit{height:46px;margin-top:4px}
+.site .auth .alt{margin-top:14px}
+.site .auth .role-pick .ant-radio-button-wrapper{height:38px;line-height:36px}
+.site .auth .pw-rules{margin:0 0 16px;padding:10px 12px;gap:6px 12px}
+.site .auth .inline-note{display:flex;gap:10px;align-items:flex-start;margin-top:10px;padding:10px 12px;border-radius:12px;background:var(--admin-bg);font-size:13px;line-height:1.5;color:var(--body)}
+.site .auth .inline-note b{color:var(--ink)}
+.site .auth .inline-note::before{content:"i";flex:0 0 18px;height:18px;margin-top:1px;border-radius:50%;background:var(--admin);color:#fff;font:700 11px/18px var(--text);text-align:center}
+/* desktop: both auth columns are exactly the viewport height; only the form side scrolls if the window is short */
+@media (min-width:981px){
+  .site .auth{height:100vh;min-height:0;overflow:hidden}
+  .site .auth .auth-side{height:100vh}
+  .site .auth .auth-main{height:100vh;overflow-y:auto;padding-block:22px 22px}
+  .site .auth .auth-center{padding-block:16px}
+}
+@media (max-width:600px){.site .auth .stepper>span:not(.on){gap:0;font-size:0}}
+/* auth forms: errors appear as toasts, not under the fields; keep the field spacing steady */
+.site .auth .ant-form-item-explain,.site .auth .ant-form-item-explain-connected{display:none !important}
+.site .auth .ant-form-item-with-help{margin-bottom:14px}
+.site .auth .ant-form-item-margin-offset{display:none}

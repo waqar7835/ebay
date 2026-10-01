@@ -1,24 +1,23 @@
 "use client";
 
-import { Alert, Button, Form, Input } from "antd";
+import { Button, Form, Input } from "antd";
 import Link from "next/link";
 import { useState } from "react";
-import AuthShell, { DoneIcon } from "@/components/site/AuthShell";
+import AuthShell, { DoneIcon, useAuthToasts } from "@/components/site/AuthShell";
 import { forgotPassword } from "@/lib/api";
 
 export default function ForgotPasswordPage() {
   const [done, setDone] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { onFinishFailed, showError } = useAuthToasts();
   const [loading, setLoading] = useState(false);
 
   async function handleFinish({ email }: { email: string }) {
-    setError(null);
     setLoading(true);
     try {
       await forgotPassword(email.trim());
       setDone(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      showError(err, "Something went wrong");
     } finally {
       setLoading(false);
     }
@@ -40,11 +39,17 @@ export default function ForgotPasswordPage() {
           <>
             <h1>Forgot password</h1>
             <p className="sub">Enter your email and we&apos;ll send you a link to reset your password.</p>
-            <Form className="af" layout="vertical" requiredMark={false} onFinish={handleFinish} style={{ marginTop: 24 }}>
+            <Form
+              className="af"
+              layout="vertical"
+              requiredMark={false}
+              onFinish={handleFinish}
+              onFinishFailed={onFinishFailed}
+              style={{ marginTop: 24 }}
+            >
               <Form.Item name="email" label="Email" rules={[{ required: true, type: "email", message: "Enter a valid email" }]}>
                 <Input autoComplete="email" placeholder="you@company.com" />
               </Form.Item>
-              {error && <Alert type="error" title={error} showIcon />}
               <Button className="submit" type="primary" htmlType="submit" loading={loading} block>
                 Send reset link
               </Button>

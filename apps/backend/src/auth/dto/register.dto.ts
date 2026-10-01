@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength } from "class-validator";
+import { IsEmail, IsString, Matches, MinLength } from "class-validator";
 
 export class RegisterDto {
   @IsString()
@@ -8,6 +8,8 @@ export class RegisterDto {
   email!: string;
 
   @MinLength(8)
+  @Matches(/[A-Za-z]/, { message: "Password must contain at least 1 letter" })
+  @Matches(/\d/, { message: "Password must contain at least 1 number" })
   password!: string;
 
   @MinLength(8)

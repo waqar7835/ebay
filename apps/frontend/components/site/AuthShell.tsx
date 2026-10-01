@@ -1,5 +1,6 @@
 "use client";
 
+import { App, ConfigProvider } from "antd";
 import Link from "next/link";
 import { ROLE_COLORS } from "@/lib/brand";
 import { useSiteSettings } from "./SiteSettingsProvider";
@@ -23,7 +24,11 @@ const SIDE: Record<Variant, { title: string; text: string; points: { color: stri
     text: "You'll be the company Admin. Once you're in, invite your partners and log your first order.",
     points: [
       { color: "#047857", strong: "Start on the free plan.", rest: " Every feature included. No card needed." },
-      { color: ROLE_COLORS.admin, strong: "Every feature on every plan.", rest: " Plans only change how many partners you can add." },
+      {
+        color: ROLE_COLORS.admin,
+        strong: "Every feature on every plan.",
+        rest: " Plans only change how many partners you can add.",
+      },
       { color: ROLE_COLORS.stockOwner, strong: "Your Admin account is always free", rest: ", on every plan." },
     ],
   },
@@ -73,8 +78,14 @@ export default function AuthShell({
           </ul>
         </div>
         <div className="mini">
-          <span><i style={{ background: "#10b981" }} />Rates locked per order</span>
-          <span><i style={{ background: "#f59e0b" }} />Invoices in each partner&apos;s currency</span>
+          <span>
+            <i style={{ background: "#10b981" }} />
+            Rates locked per order
+          </span>
+          <span>
+            <i style={{ background: "#f59e0b" }} />
+            Invoices in each partner&apos;s currency
+          </span>
         </div>
       </aside>
 
@@ -92,7 +103,9 @@ export default function AuthShell({
           )}
         </div>
         <div className="auth-center">
-          <div className="panel">{children}</div>
+          <div className="panel">
+            <ConfigProvider theme={{ token: { controlHeight: 44 } }}>{children}</ConfigProvider>
+          </div>
         </div>
         <div className="auth-foot">
           <span>{footNote ?? `© ${new Date().getFullYear()} ${brandName}`}</span>
@@ -105,10 +118,10 @@ export default function AuthShell({
   );
 }
 
-/** Small info card shown under the main auth card. */
+/** Small info note shown inside the auth card, right under its heading. */
 export function AuthNote({ children }: { children: React.ReactNode }) {
   return (
-    <div className="card note-card">
+    <div className="inline-note">
       <i aria-hidden>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <circle cx="12" cy="12" r="9" />
@@ -136,4 +149,23 @@ export function DoneIcon({ kind = "check" }: { kind?: "check" | "mail" }) {
       )}
     </div>
   );
+}
+
+/**
+ * Auth forms show their errors as toasts instead of under the fields (fields with a problem keep a red outline).
+ * `onFinishFailed` toasts each failed field's first message; `showError` toasts a server/API error.
+ */
+export function useAuthToasts() {
+  const { message } = App.useApp();
+  return {
+    onFinishFailed: ({ errorFields }: { errorFields: { name: (string | number)[]; errors: string[] }[] }) => {
+      // Newest toast shows on top, so add them last-to-first to read top-down in form order.
+      for (const field of [...errorFields].reverse()) {
+        if (field.errors[0]) message.error({ content: field.errors[0], key: `field-${field.name.join(".")}` });
+      }
+    },
+    showError: (err: unknown, fallback: string) => {
+      message.error({ content: err instanceof Error ? err.message : fallback, key: "auth-error" });
+    },
+  };
 }

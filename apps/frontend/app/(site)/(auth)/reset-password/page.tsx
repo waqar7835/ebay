@@ -1,10 +1,10 @@
 "use client";
 
-import { Alert, Button, Form, Input } from "antd";
+import { Button, Form, Input } from "antd";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
-import AuthShell, { DoneIcon } from "@/components/site/AuthShell";
+import AuthShell, { DoneIcon, useAuthToasts } from "@/components/site/AuthShell";
 import { resetPassword } from "@/lib/api";
 
 export default function ResetPasswordPage() {
@@ -25,18 +25,17 @@ interface ResetValues {
 function ResetPasswordForm() {
   const params = useSearchParams();
   const token = params.get("token") ?? "";
-  const [error, setError] = useState<string | null>(null);
+  const { onFinishFailed, showError } = useAuthToasts();
   const [done, setDone] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit({ password, confirmPassword }: ResetValues) {
-    setError(null);
     setSubmitting(true);
     try {
       await resetPassword(token, password, confirmPassword);
       setDone(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      showError(err, "Something went wrong");
     } finally {
       setSubmitting(false);
     }
@@ -59,8 +58,19 @@ function ResetPasswordForm() {
     <div className="card">
       <h1>Reset password</h1>
       <p className="sub">Choose a new password for your account.</p>
-      <Form<ResetValues> className="af" layout="vertical" requiredMark={false} onFinish={handleSubmit} style={{ marginTop: 24 }}>
-        <Form.Item name="password" label="New password" rules={[{ required: true, min: 8, message: "Use at least 8 characters" }]}>
+      <Form<ResetValues>
+        className="af"
+        layout="vertical"
+        requiredMark={false}
+        onFinish={handleSubmit}
+        onFinishFailed={onFinishFailed}
+        style={{ marginTop: 24 }}
+      >
+        <Form.Item
+          name="password"
+          label="New password"
+          rules={[{ required: true, min: 8, message: "Use at least 8 characters" }]}
+        >
           <Input.Password autoComplete="new-password" placeholder="At least 8 characters" />
         </Form.Item>
         <Form.Item
@@ -71,13 +81,14 @@ function ResetPasswordForm() {
             { required: true, message: "Confirm your password" },
             ({ getFieldValue }) => ({
               validator: (_, value) =>
-                !value || value === getFieldValue("password") ? Promise.resolve() : Promise.reject(new Error("Passwords don't match")),
+                !value || value === getFieldValue("password")
+                  ? Promise.resolve()
+                  : Promise.reject(new Error("Passwords don't match")),
             }),
           ]}
         >
           <Input.Password autoComplete="new-password" placeholder="Type it again" />
         </Form.Item>
-        {error && <Alert type="error" title={error} showIcon />}
         <Button className="submit" type="primary" htmlType="submit" loading={submitting} block>
           Update password
         </Button>
