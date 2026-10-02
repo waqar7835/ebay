@@ -15,6 +15,7 @@ import type {
   InvoiceTemplateColors,
   InvoiceTemplateDto,
   InvoiceTemplatesDto,
+  InvoiceWatermark,
   OrderDto,
   OrderItemInput,
   OrderStatus,
@@ -611,10 +612,12 @@ export function listInvoiceTemplates() {
   return request<InvoiceTemplatesDto>("/invoice-templates");
 }
 
+/** On a predefined template `name` and `layout` are ignored (they're fixed). */
 export interface InvoiceTemplateInput {
   name: string;
   layout: InvoiceLayout;
   colors: InvoiceTemplateColors;
+  watermark: InvoiceWatermark | null;
 }
 
 export function createInvoiceTemplate(input: InvoiceTemplateInput) {
@@ -628,6 +631,11 @@ export function updateInvoiceTemplate(id: string, input: InvoiceTemplateInput) {
 /** Invoices already issued with it keep their frozen copy; a deleted default falls back to Classic. */
 export function deleteInvoiceTemplate(id: string) {
   return request<{ id: string }>(`/invoice-templates/${id}`, { method: "DELETE" });
+}
+
+/** A predefined template back to its original colors, no own logo and no watermark. */
+export function resetInvoiceTemplate(id: string) {
+  return request<InvoiceTemplateDto>(`/invoice-templates/${id}/reset`, { method: "POST" });
 }
 
 export function setDefaultInvoiceTemplate(templateId: string) {
@@ -665,6 +673,7 @@ export function removeInvoiceTemplateLogo(id: string) {
 export async function previewInvoiceTemplate(input: {
   layout: InvoiceLayout;
   colors: InvoiceTemplateColors;
+  watermark: InvoiceWatermark | null;
   role: "ACCOUNT_HOLDER" | "STOCK_OWNER" | "THREE_PL";
   useCompanyLogo: boolean;
   logo?: File | null;
@@ -673,6 +682,7 @@ export async function previewInvoiceTemplate(input: {
   const form = new FormData();
   form.append("layout", input.layout);
   form.append("colors", JSON.stringify(input.colors));
+  if (input.watermark) form.append("watermark", JSON.stringify(input.watermark));
   form.append("role", input.role);
   form.append("useCompanyLogo", String(input.useCompanyLogo));
   if (input.templateId) form.append("templateId", input.templateId);

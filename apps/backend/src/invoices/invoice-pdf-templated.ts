@@ -1,5 +1,12 @@
 import PDFDocument from "pdfkit";
-import { InvoiceLayout, InvoiceLineKind, InvoiceTemplateColors, ProductFulfillmentType, Role } from "@ebay-order-management/shared";
+import {
+  InvoiceLayout,
+  InvoiceLineKind,
+  InvoiceTemplateColors,
+  InvoiceWatermark,
+  ProductFulfillmentType,
+  Role,
+} from "@ebay-order-management/shared";
 import {
   InvoicePdfInput,
   InvoicePdfLine,
@@ -30,6 +37,8 @@ export interface TemplatedPdfInput extends Omit<InvoicePdfInput, "company"> {
   layout: InvoiceLayout;
   colors: InvoiceTemplateColors;
   logo: Buffer | null;
+  /** The template's watermark; drawn only when enabled (it then replaces the DRAFT mark). */
+  watermark?: InvoiceWatermark | null;
 }
 
 type Doc = PDFKit.PDFDocument;
@@ -56,7 +65,8 @@ export function renderTemplatedInvoicePdf(input: TemplatedPdfInput): Promise<Buf
       : input.role === Role.THREE_PL
         ? threePlModel(input)
         : stockOwnerModel(input);
-  return draw(model, input.layout, input.colors, input.logo, input.invoiceNumber);
+  const watermark = input.watermark?.enabled && input.watermark.text.trim() ? input.watermark : null;
+  return draw(model, input.layout, input.colors, input.logo, input.invoiceNumber, watermark);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -100,7 +110,7 @@ function plain(value: number, currency: string) {
   return formatMoney(value, currency).replace(currencySymbol(currency), "");
 }
 
-/** Header details. No status: DRAFT / VOID show as a watermark instead. */
+/** Header details. No status: DRAFT / VOID (or the template's own watermark) show over the page instead. */
 function meta(input: TemplatedPdfInput, period: string | null): [string, string][] {
   return [
     ["Invoice #:", input.invoiceNumber],
@@ -469,7 +479,14 @@ interface Ctx {
   card: string;
 }
 
-function draw(model: Model, layout: InvoiceLayout, colors: InvoiceTemplateColors, logo: Buffer | null, number: string) {
+function draw(
+  model: Model,
+  layout: InvoiceLayout,
+  colors: InvoiceTemplateColors,
+  logo: Buffer | null,
+  number: string,
+  custom: InvoiceWatermark | null,
+) {
   const doc = new PDFDocument({ size: "A4", margin: PAGE.margin, bufferPages: true, info: { Title: `Invoice ${number}` } });
   const chunks: Buffer[] = [];
   const done = new Promise<Buffer>((resolve, reject) => {
@@ -504,7 +521,8 @@ function draw(model: Model, layout: InvoiceLayout, colors: InvoiceTemplateColors
   }
   y = totalBox(ctx, model, y + 12);
   footer(ctx, model, y + 14);
-  watermark(ctx, model.status);
+  if (custom) customWatermark(ctx, custom);
+  watermark(ctx, model.status, !!custom);
   doc.end();
   return done;
 }
@@ -1148,10 +1166,13 @@ function footer(ctx: Ctx, m: Model, y: number) {
   doc.font("Helvetica").fontSize(8).fillColor(ctx.faint).text(m.footer.note, x0, y + 26, { width: cw, align, lineBreak: false, ellipsis: true });
 }
 
-/** Big diagonal DRAFT / VOID mark on every page. */
-function watermark(ctx: Ctx, status: string) {
+/**
+ * Big diagonal DRAFT / VOID mark on every page. With the template's own watermark on, DRAFT is left
+ * out (the template's watermark stands in for it) but VOID is still drawn over it.
+ */
+function watermark(ctx: Ctx, status: string, hasCustom: boolean) {
   const { doc } = ctx;
-  const word = status.startsWith("Draft") ? "DRAFT" : status === "Void" ? "VOID" : null;
+  const word = status.startsWith("Draft") && !hasCustom ? "DRAFT" : status === "Void" ? "VOID" : null;
   if (!word) return;
   const range = doc.bufferedPageRange();
   for (let i = range.start; i < range.start + range.count; i++) {
@@ -1164,6 +1185,40 @@ function watermark(ctx: Ctx, status: string) {
       .fillColor(word === "VOID" ? FIXED.red : ctx.faint)
       .fillOpacity(0.12)
       .text(word, 0, PAGE.height / 2 - 60, { width: PAGE.width, align: "center", lineBreak: false });
+    doc.restore();
+  }
+}
+
+/**
+ * The template's watermark on every page, over the content: one copy in the middle of the page, or
+ * (repeat) a grid of copies `gapX` / `gapY` apart. The whole grid turns about the page center, so it
+ * is laid out over the page's diagonal to still reach the corners.
+ */
+function customWatermark(ctx: Ctx, w: InvoiceWatermark) {
+  const { doc } = ctx;
+  const cx = PAGE.width / 2;
+  const cy = PAGE.height / 2;
+  const range = doc.bufferedPageRange();
+  for (let i = range.start; i < range.start + range.count; i++) {
+    doc.switchToPage(i);
+    doc.save();
+    doc.rotate(w.rotation, { origin: [cx, cy] });
+    doc.font("Helvetica-Bold").fontSize(w.size).fillColor(w.color).fillOpacity(w.opacity / 100);
+    const textW = doc.widthOfString(w.text);
+    const textH = doc.currentLineHeight();
+    const at = (x: number, y: number) => doc.text(w.text, x - textW / 2, y - textH / 2, { lineBreak: false });
+    if (w.repeat) {
+      const stepX = textW + w.gapX;
+      const stepY = textH + w.gapY;
+      const reach = Math.hypot(PAGE.width, PAGE.height) / 2;
+      const cols = Math.ceil(reach / stepX);
+      const rows = Math.ceil(reach / stepY);
+      for (let r = -rows; r <= rows; r++) {
+        for (let c = -cols; c <= cols; c++) at(cx + c * stepX, cy + r * stepY);
+      }
+    } else {
+      at(cx, cy);
+    }
     doc.restore();
   }
 }

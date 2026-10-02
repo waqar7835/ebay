@@ -442,6 +442,49 @@ export const INVOICE_TEMPLATE_COLOR_KEYS: (keyof InvoiceTemplateColors)[] = [
   "border",
 ];
 
+/**
+ * Text drawn over every page of an invoice PDF. Saved even while `enabled` is false, so switching it
+ * back on restores the settings. When enabled it replaces the DRAFT mark (VOID is still drawn on top).
+ */
+export interface InvoiceWatermark {
+  enabled: boolean;
+  text: string;
+  /** Hex color of the text. */
+  color: string;
+  /** Font size in points. */
+  size: number;
+  /** Opacity in percent (higher = more visible). */
+  opacity: number;
+  /** Degrees; 0 = flat, positive = turned clockwise, negative = counter-clockwise. */
+  rotation: number;
+  /** Tile the text across the page instead of one copy in the center. */
+  repeat: boolean;
+  /** Gap between repeated copies, in points. */
+  gapX: number;
+  gapY: number;
+}
+
+export const INVOICE_WATERMARK_LIMITS = {
+  text: 60,
+  size: { min: 12, max: 150 },
+  opacity: { min: 5, max: 60 },
+  rotation: { min: -90, max: 90 },
+  gap: { min: 20, max: 300 },
+} as const;
+
+/** A new watermark's settings; the editor fills `text` with the company name. */
+export const DEFAULT_INVOICE_WATERMARK: InvoiceWatermark = {
+  enabled: false,
+  text: "",
+  color: "#94a3b8",
+  size: 48,
+  opacity: 12,
+  rotation: 0,
+  repeat: false,
+  gapX: 80,
+  gapY: 80,
+};
+
 /** Custom templates a company can save, on top of the predefined ones. */
 export const MAX_CUSTOM_INVOICE_TEMPLATES = 5;
 
@@ -488,9 +531,13 @@ export interface InvoiceTemplateDto {
   name: string;
   layout: InvoiceLayout;
   colors: InvoiceTemplateColors;
-  /** The template's own logo; null = the company logo is used. Always null on predefined ones. */
+  /** The template's own logo; null = the company logo is used. */
   logoUrl: string | null;
+  /** null = no watermark has been set up. */
+  watermark: InvoiceWatermark | null;
   predefined: boolean;
+  /** Predefined only: the company has edited it (and can reset it to the original). */
+  customized: boolean;
 }
 
 export interface InvoiceTemplatesDto {
@@ -506,6 +553,8 @@ export interface InvoiceTemplateSnapshot {
   colors: InvoiceTemplateColors;
   /** The template's logo, or the company logo at the time; null = none. */
   logoUrl: string | null;
+  /** Missing on invoices approved before watermarks; only an enabled one is drawn. */
+  watermark?: InvoiceWatermark | null;
 }
 
 export interface PaginatedResult<T> {

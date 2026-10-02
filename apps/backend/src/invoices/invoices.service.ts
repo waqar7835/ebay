@@ -356,6 +356,7 @@ export class InvoicesService {
       layout: template.layout,
       colors: template.colors,
       logo: template.logoUrl ? await readUpload(template.logoUrl) : null,
+      watermark: template.watermark,
     });
   }
 

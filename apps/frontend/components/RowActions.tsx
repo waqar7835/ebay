@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircleOutlined, DeleteOutlined, EditOutlined, StopOutlined } from "@ant-design/icons";
+import { CheckCircleOutlined, DeleteOutlined, EditOutlined, StopOutlined, UndoOutlined } from "@ant-design/icons";
 import { Button, Popconfirm, Tooltip } from "antd";
 
 /** Icon-only row actions for tables. Destructive ones always go through a Popconfirm. */
@@ -34,6 +34,17 @@ export function DeleteAction({ onConfirm, confirmTitle, title = "Delete" }: { on
     <Popconfirm title={confirmTitle} okText="Delete" okButtonProps={{ danger: true }} onConfirm={onConfirm}>
       <Tooltip title={title}>
         <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label={title} />
+      </Tooltip>
+    </Popconfirm>
+  );
+}
+
+/** Undo-arrow icon that puts something back to its original settings, after a confirm. */
+export function ResetAction({ onConfirm, confirmTitle, title = "Reset" }: { onConfirm: () => void; confirmTitle: string; title?: string }) {
+  return (
+    <Popconfirm title={confirmTitle} okText="Reset" okButtonProps={{ danger: true }} onConfirm={onConfirm}>
+      <Tooltip title={title}>
+        <Button type="text" size="small" icon={<UndoOutlined />} aria-label={title} />
       </Tooltip>
     </Popconfirm>
   );

@@ -32,7 +32,7 @@ const logoFilter = (_req: unknown, file: Express.Multer.File, cb: (error: Error 
 };
 
 /**
- * Invoice templates. Managing them (create/edit/delete/logo/default/preview) is the company Admin's —
+ * Invoice templates. Managing them (create/edit/reset/delete/logo/default/preview) is the company Admin's —
  * checked in the service, since RolesGuard lets SUPER_ADMIN through and the backoffice only looks.
  */
 @ApiTags("invoice-templates")
@@ -73,6 +73,12 @@ export class InvoiceTemplatesController {
   @Patch(":id")
   update(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: SaveInvoiceTemplateDto) {
     return this.templatesService.update(resolveCompanyId(user), user, id, dto);
+  }
+
+  /** A predefined template back to its original colors, no own logo and no watermark. */
+  @Post(":id/reset")
+  reset(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    return this.templatesService.reset(resolveCompanyId(user), user, id);
   }
 
   @Delete(":id")

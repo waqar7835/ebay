@@ -59,7 +59,16 @@ export default function InvoiceTemplatesList() {
       ),
     },
     { title: "Layout", dataIndex: "layout", render: (l: InvoiceLayout) => LAYOUT_NAMES[l] },
-    { title: "Type", dataIndex: "predefined", render: (p: boolean) => (p ? "Predefined" : "Custom") },
+    {
+      title: "Type",
+      key: "type",
+      render: (_, t) => (t.predefined ? (t.customized ? "Predefined, edited" : "Predefined") : "Custom"),
+    },
+    {
+      title: "Watermark",
+      key: "watermark",
+      render: (_, t) => (t.watermark?.enabled ? <span title={t.watermark.text}>{t.watermark.text}</span> : "—"),
+    },
     {
       title: "Colors",
       key: "colors",

@@ -5,17 +5,18 @@ import {
   type InvoiceTemplateDto,
   type InvoiceTemplatesDto,
 } from "@ebay-order-management/shared";
-import { BgColorsOutlined, FileTextOutlined, PlusOutlined, StarOutlined } from "@ant-design/icons";
+import { FileTextOutlined, PlusOutlined, StarOutlined } from "@ant-design/icons";
 import { Alert, Button, Card, Table, Tag, Tooltip, type TableColumnsType } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { EditAction, DeleteAction } from "@/components/RowActions";
+import { EditAction, DeleteAction, ResetAction } from "@/components/RowActions";
 import InvoiceTemplateSwatches, { LAYOUT_LABELS } from "@/components/InvoiceTemplateSwatches";
-import { deleteInvoiceTemplate, listInvoiceTemplates, mediaUrl, setDefaultInvoiceTemplate } from "@/lib/api";
+import { deleteInvoiceTemplate, listInvoiceTemplates, mediaUrl, resetInvoiceTemplate, setDefaultInvoiceTemplate } from "@/lib/api";
 
 /**
  * Profile page (company Admin only): the five predefined invoice templates plus up to five custom
- * ones. Pick the default the invoice wizard preselects; customize a predefined one to save your own.
+ * ones. Pick the default the invoice wizard preselects. Predefined ones can be edited (colors, logo,
+ * watermark) and reset to the original; a new template starts from any existing one.
  */
 export default function InvoiceTemplatesCard() {
   const router = useRouter();
@@ -71,7 +72,14 @@ export default function InvoiceTemplatesCard() {
               )}
             </div>
             <div className="text-xs text-slate-500">
-              {LAYOUT_LABELS[t.layout].name} layout · {t.predefined ? "Predefined" : t.logoUrl ? "Custom, own logo" : "Custom"}
+              {[
+                `${LAYOUT_LABELS[t.layout].name} layout`,
+                t.predefined ? (t.customized ? "Predefined, edited" : "Predefined") : "Custom",
+                t.logoUrl ? "own logo" : null,
+                t.watermark?.enabled ? "watermark" : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </div>
           </div>
         </div>
@@ -88,20 +96,17 @@ export default function InvoiceTemplatesCard() {
               Set as default
             </Button>
           )}
+          <EditAction onClick={() => router.push(`/profile/invoice-templates/${t.id}/edit`)} />
           {t.predefined ? (
-            <Tooltip title={full ? fullReason : "Change its colors and logo, and save it as your own template"}>
-              <Button
-                size="small"
-                icon={<BgColorsOutlined />}
-                disabled={full}
-                onClick={() => router.push(`/profile/invoice-templates/new?from=${t.id}`)}
-              >
-                Customize
-              </Button>
-            </Tooltip>
+            t.customized && (
+              <ResetAction
+                title="Reset to original"
+                confirmTitle={`Reset "${t.name}" to its original colors, logo and no watermark? Invoices already issued keep their look.`}
+                onConfirm={() => run(t.id, () => resetInvoiceTemplate(t.id))}
+              />
+            )
           ) : (
             <>
-              <EditAction onClick={() => router.push(`/profile/invoice-templates/${t.id}/edit`)} />
               <DeleteAction
                 confirmTitle={`Delete "${t.name}"? Invoices already issued with it keep their look.`}
                 onConfirm={() => run(t.id, () => deleteInvoiceTemplate(t.id))}
@@ -137,6 +142,7 @@ export default function InvoiceTemplatesCard() {
     >
       <p className="mb-4 mt-0 text-sm text-slate-500">
         The style of your invoice PDFs. Whoever creates an invoice can pick any of these; the default is preselected.
+        Edit a predefined template to change its colors, logo or watermark, or start a new one from any template.
         Custom templates: {customCount} of {MAX_CUSTOM_INVOICE_TEMPLATES}.
       </p>
       {error && <Alert type="error" title={error} className="mb-4" showIcon closable onClose={() => setError(null)} />}

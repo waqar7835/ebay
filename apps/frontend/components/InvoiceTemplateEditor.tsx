@@ -1,14 +1,31 @@
 "use client";
 
 import {
+  DEFAULT_INVOICE_WATERMARK,
   INVOICE_TEMPLATE_COLOR_KEYS,
+  INVOICE_WATERMARK_LIMITS as LIMITS,
   InvoiceLayout,
   PREDEFINED_INVOICE_TEMPLATES,
   type InvoiceTemplateColors,
   type InvoiceTemplateDto,
+  type InvoiceWatermark,
 } from "@ebay-order-management/shared";
 import { ReloadOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, ColorPicker, Form, Input, Radio, Segmented, Select, Spin, type ColorPickerProps } from "antd";
+import {
+  Alert,
+  Button,
+  Card,
+  Checkbox,
+  ColorPicker,
+  Form,
+  Input,
+  Radio,
+  Segmented,
+  Select,
+  Slider,
+  Spin,
+  type ColorPickerProps,
+} from "antd";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import BackLink from "@/components/BackLink";
@@ -16,6 +33,7 @@ import ImageUpload from "@/components/ImageUpload";
 import { COLOR_LABELS, LAYOUT_LABELS } from "@/components/InvoiceTemplateSwatches";
 import {
   createInvoiceTemplate,
+  getMyCompany,
   getStoredUser,
   getToken,
   listInvoiceTemplates,
@@ -32,9 +50,10 @@ type PickerColor = Parameters<NonNullable<ColorPickerProps["onChange"]>>[0];
 const layoutDefaults = (layout: InvoiceLayout) => PREDEFINED_INVOICE_TEMPLATES.find((t) => t.layout === layout)!;
 
 /**
- * Create or edit a custom invoice template: pick a layout (fixed), change its five colors, and use
- * the company logo or the template's own. A sample invoice re-renders on the right as you go.
- * `templateId` = edit that template; otherwise a new one starting from `fromId` (any template).
+ * Create or edit an invoice template: pick a layout (fixed), change its five colors, use the company
+ * logo or the template's own, and optionally add a watermark. A sample invoice re-renders on the
+ * right as you go. `templateId` = edit that template (a predefined one keeps its name and layout);
+ * otherwise a new custom one starting from `fromId`, which can be switched to any template.
  */
 export default function InvoiceTemplateEditor({ templateId, fromId }: { templateId?: string; fromId?: string }) {
   const router = useRouter();
@@ -51,6 +70,12 @@ export default function InvoiceTemplateEditor({ templateId, fromId }: { template
   const [logoMode, setLogoMode] = useState<"company" | "own">("company");
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [savedLogoUrl, setSavedLogoUrl] = useState<string | null>(null);
+  const [watermark, setWatermark] = useState<InvoiceWatermark>(DEFAULT_INVOICE_WATERMARK);
+  const [liveWatermarkColor, setLiveWatermarkColor] = useState<PickerColor | null>(null);
+  const [templates, setTemplates] = useState<InvoiceTemplateDto[]>([]);
+  const [sourceId, setSourceId] = useState<string | undefined>(fromId);
+  const [predefined, setPredefined] = useState(false);
+  const [companyName, setCompanyName] = useState("");
 
   const [sampleRole, setSampleRole] = useState<SampleRole>("ACCOUNT_HOLDER");
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -69,15 +94,16 @@ export default function InvoiceTemplateEditor({ templateId, fromId }: { template
       return;
     }
     if (!isAdmin) return;
-    listInvoiceTemplates()
-      .then(({ templates }) => {
+    Promise.all([listInvoiceTemplates(), getMyCompany()])
+      .then(([{ templates }, company]) => {
         const source: InvoiceTemplateDto | undefined = templates.find((t) => t.id === (templateId ?? fromId));
         if (templateId && !source) throw new Error("Template not found");
         const start = source ?? templates[0];
-        setName(templateId ? start.name : `${start.name} (custom)`);
-        setLayout(start.layout);
-        setColors(start.colors);
-        setLiveColors({});
+        setTemplates(templates);
+        setCompanyName(company.name);
+        setSourceId(start.id);
+        setPredefined(!!templateId && start.predefined);
+        applySource(start, company.name);
         if (templateId && start.logoUrl) {
           setLogoMode("own");
           setSavedLogoUrl(start.logoUrl);
@@ -86,6 +112,26 @@ export default function InvoiceTemplateEditor({ templateId, fromId }: { template
       })
       .catch((err) => setLoadError(err instanceof Error ? err.message : "Failed to load templates"));
   }, [router, templateId, fromId, isAdmin]);
+
+  /** Fill the form from a template: the one being edited, or the one a new template starts from. */
+  function applySource(source: InvoiceTemplateDto, company: string) {
+    setName(templateId ? source.name : `${source.name} (custom)`);
+    setLayout(source.layout);
+    setColors(source.colors);
+    setLiveColors({});
+    const saved = source.watermark ?? DEFAULT_INVOICE_WATERMARK;
+    setWatermark({ ...saved, text: saved.text || company });
+    setLiveWatermarkColor(null);
+  }
+
+  function changeSource(id: string) {
+    const source = templates.find((t) => t.id === id);
+    if (!source) return;
+    setSourceId(id);
+    applySource(source, companyName);
+  }
+
+  const updateWatermark = (patch: Partial<InvoiceWatermark>) => setWatermark((prev) => ({ ...prev, ...patch }));
 
   // Re-render the sample shortly after the last change; stale responses are dropped.
   useEffect(() => {
@@ -98,6 +144,7 @@ export default function InvoiceTemplateEditor({ templateId, fromId }: { template
         const blob = await previewInvoiceTemplate({
           layout,
           colors,
+          watermark,
           role: sampleRole,
           useCompanyLogo: logoMode === "company",
           logo: logoMode === "own" ? logoFile : null,
@@ -112,7 +159,7 @@ export default function InvoiceTemplateEditor({ templateId, fromId }: { template
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [loaded, layout, colors, sampleRole, logoMode, logoFile, templateId]);
+  }, [loaded, layout, colors, watermark, sampleRole, logoMode, logoFile, templateId]);
 
   // Free each previewed PDF when it's replaced or the page closes.
   useEffect(() => () => void (pdfUrl && URL.revokeObjectURL(pdfUrl)), [pdfUrl]);
@@ -124,13 +171,17 @@ export default function InvoiceTemplateEditor({ templateId, fromId }: { template
       setSaveError("Give the template a name");
       return;
     }
+    if (watermark.enabled && !watermark.text.trim()) {
+      setSaveError("Enter the watermark text, or turn the watermark off");
+      return;
+    }
     if (logoMode === "own" && !logoFile && !savedLogoUrl) {
       setSaveError("Upload a logo, or use the company logo");
       return;
     }
     setSaving(true);
     try {
-      const input = { name: name.trim(), layout, colors };
+      const input = { name: name.trim(), layout, colors, watermark: { ...watermark, text: watermark.text.trim() } };
       const saved = savedId ? await updateInvoiceTemplate(savedId, input) : await createInvoiceTemplate(input);
       setSavedId(saved.id);
       if (logoMode === "own" && logoFile) await uploadInvoiceTemplateLogo(saved.id, logoFile);
@@ -161,12 +212,43 @@ export default function InvoiceTemplateEditor({ templateId, fromId }: { template
         <div className="flex flex-col gap-6 xl:col-span-2">
           <Form layout="vertical" component={false} disabled={!loaded}>
             <Card title="Template">
-              <Form.Item label="Name" required>
-                <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="e.g. Blue for Account Holders" />
+              {!templateId && (
+                <Form.Item label="Start from" tooltip="Copies that template's colors and watermark; change anything below">
+                  <Select
+                    value={sourceId}
+                    onChange={changeSource}
+                    showSearch={{ optionFilterProp: "label" }}
+                    options={templates.map((t) => ({
+                      value: t.id,
+                      label: t.name,
+                      description: `${LAYOUT_LABELS[t.layout].name} layout · ${t.predefined ? "Predefined" : "Custom"}`,
+                    }))}
+                    optionRender={(option) => (
+                      <div>
+                        <div>{option.data.label}</div>
+                        <div className="text-xs text-slate-500">{option.data.description}</div>
+                      </div>
+                    )}
+                  />
+                </Form.Item>
+              )}
+              <Form.Item
+                label="Name"
+                required={!predefined}
+                extra={predefined ? "Predefined templates keep their name and layout" : undefined}
+              >
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  maxLength={60}
+                  placeholder="e.g. Blue for Account Holders"
+                  disabled={predefined}
+                />
               </Form.Item>
               <Form.Item label="Layout" tooltip="The arrangement of the page. Layouts are fixed; colors and logo are yours" className="mb-0">
                 <Select
                   value={layout}
+                  disabled={predefined}
                   onChange={setLayout}
                   options={Object.values(InvoiceLayout).map((l) => ({
                     value: l,
@@ -239,6 +321,105 @@ export default function InvoiceTemplateEditor({ templateId, fromId }: { template
                 </div>
               )}
             </Card>
+
+            <Card
+              title={
+                <Checkbox checked={watermark.enabled} onChange={(e) => updateWatermark({ enabled: e.target.checked })}>
+                  Watermark
+                </Checkbox>
+              }
+            >
+              {!watermark.enabled ? (
+                <p className="m-0 text-sm text-slate-500">
+                  Off: the invoice preview shows DRAFT and issued invoices have no watermark. Turn it on to print your
+                  own text over every page of every invoice made with this template.
+                </p>
+              ) : (
+                <>
+                  <Form.Item label="Text" required>
+                    <Input
+                      value={watermark.text}
+                      onChange={(e) => updateWatermark({ text: e.target.value })}
+                      maxLength={LIMITS.text}
+                      placeholder={companyName || "e.g. your company name"}
+                    />
+                  </Form.Item>
+                  <div className="mb-6 flex items-center justify-between gap-4">
+                    <div>
+                      <div className="font-medium">Color</div>
+                      <div className="text-xs text-slate-500">The watermark text color</div>
+                    </div>
+                    <ColorPicker
+                      value={liveWatermarkColor ?? watermark.color}
+                      disabledAlpha
+                      showText
+                      onChange={setLiveWatermarkColor}
+                      onChangeComplete={(c) => {
+                        const hex = c.toHexString();
+                        setWatermark((prev) => (prev.color === hex ? prev : { ...prev, color: hex }));
+                      }}
+                    />
+                  </div>
+                  <SliderField
+                    label="Size"
+                    value={watermark.size}
+                    min={LIMITS.size.min}
+                    max={LIMITS.size.max}
+                    unit="pt"
+                    onChange={(size) => updateWatermark({ size })}
+                  />
+                  <SliderField
+                    label="Transparency"
+                    help="Lower is more transparent"
+                    value={watermark.opacity}
+                    min={LIMITS.opacity.min}
+                    max={LIMITS.opacity.max}
+                    unit="% opacity"
+                    onChange={(opacity) => updateWatermark({ opacity })}
+                  />
+                  <SliderField
+                    label="Rotation"
+                    help="Center is flat; right turns it clockwise, left counter-clockwise"
+                    value={watermark.rotation}
+                    min={LIMITS.rotation.min}
+                    max={LIMITS.rotation.max}
+                    unit="°"
+                    marks={{ [LIMITS.rotation.min]: `${LIMITS.rotation.min}°`, 0: "0°", [LIMITS.rotation.max]: `${LIMITS.rotation.max}°` }}
+                    onChange={(rotation) => updateWatermark({ rotation })}
+                  />
+                  <Checkbox
+                    checked={watermark.repeat}
+                    onChange={(e) => updateWatermark({ repeat: e.target.checked })}
+                    className={watermark.repeat ? "mb-4" : undefined}
+                  >
+                    Repeat across the page
+                  </Checkbox>
+                  {watermark.repeat && (
+                    <>
+                      <SliderField
+                        label="Horizontal spacing"
+                        help="Space between copies side by side"
+                        value={watermark.gapX}
+                        min={LIMITS.gap.min}
+                        max={LIMITS.gap.max}
+                        unit="pt"
+                        onChange={(gapX) => updateWatermark({ gapX })}
+                      />
+                      <SliderField
+                        label="Vertical spacing"
+                        help="Space between rows of copies"
+                        value={watermark.gapY}
+                        min={LIMITS.gap.min}
+                        max={LIMITS.gap.max}
+                        unit="pt"
+                        onChange={(gapY) => updateWatermark({ gapY })}
+                        last
+                      />
+                    </>
+                  )}
+                </>
+              )}
+            </Card>
           </Form>
 
           <Card>
@@ -283,5 +464,40 @@ export default function InvoiceTemplateEditor({ templateId, fromId }: { template
         </Card>
       </div>
     </>
+  );
+}
+
+/** A labeled slider with its current value shown beside the label. */
+function SliderField({
+  label,
+  help,
+  value,
+  min,
+  max,
+  unit,
+  marks,
+  onChange,
+  last,
+}: {
+  label: string;
+  help?: string;
+  value: number;
+  min: number;
+  max: number;
+  unit: string;
+  marks?: Record<number, string>;
+  onChange: (value: number) => void;
+  last?: boolean;
+}) {
+  const format = (v?: number) => `${v ?? ""}${unit.startsWith("°") || unit.startsWith("%") ? "" : " "}${unit}`;
+  return (
+    <div className={last ? "" : "mb-4"}>
+      <div className="flex items-baseline justify-between gap-4">
+        <span className="font-medium">{label}</span>
+        <span className="text-sm tabular-nums text-slate-500">{format(value)}</span>
+      </div>
+      {help && <div className="text-xs text-slate-500">{help}</div>}
+      <Slider value={value} min={min} max={max} marks={marks} onChange={onChange} tooltip={{ formatter: format }} />
+    </div>
   );
 }
