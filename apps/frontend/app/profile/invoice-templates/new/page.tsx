@@ -18,7 +18,7 @@ function NewInvoiceTemplate() {
   return (
     <>
       <Nav />
-      <main className="ml-56 p-8 pb-16">
+      <main className="ml-56 p-8 pb-16 xl:pb-8">
         <InvoiceTemplateEditor fromId={from} />
       </main>
     </>

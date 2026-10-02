@@ -16,6 +16,7 @@ import {
   Button,
   Card,
   Checkbox,
+  Collapse,
   ColorPicker,
   Form,
   Input,
@@ -76,6 +77,8 @@ export default function InvoiceTemplateEditor({ templateId, fromId }: { template
   const [sourceId, setSourceId] = useState<string | undefined>(fromId);
   const [predefined, setPredefined] = useState(false);
   const [companyName, setCompanyName] = useState("");
+  /** The one settings group that's open (accordion); undefined = all collapsed. */
+  const [openGroup, setOpenGroup] = useState<string | undefined>("template");
 
   const [sampleRole, setSampleRole] = useState<SampleRole>("ACCOUNT_HOLDER");
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -208,233 +211,10 @@ export default function InvoiceTemplateEditor({ templateId, fromId }: { template
       <BackLink href="/profile" label="Profile" title={title} />
       {loadError && <Alert type="error" title={loadError} className="mt-4" showIcon />}
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-5">
-        <div className="flex flex-col gap-6 xl:col-span-2">
-          <Form layout="vertical" component={false} disabled={!loaded}>
-            <Card title="Template">
-              {!templateId && (
-                <Form.Item label="Start from" tooltip="Copies that template's colors and watermark; change anything below">
-                  <Select
-                    value={sourceId}
-                    onChange={changeSource}
-                    showSearch={{ optionFilterProp: "label" }}
-                    options={templates.map((t) => ({
-                      value: t.id,
-                      label: t.name,
-                      description: `${LAYOUT_LABELS[t.layout].name} layout · ${t.predefined ? "Predefined" : "Custom"}`,
-                    }))}
-                    optionRender={(option) => (
-                      <div>
-                        <div>{option.data.label}</div>
-                        <div className="text-xs text-slate-500">{option.data.description}</div>
-                      </div>
-                    )}
-                  />
-                </Form.Item>
-              )}
-              <Form.Item
-                label="Name"
-                required={!predefined}
-                extra={predefined ? "Predefined templates keep their name and layout" : undefined}
-              >
-                <Input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  maxLength={60}
-                  placeholder="e.g. Blue for Account Holders"
-                  disabled={predefined}
-                />
-              </Form.Item>
-              <Form.Item label="Layout" tooltip="The arrangement of the page. Layouts are fixed; colors and logo are yours" className="mb-0">
-                <Select
-                  value={layout}
-                  disabled={predefined}
-                  onChange={setLayout}
-                  options={Object.values(InvoiceLayout).map((l) => ({
-                    value: l,
-                    label: LAYOUT_LABELS[l].name,
-                    description: LAYOUT_LABELS[l].description,
-                  }))}
-                  optionRender={(option) => (
-                    <div>
-                      <div>{option.data.label}</div>
-                      <div className="text-xs text-slate-500">{option.data.description}</div>
-                    </div>
-                  )}
-                />
-              </Form.Item>
-            </Card>
-
-            <Card
-              title="Colors"
-              extra={
-                <Button size="small" icon={<ReloadOutlined />} onClick={() => {
-                    setColors(layoutDefaults(layout).colors);
-                    setLiveColors({});
-                  }}>
-                  {LAYOUT_LABELS[layout].name} defaults
-                </Button>
-              }
-            >
-              <div className="flex flex-col gap-4">
-                {INVOICE_TEMPLATE_COLOR_KEYS.map((key) => (
-                  <div key={key} className="flex items-center justify-between gap-4">
-                    <div>
-                      <div className="font-medium">{COLOR_LABELS[key].name}</div>
-                      <div className="text-xs text-slate-500">{COLOR_LABELS[key].help}</div>
-                    </div>
-                    <ColorPicker
-                      value={liveColors[key] ?? colors[key]}
-                      disabledAlpha
-                      showText
-                      onChange={(c) => setLiveColors((prev) => ({ ...prev, [key]: c }))}
-                      onChangeComplete={(c) => {
-                        const hex = c.toHexString();
-                        // Only re-render the preview when the color really changed (a hue move on white/grey doesn't).
-                        setColors((prev) => (prev[key] === hex ? prev : { ...prev, [key]: hex }));
-                      }}
-                    />
-                  </div>
-                ))}
-              </div>
-            </Card>
-
-            <Card title="Logo">
-              <Radio.Group
-                value={logoMode}
-                onChange={(e) => setLogoMode(e.target.value)}
-                options={[
-                  { value: "company", label: "Company logo" },
-                  { value: "own", label: "This template's own logo" },
-                ]}
-              />
-              {logoMode === "own" && (
-                <div className="mt-4">
-                  <ImageUpload
-                    value={logoFile}
-                    existingUrl={savedLogoUrl ? mediaUrl(savedLogoUrl) : null}
-                    onChange={setLogoFile}
-                    freeAspect
-                    keepTransparency
-                  />
-                  <div className="text-xs text-slate-500">PNG or JPEG. A PNG keeps its transparent background.</div>
-                </div>
-              )}
-            </Card>
-
-            <Card
-              title={
-                <Checkbox checked={watermark.enabled} onChange={(e) => updateWatermark({ enabled: e.target.checked })}>
-                  Watermark
-                </Checkbox>
-              }
-            >
-              {!watermark.enabled ? (
-                <p className="m-0 text-sm text-slate-500">
-                  Off: the invoice preview shows DRAFT and issued invoices have no watermark. Turn it on to print your
-                  own text over every page of every invoice made with this template.
-                </p>
-              ) : (
-                <>
-                  <Form.Item label="Text" required>
-                    <Input
-                      value={watermark.text}
-                      onChange={(e) => updateWatermark({ text: e.target.value })}
-                      maxLength={LIMITS.text}
-                      placeholder={companyName || "e.g. your company name"}
-                    />
-                  </Form.Item>
-                  <div className="mb-6 flex items-center justify-between gap-4">
-                    <div>
-                      <div className="font-medium">Color</div>
-                      <div className="text-xs text-slate-500">The watermark text color</div>
-                    </div>
-                    <ColorPicker
-                      value={liveWatermarkColor ?? watermark.color}
-                      disabledAlpha
-                      showText
-                      onChange={setLiveWatermarkColor}
-                      onChangeComplete={(c) => {
-                        const hex = c.toHexString();
-                        setWatermark((prev) => (prev.color === hex ? prev : { ...prev, color: hex }));
-                      }}
-                    />
-                  </div>
-                  <SliderField
-                    label="Size"
-                    value={watermark.size}
-                    min={LIMITS.size.min}
-                    max={LIMITS.size.max}
-                    unit="pt"
-                    onChange={(size) => updateWatermark({ size })}
-                  />
-                  <SliderField
-                    label="Transparency"
-                    help="Lower is more transparent"
-                    value={watermark.opacity}
-                    min={LIMITS.opacity.min}
-                    max={LIMITS.opacity.max}
-                    unit="% opacity"
-                    onChange={(opacity) => updateWatermark({ opacity })}
-                  />
-                  <SliderField
-                    label="Rotation"
-                    help="Center is flat; right turns it clockwise, left counter-clockwise"
-                    value={watermark.rotation}
-                    min={LIMITS.rotation.min}
-                    max={LIMITS.rotation.max}
-                    unit="°"
-                    marks={{ [LIMITS.rotation.min]: `${LIMITS.rotation.min}°`, 0: "0°", [LIMITS.rotation.max]: `${LIMITS.rotation.max}°` }}
-                    onChange={(rotation) => updateWatermark({ rotation })}
-                  />
-                  <Checkbox
-                    checked={watermark.repeat}
-                    onChange={(e) => updateWatermark({ repeat: e.target.checked })}
-                    className={watermark.repeat ? "mb-4" : undefined}
-                  >
-                    Repeat across the page
-                  </Checkbox>
-                  {watermark.repeat && (
-                    <>
-                      <SliderField
-                        label="Horizontal spacing"
-                        help="Space between copies side by side"
-                        value={watermark.gapX}
-                        min={LIMITS.gap.min}
-                        max={LIMITS.gap.max}
-                        unit="pt"
-                        onChange={(gapX) => updateWatermark({ gapX })}
-                      />
-                      <SliderField
-                        label="Vertical spacing"
-                        help="Space between rows of copies"
-                        value={watermark.gapY}
-                        min={LIMITS.gap.min}
-                        max={LIMITS.gap.max}
-                        unit="pt"
-                        onChange={(gapY) => updateWatermark({ gapY })}
-                        last
-                      />
-                    </>
-                  )}
-                </>
-              )}
-            </Card>
-          </Form>
-
-          <Card>
-            {saveError && <Alert type="error" title={saveError} className="mb-4" showIcon />}
-            <Button type="primary" size="large" block onClick={handleSave} loading={saving} disabled={!loaded}>
-              {templateId ? "Save changes" : "Save template"}
-            </Button>
-            <p className="mb-0 mt-3 text-xs text-slate-500">
-              Invoices already issued keep the look they were approved with.
-            </p>
-          </Card>
-        </div>
-
+      <div className="mt-6 grid gap-6 xl:h-[calc(100vh-7.5rem)] xl:grid-cols-5 xl:grid-rows-1">
         <Card
-          className="xl:col-span-3"
+          className="flex flex-col xl:col-span-3 xl:min-h-0"
+          styles={{ body: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" } }}
           title={
             <span>
               Preview <span className="text-sm font-normal text-slate-500">— sample invoice</span>
@@ -454,14 +234,285 @@ export default function InvoiceTemplateEditor({ templateId, fromId }: { template
           }
         >
           {previewError && <Alert type="error" title={previewError} className="mb-4" showIcon />}
-          <Spin spinning={previewing || !pdfUrl}>
+          <div className="relative h-[80vh] xl:h-auto xl:flex-1">
             {pdfUrl ? (
-              <iframe src={pdfUrl} title="Invoice template preview" className="h-[80vh] w-full rounded border" />
+              <iframe src={pdfUrl} title="Invoice template preview" className="absolute inset-0 h-full w-full rounded border" />
             ) : (
-              <div className="h-[80vh] w-full rounded border bg-slate-50" />
+              <div className="absolute inset-0 rounded border bg-slate-50" />
             )}
-          </Spin>
+            {(previewing || !pdfUrl) && (
+              <div className="absolute inset-0 flex items-center justify-center rounded bg-white/40">
+                <Spin />
+              </div>
+            )}
+          </div>
         </Card>
+
+        {/* Only the settings scroll; the preview stays in view and Save stays pinned below. */}
+        <div className="flex flex-col gap-4 xl:col-span-2 xl:min-h-0">
+          <div className="xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
+            <Form layout="vertical" component={false} disabled={!loaded}>
+              <Collapse
+                accordion
+                activeKey={openGroup ? [openGroup] : []}
+                onChange={(keys) => setOpenGroup(([] as string[]).concat(keys)[0])}
+                expandIconPlacement="end"
+                className="bg-white"
+                classNames={{ header: "bg-white", title: "font-semibold" }}
+                items={[
+                  {
+                    key: "template",
+                    label: "Template",
+                    children: (
+                      <>
+                        {!templateId && (
+                          <Form.Item label="Start from" tooltip="Copies that template's colors and watermark; change anything below">
+                            <Select
+                              value={sourceId}
+                              onChange={changeSource}
+                              showSearch={{ optionFilterProp: "label" }}
+                              options={templates.map((t) => ({
+                                value: t.id,
+                                label: t.name,
+                                description: `${LAYOUT_LABELS[t.layout].name} layout · ${t.predefined ? "Predefined" : "Custom"}`,
+                              }))}
+                              optionRender={(option) => (
+                                <div>
+                                  <div>{option.data.label}</div>
+                                  <div className="text-xs text-slate-500">{option.data.description}</div>
+                                </div>
+                              )}
+                            />
+                          </Form.Item>
+                        )}
+                        <Form.Item
+                          label="Name"
+                          required={!predefined}
+                          extra={predefined ? "Predefined templates keep their name and layout" : undefined}
+                        >
+                          <Input
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            maxLength={60}
+                            placeholder="e.g. Blue for Account Holders"
+                            disabled={predefined}
+                          />
+                        </Form.Item>
+                        <Form.Item label="Layout" tooltip="The arrangement of the page. Layouts are fixed; colors and logo are yours" className="mb-0">
+                          <Select
+                            value={layout}
+                            disabled={predefined}
+                            onChange={setLayout}
+                            options={Object.values(InvoiceLayout).map((l) => ({
+                              value: l,
+                              label: LAYOUT_LABELS[l].name,
+                              description: LAYOUT_LABELS[l].description,
+                            }))}
+                            optionRender={(option) => (
+                              <div>
+                                <div>{option.data.label}</div>
+                                <div className="text-xs text-slate-500">{option.data.description}</div>
+                              </div>
+                            )}
+                          />
+                        </Form.Item>
+                      </>
+                    ),
+                  },
+                  {
+                    key: "colors",
+                    label: "Colors",
+                    extra: (
+                      <Button
+                        size="small"
+                        icon={<ReloadOutlined />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setColors(layoutDefaults(layout).colors);
+                          setLiveColors({});
+                        }}
+                      >
+                        {LAYOUT_LABELS[layout].name} defaults
+                      </Button>
+                    ),
+                    children: (
+                      <div className="flex flex-col gap-4">
+                        {INVOICE_TEMPLATE_COLOR_KEYS.map((key) => (
+                          <div key={key} className="flex items-center justify-between gap-4">
+                            <div>
+                              <div className="font-medium">{COLOR_LABELS[key].name}</div>
+                              <div className="text-xs text-slate-500">{COLOR_LABELS[key].help}</div>
+                            </div>
+                            <ColorPicker
+                              value={liveColors[key] ?? colors[key]}
+                              disabledAlpha
+                              showText
+                              onChange={(c) => setLiveColors((prev) => ({ ...prev, [key]: c }))}
+                              onChangeComplete={(c) => {
+                                const hex = c.toHexString();
+                                // Only re-render the preview when the color really changed (a hue move on white/grey doesn't).
+                                setColors((prev) => (prev[key] === hex ? prev : { ...prev, [key]: hex }));
+                              }}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ),
+                  },
+                  {
+                    key: "logo",
+                    label: "Logo",
+                    children: (
+                      <>
+                        <Radio.Group
+                          value={logoMode}
+                          onChange={(e) => setLogoMode(e.target.value)}
+                          options={[
+                            { value: "company", label: "Company logo" },
+                            { value: "own", label: "This template's own logo" },
+                          ]}
+                        />
+                        {logoMode === "own" && (
+                          <div className="mt-4">
+                            <ImageUpload
+                              value={logoFile}
+                              existingUrl={savedLogoUrl ? mediaUrl(savedLogoUrl) : null}
+                              onChange={setLogoFile}
+                              freeAspect
+                              keepTransparency
+                            />
+                            <div className="text-xs text-slate-500">PNG or JPEG. A PNG keeps its transparent background.</div>
+                          </div>
+                        )}
+                      </>
+                    ),
+                  },
+                  {
+                    key: "watermark",
+                    label: (
+                      // Ticking the box shouldn't also toggle the panel; turning it on opens the settings.
+                      <span onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={watermark.enabled}
+                          onChange={(e) => {
+                            updateWatermark({ enabled: e.target.checked });
+                            if (e.target.checked) setOpenGroup("watermark");
+                          }}
+                        >
+                          <span className="font-semibold">Watermark</span>
+                        </Checkbox>
+                      </span>
+                    ),
+                    children: (
+                      <>
+                        {!watermark.enabled ? (
+                          <p className="m-0 text-sm text-slate-500">
+                            Off: the invoice preview shows DRAFT and issued invoices have no watermark. Turn it on to print your
+                            own text over every page of every invoice made with this template.
+                          </p>
+                        ) : (
+                          <>
+                            <Form.Item label="Text" required>
+                              <Input
+                                value={watermark.text}
+                                onChange={(e) => updateWatermark({ text: e.target.value })}
+                                maxLength={LIMITS.text}
+                                placeholder={companyName || "e.g. your company name"}
+                              />
+                            </Form.Item>
+                            <div className="mb-6 flex items-center justify-between gap-4">
+                              <div>
+                                <div className="font-medium">Color</div>
+                                <div className="text-xs text-slate-500">The watermark text color</div>
+                              </div>
+                              <ColorPicker
+                                value={liveWatermarkColor ?? watermark.color}
+                                disabledAlpha
+                                showText
+                                onChange={setLiveWatermarkColor}
+                                onChangeComplete={(c) => {
+                                  const hex = c.toHexString();
+                                  setWatermark((prev) => (prev.color === hex ? prev : { ...prev, color: hex }));
+                                }}
+                              />
+                            </div>
+                            <SliderField
+                              label="Size"
+                              value={watermark.size}
+                              min={LIMITS.size.min}
+                              max={LIMITS.size.max}
+                              unit="pt"
+                              onChange={(size) => updateWatermark({ size })}
+                            />
+                            <SliderField
+                              label="Transparency"
+                              help="Lower is more transparent"
+                              value={watermark.opacity}
+                              min={LIMITS.opacity.min}
+                              max={LIMITS.opacity.max}
+                              unit="% opacity"
+                              onChange={(opacity) => updateWatermark({ opacity })}
+                            />
+                            <SliderField
+                              label="Rotation"
+                              help="Center is flat; right turns it clockwise, left counter-clockwise"
+                              value={watermark.rotation}
+                              min={LIMITS.rotation.min}
+                              max={LIMITS.rotation.max}
+                              unit="°"
+                              marks={{ [LIMITS.rotation.min]: `${LIMITS.rotation.min}°`, 0: "0°", [LIMITS.rotation.max]: `${LIMITS.rotation.max}°` }}
+                              onChange={(rotation) => updateWatermark({ rotation })}
+                            />
+                            <Checkbox
+                              checked={watermark.repeat}
+                              onChange={(e) => updateWatermark({ repeat: e.target.checked })}
+                              className={watermark.repeat ? "mb-4" : undefined}
+                            >
+                              Repeat across the page
+                            </Checkbox>
+                            {watermark.repeat && (
+                              <>
+                                <SliderField
+                                  label="Horizontal spacing"
+                                  help="Space between copies side by side"
+                                  value={watermark.gapX}
+                                  min={LIMITS.gap.min}
+                                  max={LIMITS.gap.max}
+                                  unit="pt"
+                                  onChange={(gapX) => updateWatermark({ gapX })}
+                                />
+                                <SliderField
+                                  label="Vertical spacing"
+                                  help="Space between rows of copies"
+                                  value={watermark.gapY}
+                                  min={LIMITS.gap.min}
+                                  max={LIMITS.gap.max}
+                                  unit="pt"
+                                  onChange={(gapY) => updateWatermark({ gapY })}
+                                  last
+                                />
+                              </>
+                            )}
+                          </>
+                        )}
+                      </>
+                    ),
+                  },
+                ]}
+              />
+            </Form>
+          </div>
+
+          <Card className="shrink-0">
+            {saveError && <Alert type="error" title={saveError} className="mb-4" showIcon />}
+            <Button type="primary" size="large" block onClick={handleSave} loading={saving} disabled={!loaded}>
+              {templateId ? "Save changes" : "Save template"}
+            </Button>
+            <p className="mb-0 mt-3 text-xs text-slate-500">
+              Invoices already issued keep the look they were approved with.
+            </p>
+          </Card>
+        </div>
       </div>
     </>
   );
