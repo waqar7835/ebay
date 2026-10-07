@@ -95,6 +95,9 @@ export class ProductsService {
     if (!Array.isArray(layout) || !layout.every((entry) => typeof entry === "string")) {
       throw new BadRequestException("layout must be a JSON array of strings");
     }
+    if (product.fulfillmentType === ProductFulfillmentType.DROPSHIP && layout.length === 0) {
+      throw new BadRequestException("A dropship product needs at least one image");
+    }
     if (layout.length > PRODUCT_MAX_IMAGES) {
       throw new BadRequestException(`A product can have at most ${PRODUCT_MAX_IMAGES} images`);
     }

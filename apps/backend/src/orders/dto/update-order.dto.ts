@@ -27,9 +27,10 @@ export class UpdateOrderDto {
   @Type(() => OrderItemInputDto)
   items?: OrderItemInputDto[];
 
+  /** Null removes a dropship order's 3PL (a Stock order always ships from its products' 3PL). */
   @IsOptional()
   @IsString()
-  threePlId?: string;
+  threePlId?: string | null;
 
   @IsOptional()
   @IsDateString()

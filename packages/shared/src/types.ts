@@ -177,7 +177,7 @@ export interface OrderItemDto {
   stockOwnerId: string | null;
   position: number;
   quantity: number;
-  /** Null on a DROPSHIP item until the assigned 3PL enters the buy price. */
+  /** Null on DROPSHIP items — their buy price is the line total in buyTotalSnapshot. */
   sellPriceSnapshot: number | null;
   buyPriceSnapshot: number | null;
   stockOwnerCostSnapshot: number | null;
@@ -191,6 +191,12 @@ export interface OrderItemDto {
   sellPriceOriginal: number | null;
   buyPriceOriginal: number | null;
   stockOwnerCostOriginal: number | null;
+  /**
+   * DROPSHIP only: what the 3PL paid for this line, all units together (PKR / as entered in the 3PL's
+   * currency). Null until the admin or the 3PL enters it; always null on STOCK items.
+   */
+  buyTotalSnapshot: number | null;
+  buyTotalOriginal: number | null;
   /** Invoice that paid this item out to its Stock Owner (null = open). */
   stockOwnerInvoiceId: string | null;
   stockOwnerRefundInvoiceId: string | null;
@@ -200,6 +206,11 @@ export interface OrderItemDto {
 export interface OrderItemInput {
   productId: string;
   quantity: number;
+  /**
+   * DROPSHIP only, optional: the line's buy price for all units, in the order's 3PL's currency (needs a
+   * 3PL). On edit, omitted = keep the current one, null = clear it.
+   */
+  buyTotal?: number | null;
 }
 
 export interface OrderDto {
@@ -207,8 +218,8 @@ export interface OrderDto {
   companyId: string;
   accountHolderId: string;
   /**
-   * One or more products, in display order. Several items are only allowed for STOCK products
-   * (all at the same 3PL); a DROPSHIP order always has exactly one.
+   * One or more products, in display order. An order is all-STOCK (all held at the same 3PL) or
+   * all-DROPSHIP (any dropship products, one optional 3PL); the type can't change once created.
    */
   items: OrderItemDto[];
   threePlId: string | null;

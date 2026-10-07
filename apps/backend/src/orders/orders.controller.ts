@@ -83,7 +83,7 @@ export class OrdersController {
     @Body() dto: DropshipBuyPriceDto,
     @Query("companyId") companyId?: string,
   ) {
-    return this.ordersService.setDropshipBuyPrice(resolveCompanyId(user, companyId), user, id, dto.buyPrice);
+    return this.ordersService.setDropshipBuyPrice(resolveCompanyId(user, companyId), user, id, dto.itemId, dto.buyTotal);
   }
 
   @Patch(":id/status")

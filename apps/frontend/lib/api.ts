@@ -506,7 +506,7 @@ export function listOrders(filters: OrderListFilters = {}) {
 
 export interface CreateOrderPayload {
   accountHolderId: string;
-  /** One or more products. Several only for STOCK products at the same 3PL; DROPSHIP orders have one. */
+  /** One or more products: all STOCK (at the same 3PL) or all DROPSHIP (each with an optional buy total). */
   items: OrderItemInput[];
   threePlId?: string;
   orderDate?: string;
@@ -520,7 +520,9 @@ export interface CreateOrderPayload {
   exchangeRates?: ExchangeRates;
 }
 
-export type UpdateOrderPayload = Partial<CreateOrderPayload> & {
+export type UpdateOrderPayload = Omit<Partial<CreateOrderPayload>, "threePlId"> & {
+  /** Null removes a dropship order's 3PL. */
+  threePlId?: string | null;
   /** Re-convert every amount with today's rates instead of the ones locked on the order. */
   recalculateRates?: boolean;
 };
@@ -538,9 +540,9 @@ export function updateOrder(orderId: string, payload: UpdateOrderPayload) {
   return request<OrderDto>(`/orders/${orderId}`, { method: "PATCH", body: JSON.stringify(payload) });
 }
 
-// Assigned 3PL entering the buy price on a DROPSHIP order once it's visible to them (status past PENDING).
-export function submitDropshipBuyPrice(orderId: string, buyPrice: number) {
-  return request<OrderDto>(`/orders/${orderId}/dropship-buy-price`, { method: "PATCH", body: JSON.stringify({ buyPrice }) });
+// Assigned 3PL entering/correcting one line's buy total on a DROPSHIP order once it's visible to them (status past PENDING).
+export function submitDropshipBuyPrice(orderId: string, itemId: string, buyTotal: number) {
+  return request<OrderDto>(`/orders/${orderId}/dropship-buy-price`, { method: "PATCH", body: JSON.stringify({ itemId, buyTotal }) });
 }
 
 export async function uploadOrderShippingLabel(orderId: string, shippingLabel: File) {

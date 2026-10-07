@@ -1,8 +1,17 @@
 "use client";
 
-import type { Currency, ExchangeRateDto, ExchangeRates, OrderDto, OrderItemInput, ProductDto, UserDto } from "@ebay-order-management/shared";
+import type {
+  Currency,
+  ExchangeRateDto,
+  ExchangeRates,
+  OrderDto,
+  OrderItemInput,
+  ProductDto,
+  ProductFulfillmentType,
+  UserDto,
+} from "@ebay-order-management/shared";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Checkbox, Form, Input, InputNumber, Select, Tag } from "antd";
+import { Alert, Button, Card, Checkbox, Form, Input, InputNumber, Segmented, Select, Tag } from "antd";
 import { useEffect, useState } from "react";
 import DateField from "@/components/DateField";
 import FileUpload from "@/components/FileUpload";
@@ -23,6 +32,8 @@ interface OrderFormProps {
 interface ItemRow {
   productId?: string;
   quantity: number;
+  /** Dropship only: what the 3PL pays for this line (all units), in the 3PL's currency. Optional. */
+  buyTotal?: number | null;
 }
 
 interface OrderFormValues {
@@ -60,6 +71,11 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
   // PKR per unit, as shown in the rate inputs (prefilled from the live/saved rates, editable by the admin).
   const [rateInputs, setRateInputs] = useState<ExchangeRates>({});
   const [recalculate, setRecalculate] = useState(false);
+  // An order is all-Stock or all-Dropship, picked on create and fixed afterwards (Stock items always
+  // have a Stock Owner, dropship items never do).
+  const [mode, setMode] = useState<ProductFulfillmentType>(
+    (initial ? (initial.items[0]?.stockOwnerId ? "STOCK" : "DROPSHIP") : "STOCK") as ProductFulfillmentType,
+  );
 
   useEffect(() => {
     listProducts().then(setProducts).catch(() => undefined);
@@ -87,14 +103,13 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
   const rows: ItemRow[] = Form.useWatch("items", form) ?? [];
   const selected = rows.map((r) => (r?.productId ? productById.get(r.productId) : undefined));
   const chosen = selected.filter((p): p is ProductDto => !!p);
-  const fulfillmentType = chosen[0]?.fulfillmentType;
-  const isDropship = fulfillmentType === "DROPSHIP";
+  const isDropship = mode === "DROPSHIP";
   const warehouses = new Set(chosen.filter((p) => p.fulfillmentType === "STOCK").map((p) => p.threePlId).filter(Boolean));
   const mixedWarehouses = warehouses.size > 1;
   const unitCount = rows.reduce((sum, r) => sum + (r?.quantity ?? 0), 0);
 
   const eligibleThreePls = users.filter(
-    (u) => u.roles.includes("THREE_PL" as never) && u.threePlProfile?.fulfillmentType === fulfillmentType,
+    (u) => u.roles.includes("THREE_PL" as never) && u.threePlProfile?.fulfillmentType === mode,
   );
   const userById = new Map(users.map((u) => [u.id, u]));
 
@@ -105,6 +120,12 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
   const threePlId: string | undefined = Form.useWatch("threePlId", form) ?? undefined;
   const accountHolderChanged = !!initial && accountHolderId !== initial.accountHolderId;
   const ahUserCurrency = accountHolderId ? userById.get(accountHolderId)?.currency : undefined;
+  // Dropship buy totals are entered in the order's 3PL's currency.
+  const threePlCurrency: Currency | null | undefined = threePlId
+    ? legacy && !recalculate && threePlId === initial?.threePlId
+      ? null
+      : (threePlId === initial?.threePlId && initial.threePlCurrency) || userById.get(threePlId)?.currency
+    : undefined;
   const ahCurrency: Currency | null | undefined =
     legacy && !recalculate && !accountHolderChanged
       ? null
@@ -135,41 +156,46 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
     return sum + p.sellPrice * (rateFor(p.currency) ?? 0) * (r?.quantity ?? 0);
   }, 0);
 
-  const initialItems: ItemRow[] = initial?.items.map((i) => ({ productId: i.productId, quantity: i.quantity })) ?? [{ quantity: 1 }];
+  const initialItems: ItemRow[] = initial?.items.map((i) => ({
+    productId: i.productId,
+    quantity: i.quantity,
+    // As entered (in the 3PL's currency; plain PKR on orders from before currencies).
+    buyTotal: i.buyTotalOriginal ?? i.buyTotalSnapshot,
+  })) ?? [{ quantity: 1 }];
   const itemsChanged =
     !initial ||
     rows.length !== initial.items.length ||
-    rows.some((r, i) => r?.productId !== initial.items[i]?.productId || r?.quantity !== initial.items[i]?.quantity);
+    rows.some(
+      (r, i) =>
+        r?.productId !== initial.items[i]?.productId ||
+        r?.quantity !== initial.items[i]?.quantity ||
+        (isDropship && (r?.buyTotal ?? null) !== (initialItems[i]?.buyTotal ?? null)),
+    );
   const addedProduct = !!initial && rows.some((r) => r?.productId && !initial.items.some((i) => i.productId === r.productId));
 
-  /** Options for one row: other rows' products are hidden; with several rows only Stock products at the same 3PL fit. */
+  /** Options for one row: only products of the order's type; other rows' products are hidden; Stock products must share a 3PL. */
   function optionsFor(index: number) {
     const others = rows.map((r, i) => (i === index ? undefined : r?.productId)).filter(Boolean);
     const otherProducts = others.map((id) => productById.get(id!)).filter((p): p is ProductDto => !!p);
     const otherWarehouse = otherProducts.find((p) => p.fulfillmentType === "STOCK")?.threePlId;
     return products
-      .filter((p) => !others.includes(p.id))
+      .filter((p) => p.fulfillmentType === mode && !others.includes(p.id))
       .map((p) => {
-        const reason =
-          rows.length > 1 && p.fulfillmentType === "DROPSHIP"
-            ? "dropship — order alone"
-            : otherWarehouse && p.threePlId !== otherWarehouse
-              ? "at another 3PL"
-              : null;
+        const reason = !isDropship && otherWarehouse && p.threePlId !== otherWarehouse ? "at another 3PL" : null;
         return { value: p.id, label: `${p.sku} — ${p.title}`, disabled: !!reason, reason, product: p };
       });
+  }
+
+  function handleModeChange(next: ProductFulfillmentType) {
+    setMode(next);
+    form.setFieldsValue({ items: [{ quantity: 1 }], threePlId: undefined, supplierUrl: "" });
   }
 
   function handleProductChange(index: number, productId: string) {
     const next = rows.map((r, i) => (i === index ? { ...r, productId } : r));
     const first = next.map((r) => (r?.productId ? productById.get(r.productId) : undefined)).find(Boolean);
-    if (first?.fulfillmentType === "STOCK") {
-      form.setFieldValue("threePlId", first.threePlId ?? undefined);
-    } else if (first?.fulfillmentType === "DROPSHIP") {
-      // Keep an already-assigned dropship 3PL when staying on DROPSHIP.
-      const wasDropship = initial?.items.some((i) => productById.get(i.productId)?.fulfillmentType === "DROPSHIP");
-      form.setFieldValue("threePlId", wasDropship ? (initial?.threePlId ?? undefined) : undefined);
-    }
+    // Dropship orders keep whichever 3PL was picked; a Stock order ships from its products' 3PL.
+    if (first?.fulfillmentType === "STOCK") form.setFieldValue("threePlId", first.threePlId ?? undefined);
   }
 
   async function handleFinish(values: OrderFormValues) {
@@ -180,16 +206,24 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
     }
     setFormError(null);
     setSubmitting(true);
-    const items: OrderItemInput[] = values.items.map((r) => ({ productId: r.productId!, quantity: Number(r.quantity) }));
     const threePlId = values.threePlId || undefined;
+    const items: OrderItemInput[] = values.items.map((r) => ({
+      productId: r.productId!,
+      quantity: Number(r.quantity),
+      // Buy totals are in the 3PL's currency, so they only go with a 3PL.
+      ...(isDropship ? { buyTotal: threePlId && r.buyTotal != null ? Number(r.buyTotal) : null } : {}),
+    }));
     // On edit only send what changed: re-sending items would re-validate products that haven't changed.
+    // A dropship order's new 3PL also re-sends the items, since their buy totals are in that 3PL's currency.
     const threePlChanged = !initial || (threePlId ?? null) !== initial.threePlId;
+    const sendItems = itemsChanged || (isDropship && threePlChanged);
     try {
       await onSubmit(
         {
           accountHolderId: values.accountHolderId,
-          ...(itemsChanged ? { items } : {}),
-          ...(itemsChanged || threePlChanged ? { threePlId } : {}),
+          ...(sendItems ? { items } : {}),
+          // Null clears a dropship order's 3PL (undefined would keep the old one).
+          ...(sendItems || threePlChanged ? { threePlId: isDropship ? (threePlId ?? null) : threePlId } : {}),
           orderDate: values.orderDate,
           ebayOrderRef: values.ebayOrderRef,
           trackingNumber: values.trackingNumber || undefined,
@@ -207,6 +241,40 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
       setSubmitting(false);
     }
   }
+
+  // Dropship: shown above the product rows, since their buy prices are in the picked 3PL's currency.
+  const threePlFields = (
+    <div className={`grid gap-x-4 sm:grid-cols-2 ${isDropship ? "mb-4" : "mt-4"}`}>
+      <Form.Item
+        name="threePlId"
+        label={`3PL ${isDropship ? "(optional)" : ""}`}
+        tooltip={
+          isDropship
+            ? "Buys and ships the products; the buy prices below are in this 3PL's currency"
+            : "The 3PL fee is charged once per order, however many products it has"
+        }
+        rules={[{ required: !isDropship, message: "Select a 3PL" }]}
+        extra={
+          eligibleThreePls.length === 0
+            ? `No 3PL users are set up for ${isDropship ? "Dropshipping" : "Stock"} fulfillment yet.`
+            : undefined
+        }
+        className="mb-0"
+      >
+        <Select
+          showSearch={searchable}
+          allowClear={isDropship}
+          placeholder={isDropship ? "None" : "Select…"}
+          options={userOptions(eligibleThreePls)}
+        />
+      </Form.Item>
+      {isDropship && (
+        <Form.Item name="supplierUrl" label="Supplier/product listing URL" className="mb-0">
+          <Input placeholder="https://…" />
+        </Form.Item>
+      )}
+    </div>
+  );
 
   return (
     <Form<OrderFormValues>
@@ -258,6 +326,24 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
             title="Products"
             extra={unitCount > 0 && <Tag>{`${rows.length} product${rows.length === 1 ? "" : "s"} · ${unitCount} unit${unitCount === 1 ? "" : "s"}`}</Tag>}
           >
+            <Segmented<ProductFulfillmentType>
+              value={mode}
+              onChange={handleModeChange}
+              disabled={!!initial}
+              options={[
+                { value: "STOCK" as ProductFulfillmentType, label: "Stock products" },
+                { value: "DROPSHIP" as ProductFulfillmentType, label: "Dropshipping" },
+              ]}
+              className="mb-1"
+            />
+            <p className="mb-4 mt-1 text-xs text-slate-500">
+              {initial
+                ? "An order's type can't be changed after it's created."
+                : isDropship
+                  ? "Pick any dropship products. Buy prices are optional — the 3PL can fill them in or correct them later."
+                  : "Stock products can be combined when they're held at the same 3PL."}
+            </p>
+            {isDropship && threePlFields}
             <Form.List name="items">
               {(fields, { add, remove }) => (
                 <div className="flex flex-col gap-3">
@@ -298,6 +384,22 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
                             <Form.Item name={[field.name, "quantity"]} rules={[{ required: true, message: "Qty" }]} className="mb-0 w-24">
                               <InputNumber min={1} precision={0} prefix="×" className="w-full" />
                             </Form.Item>
+                            {isDropship && (
+                              <Form.Item
+                                name={[field.name, "buyTotal"]}
+                                className="mb-0 w-36"
+                                tooltip="Buy price for all units of this product"
+                              >
+                                <InputNumber
+                                  min={0}
+                                  step={0.01}
+                                  prefix={threePlCurrency !== undefined ? currencySymbol(threePlCurrency) : undefined}
+                                  placeholder={threePlId ? "Price (optional)" : "Pick a 3PL"}
+                                  disabled={!threePlId}
+                                  className="w-full"
+                                />
+                              </Form.Item>
+                            )}
                             {fields.length > 1 && (
                               <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(field.name)} title="Remove product" />
                             )}
@@ -319,16 +421,13 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
                       </div>
                     );
                   })}
-                  {!isDropship && (
-                    <Button type="dashed" icon={<PlusOutlined />} onClick={() => add({ quantity: 1 })} block>
-                      Add product
-                    </Button>
-                  )}
+                  <Button type="dashed" icon={<PlusOutlined />} onClick={() => add({ quantity: 1 })} block>
+                    Add product
+                  </Button>
                 </div>
               )}
             </Form.List>
 
-            {isDropship && <p className="mb-0 mt-3 text-xs text-slate-500">Dropship orders hold a single product. Only Stock products can be combined.</p>}
             {mixedWarehouses && (
               <Alert type="error" showIcon className="mt-3" title="These products are held at different 3PLs — an order can only ship from one 3PL." />
             )}
@@ -341,34 +440,7 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
               />
             )}
 
-            {fulfillmentType && (
-              <div className="mt-4 grid gap-x-4 sm:grid-cols-2">
-                <Form.Item
-                  name="threePlId"
-                  label={`3PL ${isDropship ? "(optional)" : ""}`}
-                  tooltip="The 3PL fee is charged once per order, however many products it has"
-                  rules={[{ required: !isDropship, message: "Select a 3PL" }]}
-                  extra={
-                    eligibleThreePls.length === 0
-                      ? `No 3PL users are set up for ${isDropship ? "Dropshipping" : "Stock"} fulfillment yet.`
-                      : undefined
-                  }
-                  className="mb-0"
-                >
-                  <Select
-                    showSearch={searchable}
-                    allowClear={isDropship}
-                    placeholder={isDropship ? "None" : "Select…"}
-                    options={userOptions(eligibleThreePls)}
-                  />
-                </Form.Item>
-                {isDropship && (
-                  <Form.Item name="supplierUrl" label="Supplier/product listing URL" className="mb-0">
-                    <Input placeholder="https://…" />
-                  </Form.Item>
-                )}
-              </div>
-            )}
+            {!isDropship && chosen.length > 0 && threePlFields}
           </Card>
 
           <Card title="Buyer">

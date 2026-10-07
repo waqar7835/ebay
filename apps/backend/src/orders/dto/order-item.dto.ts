@@ -1,4 +1,4 @@
-import { IsInt, IsPositive, IsString } from "class-validator";
+import { IsInt, IsNumber, IsOptional, IsPositive, IsString, Min } from "class-validator";
 
 export class OrderItemInputDto {
   @IsString()
@@ -7,4 +7,10 @@ export class OrderItemInputDto {
   @IsInt()
   @IsPositive()
   quantity!: number;
+
+  /** DROPSHIP only: the line's buy price for all units, in the order's 3PL's currency. Null clears it. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  buyTotal?: number | null;
 }

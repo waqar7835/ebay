@@ -1,7 +1,7 @@
 "use client";
 
 import type { Currency, ProductFulfillmentType } from "@ebay-order-management/shared";
-import { Alert, Badge, Button, Image, Table, type TableColumnsType } from "antd";
+import { Alert, Badge, Button, Image, Table, Tag, type TableColumnsType } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
@@ -66,7 +66,12 @@ export default function ProductsPage() {
     { title: "SKU", dataIndex: "sku", sorter: (a, b) => a.sku.localeCompare(b.sku) },
     { title: "Title", dataIndex: "title", sorter: (a, b) => a.title.localeCompare(b.title) },
     { title: "Size", dataIndex: "size", render: (v) => v || "—" },
-    { title: "Type", dataIndex: "fulfillmentType" },
+    {
+      title: "Type",
+      dataIndex: "fulfillmentType",
+      render: (v: ProductFulfillmentType) =>
+        v === "DROPSHIP" ? <Tag color="orange">Dropship</Tag> : <Tag color="blue">Stock</Tag>,
+    },
     // In the Stock Owner's currency.
     { title: "Buy", dataIndex: "buyPrice", render: (v: number | null, p) => money(v, p.currency) },
     { title: "Sell", dataIndex: "sellPrice", render: (v: number | null, p) => money(v, p.currency) },

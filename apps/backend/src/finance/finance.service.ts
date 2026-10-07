@@ -8,8 +8,8 @@ export class FinanceService {
   /**
    * Pure calculation over an order's snapshotted values — never re-reads live rates.
    * Product-side figures are summed over the order's items; the 3PL fee is per order, charged once.
-   * DROPSHIP items have no Stock Owner and may not have buy/sell prices snapshotted yet (the
-   * assigned 3PL fills the buy price in later) — those pieces are treated as 0 until then. The
+   * DROPSHIP items have no Stock Owner or sell price; their buy price is a line total (buyTotalSnapshot,
+   * entered by the admin or the 3PL, possibly not yet) — missing pieces are treated as 0. The
    * exact revenue-share formula for DROPSHIP orders is still to be finalized; this just keeps the
    * calculation from crashing on nulls in the meantime.
    *
@@ -26,7 +26,7 @@ export class FinanceService {
     for (const item of items) {
       const sell = item.sellPriceSnapshot ?? 0;
       const buy = item.buyPriceSnapshot ?? 0;
-      productMarkup += (sell - buy) * item.quantity;
+      productMarkup += sell * item.quantity - (item.buyTotalSnapshot ?? buy * item.quantity);
       sellTotal += sell * item.quantity;
       if (stockOwnerId && item.stockOwnerId !== stockOwnerId) continue;
       stockOwnerGross += buy * item.quantity;

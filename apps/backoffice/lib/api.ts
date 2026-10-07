@@ -228,7 +228,7 @@ export function listOrders() {
 
 export interface CreateOrderPayload {
   accountHolderId: string;
-  /** One or more products. Several only for STOCK products at the same 3PL; DROPSHIP orders have one. */
+  /** One or more products: all STOCK (at the same 3PL) or all DROPSHIP (each with an optional buy total). */
   items: OrderItemInput[];
   threePlId?: string;
   orderDate?: string;
@@ -242,7 +242,9 @@ export interface CreateOrderPayload {
   exchangeRates?: ExchangeRates;
 }
 
-export type UpdateOrderPayload = Partial<CreateOrderPayload> & {
+export type UpdateOrderPayload = Omit<Partial<CreateOrderPayload>, "threePlId"> & {
+  /** Null removes a dropship order's 3PL. */
+  threePlId?: string | null;
   /** Re-convert every amount with today's rates instead of the ones locked on the order. */
   recalculateRates?: boolean;
 };

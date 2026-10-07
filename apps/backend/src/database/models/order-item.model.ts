@@ -89,8 +89,20 @@ export class OrderItem extends Model {
   })
   declare stockOwnerSharePercentSnapshot: number | null;
 
+  // DROPSHIP only: what the 3PL paid for this line (all units), in PKR — entered as a total by the
+  // admin or the 3PL (buyTotalOriginal, in the 3PL's currency). Null until entered; null on STOCK items.
+  @Column({
+    type: DataType.DECIMAL(12, 2),
+    allowNull: true,
+    field: "buy_total_snapshot",
+    get(this: OrderItem) {
+      return toNullableDecimal(this.getDataValue("buyTotalSnapshot" as keyof OrderItem));
+    },
+  })
+  declare buyTotalSnapshot: number | null;
+
   // The *Snapshot prices above are in PKR. These hold the prices as entered, in `currency` — the
-  // Stock Owner's (STOCK) or the 3PL's (DROPSHIP buy price). Null on items from before currencies.
+  // Stock Owner's (STOCK) or the 3PL's (DROPSHIP buy total). Null on items from before currencies.
   @Column({ type: DataType.STRING(3), allowNull: true })
   declare currency: Currency | null;
 
@@ -123,6 +135,16 @@ export class OrderItem extends Model {
     },
   })
   declare stockOwnerCostOriginal: number | null;
+
+  @Column({
+    type: DataType.DECIMAL(12, 2),
+    allowNull: true,
+    field: "buy_total_original",
+    get(this: OrderItem) {
+      return toNullableDecimal(this.getDataValue("buyTotalOriginal" as keyof OrderItem));
+    },
+  })
+  declare buyTotalOriginal: number | null;
 
   // Invoice that paid this item out to its Stock Owner — null means still open.
   @Column({ type: DataType.UUID, allowNull: true, field: "stock_owner_invoice_id" })

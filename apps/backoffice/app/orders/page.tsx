@@ -1,6 +1,14 @@
 "use client";
 
-import type { Currency, ExchangeRateDto, ExchangeRates, OrderDto, OrderStatus, ProductDto } from "@ebay-order-management/shared";
+import type {
+  Currency,
+  ExchangeRateDto,
+  ExchangeRates,
+  OrderDto,
+  OrderStatus,
+  ProductDto,
+  ProductFulfillmentType,
+} from "@ebay-order-management/shared";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import {
   Alert,
@@ -10,6 +18,7 @@ import {
   Form,
   Input,
   InputNumber,
+  Segmented,
   Select,
   Table,
   type TableColumnsType,
@@ -46,6 +55,7 @@ interface UserOption {
   email: string;
   roles: string[];
   currency: Currency;
+  threePlProfile: { fulfillmentType: ProductFulfillmentType } | null;
 }
 
 function todayIsoDate() {
@@ -56,8 +66,10 @@ function todayIsoDate() {
 
 interface OrderFormValues {
   accountHolderId?: string;
-  // Several products only for STOCK products at the same 3PL (the 3PL comes from the products); DROPSHIP has one.
-  items: { productId?: string; quantity: number }[];
+  // All STOCK (at the same 3PL, which comes from the products) or all DROPSHIP (3PL picked below, optional).
+  // buyTotal: dropship only — what the 3PL pays for the line (all units), in the 3PL's currency; optional.
+  items: { productId?: string; quantity: number; buyTotal?: number | null }[];
+  threePlId?: string;
   orderDate: string;
   ebayOrderRef: string;
   trackingNumber?: string;
@@ -70,6 +82,7 @@ interface OrderFormValues {
 const emptyForm = (): OrderFormValues => ({
   accountHolderId: undefined,
   items: [{ quantity: 1 }],
+  threePlId: undefined,
   orderDate: todayIsoDate(),
   ebayOrderRef: "",
   trackingNumber: "",
@@ -95,6 +108,8 @@ export default function OrdersPage() {
   // PKR per unit as shown in the rate inputs (prefilled from the live/saved rates, editable).
   const [rateInputs, setRateInputs] = useState<ExchangeRates>({});
   const [recalculate, setRecalculate] = useState(false);
+  // An order is all-Stock or all-Dropship: picked on create, fixed on edit.
+  const [mode, setMode] = useState<ProductFulfillmentType>("STOCK" as ProductFulfillmentType);
 
   function refresh() {
     listOrders()
@@ -127,8 +142,9 @@ export default function OrdersPage() {
   const productById = new Map(products.map((p) => [p.id, p]));
   const formRows: OrderFormValues["items"] = Form.useWatch("items", form) ?? [];
   const formProducts = formRows.map((r) => (r?.productId ? productById.get(r.productId) : undefined));
-  const firstProduct = formProducts.find(Boolean);
-  const isDropship = firstProduct?.fulfillmentType === "DROPSHIP";
+  const isDropship = mode === "DROPSHIP";
+  const dropshipThreePls = users.filter((u) => u.roles.includes("THREE_PL") && u.threePlProfile?.fulfillmentType === "DROPSHIP");
+  const formThreePlId: string | undefined = Form.useWatch("threePlId", form);
   const firstWarehouse = formProducts.find((p) => p?.fulfillmentType === "STOCK")?.threePlId;
   const mixedWarehouses = new Set(formProducts.filter((p) => p?.fulfillmentType === "STOCK").map((p) => p!.threePlId)).size > 1;
   const editingOrder = editingOrderId ? orders.find((o) => o.id === editingOrderId) : undefined;
@@ -147,7 +163,13 @@ export default function OrdersPage() {
         : formAccountHolderId
           ? userById.get(formAccountHolderId)?.currency
           : undefined;
-  const threePlId = firstWarehouse ?? (isDropship ? editingOrder?.threePlId : undefined);
+  const threePlId = isDropship ? formThreePlId : firstWarehouse;
+  // Dropship buy totals are entered in the order's 3PL's currency.
+  const threePlCurrency: Currency | null | undefined = threePlId
+    ? legacy && !recalculate && threePlId === editingOrder?.threePlId
+      ? null
+      : (threePlId === editingOrder?.threePlId && editingOrder.threePlCurrency) || userById.get(threePlId)?.currency
+    : undefined;
   const neededCurrencies: Currency[] =
     legacy && !recalculate
       ? []
@@ -167,23 +189,27 @@ export default function OrdersPage() {
   const liveByCurrency = new Map(liveRates.map((r) => [r.currency, r]));
   const ratesStale = neededCurrencies.some((c) => editableRate(c) && liveByCurrency.get(c)?.stale);
 
-  /** Options for one item row: other rows' products hidden; with several rows only Stock products at the same 3PL. */
+  /** Options for one item row: only the order's type; other rows' products hidden; Stock products must share a 3PL. */
   function productOptionsFor(index: number) {
     const others = formRows.map((r, i) => (i === index ? undefined : r?.productId)).filter(Boolean);
     return products
-      .filter((p) => !others.includes(p.id))
+      .filter((p) => p.fulfillmentType === mode && !others.includes(p.id))
       .map((p) => ({
         value: p.id,
-        label: `${p.sku} — ${p.title} (${p.fulfillmentType === "DROPSHIP" ? "Dropshipping" : "Stock"})`,
-        disabled:
-          (formRows.length > 1 && p.fulfillmentType === "DROPSHIP") ||
-          (others.length > 0 && !!firstWarehouse && p.threePlId !== firstWarehouse),
+        label: `${p.sku} — ${p.title}`,
+        disabled: !isDropship && others.length > 0 && !!firstWarehouse && p.threePlId !== firstWarehouse,
         product: p,
       }));
   }
 
-  function openForm(values: OrderFormValues, orderId: string | null) {
+  function handleModeChange(next: ProductFulfillmentType) {
+    setMode(next);
+    form.setFieldsValue({ items: [{ quantity: 1 }], threePlId: undefined, supplierUrl: "" });
+  }
+
+  function openForm(values: OrderFormValues, orderId: string | null, fulfillment = "STOCK" as ProductFulfillmentType) {
     setEditingOrderId(orderId);
+    setMode(fulfillment);
     setFormError(null);
     setRecalculate(false);
     setShowForm(true);
@@ -199,7 +225,13 @@ export default function OrdersPage() {
     openForm(
       {
         accountHolderId: order.accountHolderId,
-        items: order.items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+        items: order.items.map((i) => ({
+          productId: i.productId,
+          quantity: i.quantity,
+          // As entered, in the 3PL's currency (plain PKR on orders from before currencies).
+          buyTotal: i.buyTotalOriginal ?? i.buyTotalSnapshot,
+        })),
+        threePlId: order.threePlId ?? undefined,
         orderDate: order.orderDate,
         ebayOrderRef: order.ebayOrderRef,
         trackingNumber: order.trackingNumber ?? "",
@@ -210,6 +242,8 @@ export default function OrdersPage() {
         supplierUrl: order.supplierUrl ?? "",
       },
       order.id,
+      // Stock items always have a Stock Owner, dropship items never do.
+      (order.items[0]?.stockOwnerId ? "STOCK" : "DROPSHIP") as ProductFulfillmentType,
     );
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -227,12 +261,27 @@ export default function OrdersPage() {
     }
     setFormError(null);
     setSubmitting(true);
-    const items = values.items.map((r) => ({ productId: r.productId as string, quantity: Number(r.quantity) }));
+    const dropshipThreePlId = isDropship ? values.threePlId || undefined : undefined;
+    const items = values.items.map((r) => ({
+      productId: r.productId as string,
+      quantity: Number(r.quantity),
+      // Buy totals are in the 3PL's currency, so they only go with a 3PL.
+      ...(isDropship ? { buyTotal: dropshipThreePlId && r.buyTotal != null ? Number(r.buyTotal) : null } : {}),
+    }));
     // On edit, only send items when they changed — re-sending re-validates products already on the order.
+    // A dropship order's new 3PL also re-sends the items, since their buy totals are in that 3PL's currency.
+    const threePlChanged = isDropship && (!editingOrder || (dropshipThreePlId ?? null) !== editingOrder.threePlId);
     const itemsChanged =
       !editingOrder ||
+      threePlChanged ||
       items.length !== editingOrder.items.length ||
-      items.some((r, i) => r.productId !== editingOrder.items[i]?.productId || r.quantity !== editingOrder.items[i]?.quantity);
+      items.some(
+        (r, i) =>
+          r.productId !== editingOrder.items[i]?.productId ||
+          r.quantity !== editingOrder.items[i]?.quantity ||
+          (isDropship &&
+            (r.buyTotal ?? null) !== (editingOrder.items[i]?.buyTotalOriginal ?? editingOrder.items[i]?.buyTotalSnapshot ?? null)),
+      );
     const common = {
       accountHolderId: values.accountHolderId as string,
       orderDate: values.orderDate,
@@ -243,12 +292,15 @@ export default function OrdersPage() {
       shippingCost: Number(values.shippingCost ?? 0),
       supplierUrl: values.supplierUrl || undefined,
       exchangeRates: Object.fromEntries(neededCurrencies.filter(editableRate).map((c) => [c, rateInputs[c]])),
+      ...(dropshipThreePlId ? { threePlId: dropshipThreePlId } : {}),
     };
     try {
       if (editingOrderId) {
         await updateOrder(editingOrderId, {
           ...common,
           ...(itemsChanged ? { items } : {}),
+          // Null clears a dropship order's 3PL (leaving it out would keep the old one).
+          ...(isDropship && itemsChanged ? { threePlId: dropshipThreePlId ?? null } : {}),
           ...(recalculate ? { recalculateRates: true } : {}),
         });
       } else {
@@ -308,11 +360,11 @@ export default function OrdersPage() {
     {
       title: "Buy Price",
       key: "buyPrice",
-      // Buy price × qty across the items; pending while a dropship item awaits its buy price.
-      render: (_, o) =>
-        o.items.some((i) => i.buyPriceSnapshot == null)
-          ? "Pending"
-          : pkr(o.items.reduce((sum, i) => sum + i.buyPriceSnapshot! * i.quantity, 0)),
+      // Stock: buy price × qty; dropship: each line's buy total. Pending while a dropship line awaits its price.
+      render: (_, o) => {
+        const totals = o.items.map((i) => i.buyTotalSnapshot ?? (i.buyPriceSnapshot == null ? null : i.buyPriceSnapshot * i.quantity));
+        return totals.some((t) => t == null) ? "Pending" : pkr(totals.reduce<number>((sum, t) => sum + t!, 0));
+      },
     },
     {
       title: "Status",
@@ -366,6 +418,33 @@ export default function OrdersPage() {
               </div>
 
               <Form.Item label="Products" required tooltip="The 3PL fee is charged once per order, however many products it has">
+                <Segmented<ProductFulfillmentType>
+                  value={mode}
+                  onChange={handleModeChange}
+                  disabled={!!editingOrderId}
+                  options={[
+                    { value: "STOCK" as ProductFulfillmentType, label: "Stock products" },
+                    { value: "DROPSHIP" as ProductFulfillmentType, label: "Dropshipping" },
+                  ]}
+                />
+                <div className="mb-3 mt-1 text-xs text-slate-500">
+                  {editingOrderId
+                    ? "An order's type can't be changed after it's created."
+                    : isDropship
+                      ? "Pick any dropship products. Buy prices are optional — the 3PL can fill them in or correct them later."
+                      : "Stock products can be combined when they're held at the same 3PL."}
+                </div>
+                {isDropship && (
+                  <Form.Item
+                    name="threePlId"
+                    label="3PL (optional)"
+                    tooltip="Buys and ships the products; the buy prices below are in this 3PL's currency"
+                    extra={dropshipThreePls.length === 0 ? "No 3PL users are set up for Dropshipping fulfillment yet." : undefined}
+                    className="mb-3 max-w-md"
+                  >
+                    <Select showSearch={searchable} allowClear placeholder="None" options={userOptions(dropshipThreePls)} />
+                  </Form.Item>
+                )}
                 <Form.List name="items">
                   {(fields, { add, remove }) => (
                     <div className="flex flex-col gap-3">
@@ -402,17 +481,27 @@ export default function OrdersPage() {
                             <Form.Item name={[field.name, "quantity"]} rules={[{ required: true, message: "Qty" }]} className="mb-0 w-24">
                               <InputNumber min={1} precision={0} prefix="×" className="w-full" />
                             </Form.Item>
+                            {isDropship && (
+                              <Form.Item name={[field.name, "buyTotal"]} tooltip="Buy price for all units of this product" className="mb-0 w-36">
+                                <InputNumber
+                                  min={0}
+                                  step={0.01}
+                                  prefix={threePlCurrency !== undefined ? currencySymbol(threePlCurrency) : undefined}
+                                  placeholder={threePlId ? "Price (optional)" : "Pick a 3PL"}
+                                  disabled={!threePlId}
+                                  className="w-full"
+                                />
+                              </Form.Item>
+                            )}
                             {fields.length > 1 && (
                               <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(field.name)} title="Remove product" />
                             )}
                           </div>
                         );
                       })}
-                      {!isDropship && (
-                        <Button type="dashed" icon={<PlusOutlined />} onClick={() => add({ quantity: 1 })} block>
-                          Add product
-                        </Button>
-                      )}
+                      <Button type="dashed" icon={<PlusOutlined />} onClick={() => add({ quantity: 1 })} block>
+                        Add product
+                      </Button>
                     </div>
                   )}
                 </Form.List>

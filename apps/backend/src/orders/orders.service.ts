@@ -44,6 +44,8 @@ const MANAGER_ROLES = [Role.ADMIN, Role.STAFF, Role.SUPER_ADMIN, Role.PLATFORM_S
 interface OrderLine {
   product: Product;
   quantity: number;
+  /** DROPSHIP only: the line's buy total in the 3PL's currency; undefined = not sent (keep on edit). */
+  buyTotal?: number | null;
 }
 
 export interface OrderListFilters {
@@ -176,6 +178,10 @@ export class OrdersService {
     const threePlId = this.resolveThreePlId(lines, dto.threePlId, null);
     const threePlSnapshot = await this.snapshotThreePl(threePlId, fulfillmentType, accountHolderProfile, null);
     const itemRows = await Promise.all(lines.map((line, position) => this.snapshotItem(line, position)));
+    if (fulfillmentType === ProductFulfillmentType.DROPSHIP) {
+      assertDropshipTotalsAllowed(lines, threePlId);
+      itemRows.forEach((row, i) => (row.buyTotalOriginal = lines[i].buyTotal ?? null));
+    }
 
     // Amounts are entered in each party's currency and converted to PKR with rates locked on the order.
     const amounts = {
@@ -186,6 +192,7 @@ export class OrdersService {
       shippingCostOriginal: dto.shippingCost ?? 0,
       ...threePlSnapshot,
     };
+    if (fulfillmentType === ProductFulfillmentType.DROPSHIP) syncDropshipPayout(amounts, itemRows);
     const rates = await this.exchangeRatesService.resolve(
       orderCurrencies(amounts, itemRows),
       cleanManualRates(dto.exchangeRates),
@@ -252,13 +259,15 @@ export class OrdersService {
     if (dto.shippingCost !== undefined) order.shippingCostOriginal = dto.shippingCost;
     if (dto.supplierUrl !== undefined) order.supplierUrl = dto.supplierUrl;
 
+    // An order's type (all-Stock or all-Dropship) is fixed once it's created — see changeItems.
+    const dropship = await this.isDropshipOrder(order);
     const sequelize = this.orderModel.sequelize!;
     await this.saveWithUniqueRef(order.ebayOrderRef, () =>
       sequelize.transaction(async (transaction) => {
         if (dto.items !== undefined || (dto.threePlId !== undefined && dto.threePlId !== order.threePlId)) {
           await this.changeItems(companyId, order, dto.items, dto.threePlId, transaction);
         }
-        await this.finalizeAmounts(order, legacy, dto, transaction);
+        await this.finalizeAmounts(order, legacy, dto, dropship, transaction);
         await order.save({ transaction });
       }),
     );
@@ -271,10 +280,11 @@ export class OrdersService {
    * today's rate. With `recalculateRates` every rate is refreshed (the admin's typed-in rates win).
    * A pre-currency order edited without recalculating stays as it was: plain PKR, no rates.
    */
-  private async finalizeAmounts(order: Order, legacy: boolean, dto: UpdateOrderDto, transaction: Transaction) {
+  private async finalizeAmounts(order: Order, legacy: boolean, dto: UpdateOrderDto, dropship: boolean, transaction: Transaction) {
     const items = await this.orderItemModel.findAll({ where: { orderId: order.id }, transaction });
     // Items kept from before currencies (new ones already carry their currency).
     if (legacy) await this.adoptLegacy(order, items);
+    if (dropship) syncDropshipPayout(order, items);
     if (legacy && !dto.recalculateRates) {
       keepLegacyAmounts(order, items);
     } else {
@@ -307,6 +317,12 @@ export class OrdersService {
       if (party === "threePl") return order.threePlId ? (currencyById.get(order.threePlId) ?? null) : null;
       return currencyById.get(party.stockOwnerId) ?? null;
     });
+  }
+
+  private async isDropshipOrder(order: Order): Promise<boolean> {
+    const first = order.items?.[0];
+    const product = first ? await this.productModel.findByPk(first.productId, { attributes: ["id", "fulfillmentType"] }) : null;
+    return product?.fulfillmentType === ProductFulfillmentType.DROPSHIP;
   }
 
   private async currencyOf(userId: string): Promise<Currency> {
@@ -344,7 +360,7 @@ export class OrdersService {
     companyId: string,
     order: Order,
     inputs: OrderItemInputDto[] | undefined,
-    threePlIdOverride: string | undefined,
+    threePlIdOverride: string | null | undefined,
     transaction: Transaction,
   ) {
     const existing = order.items ?? [];
@@ -359,6 +375,9 @@ export class OrdersService {
     const oldProducts = await this.productModel.findAll({ where: { id: existing.map((i) => i.productId) } });
     const oldProductById = new Map(oldProducts.map((p) => [p.id, p]));
     const wasDropship = existing.some((i) => oldProductById.get(i.productId)?.fulfillmentType === ProductFulfillmentType.DROPSHIP);
+    if (existing.length && wasDropship !== (fulfillmentType === ProductFulfillmentType.DROPSHIP)) {
+      throw new BadRequestException("An order can't be switched between Stock and Dropship products once it's created");
+    }
 
     // Keep an already-assigned dropship 3PL when staying on DROPSHIP.
     const threePlId = this.resolveThreePlId(lines, threePlIdOverride, wasDropship ? order.threePlId : null);
@@ -369,6 +388,13 @@ export class OrdersService {
     } else if (threePlId) {
       await this.assertThreePlHandles(threePlId, fulfillmentType);
     }
+    if (wasDropship) assertDropshipTotalsAllowed(lines, threePlId);
+    // A pre-currency order's amounts are plain PKR in the *Snapshot fields (adoptLegacy reads them from
+    // there), so a dropship total typed in on one is written to both.
+    const setBuyTotal = (item: { buyTotalOriginal: number | null; buyTotalSnapshot: number | null }, total: number | null) => {
+      item.buyTotalOriginal = total;
+      if (!order.exchangeRates) item.buyTotalSnapshot = total;
+    };
 
     const existingByProduct = new Map(existing.map((i) => [i.productId, i]));
     const keptIds = new Set<string>();
@@ -381,9 +407,12 @@ export class OrdersService {
         keptIds.add(current.id);
         current.quantity = line.quantity;
         current.position = position;
+        if (wasDropship && line.buyTotal !== undefined) setBuyTotal(current, line.buyTotal);
         await current.save({ transaction });
       } else {
-        await this.orderItemModel.create({ ...(await this.snapshotItem(line, position)), orderId: order.id }, { transaction });
+        const row = await this.snapshotItem(line, position);
+        if (wasDropship) setBuyTotal(row, line.buyTotal ?? null);
+        await this.orderItemModel.create({ ...row, orderId: order.id }, { transaction });
       }
     }
     for (const item of existing) {
@@ -395,8 +424,8 @@ export class OrdersService {
   }
 
   /**
-   * Loads and validates an order's products. Repeated products are merged. Several products are only
-   * allowed when they're all STOCK; a DROPSHIP order has exactly one product. The Stock Owner of every
+   * Loads and validates an order's products. Repeated products are merged. An order is all-STOCK or
+   * all-DROPSHIP; only DROPSHIP lines take a buy total. The Stock Owner of every
    * product being added (i.e. not in `alreadyOnOrder`) must not be deactivated.
    */
   private async resolveLines(
@@ -405,19 +434,30 @@ export class OrdersService {
     alreadyOnOrder: Set<string> = new Set(),
   ): Promise<OrderLine[]> {
     if (!inputs.length) throw new BadRequestException("An order needs at least one product");
-    const quantities = new Map<string, number>();
-    for (const input of inputs) quantities.set(input.productId, (quantities.get(input.productId) ?? 0) + input.quantity);
+    const merged = new Map<string, { quantity: number; buyTotal?: number | null }>();
+    for (const input of inputs) {
+      const prev = merged.get(input.productId);
+      if (!prev) {
+        merged.set(input.productId, { quantity: input.quantity, buyTotal: input.buyTotal });
+        continue;
+      }
+      prev.quantity += input.quantity;
+      if (input.buyTotal != null) prev.buyTotal = round2((prev.buyTotal ?? 0) + input.buyTotal);
+    }
 
-    const products = await this.productModel.findAll({ where: { id: [...quantities.keys()], companyId } });
+    const products = await this.productModel.findAll({ where: { id: [...merged.keys()], companyId } });
     const productById = new Map(products.map((p) => [p.id, p]));
-    const lines = [...quantities.entries()].map(([productId, quantity]) => {
+    const lines = [...merged.entries()].map(([productId, { quantity, buyTotal }]) => {
       const product = productById.get(productId);
       if (!product) throw new NotFoundException("Product not found");
-      return { product, quantity };
+      return { product, quantity, buyTotal };
     });
 
-    if (lines.length > 1 && lines.some((l) => l.product.fulfillmentType === ProductFulfillmentType.DROPSHIP)) {
-      throw new BadRequestException("Only Stock products can be combined in one order — a dropship order has a single product");
+    if (new Set(lines.map((l) => l.product.fulfillmentType)).size > 1) {
+      throw new BadRequestException("An order can't mix Stock and Dropship products");
+    }
+    if (lines.some((l) => l.product.fulfillmentType === ProductFulfillmentType.STOCK && l.buyTotal != null)) {
+      throw new BadRequestException("Only dropship products take a buy price on the order");
     }
     const addedStockOwners = lines.filter((l) => !alreadyOnOrder.has(l.product.id)).map((l) => l.product.stockOwnerId);
     for (const stockOwnerId of new Set(addedStockOwners.filter((id): id is string => !!id))) {
@@ -430,10 +470,11 @@ export class OrdersService {
 
   /**
    * STOCK orders ship from one 3PL (its fee is charged once per order), so every product must be held
-   * at the same 3PL; the caller may override which 3PL. DROPSHIP orders take the override or `keepExisting`.
+   * at the same 3PL; the caller may override which 3PL. DROPSHIP orders take the override (null = no 3PL)
+   * or, when it's undefined, `keepExisting`.
    */
-  private resolveThreePlId(lines: OrderLine[], override: string | undefined, keepExisting: string | null): string | null {
-    if (lines[0].product.fulfillmentType === ProductFulfillmentType.DROPSHIP) return override ?? keepExisting;
+  private resolveThreePlId(lines: OrderLine[], override: string | null | undefined, keepExisting: string | null): string | null {
+    if (lines[0].product.fulfillmentType === ProductFulfillmentType.DROPSHIP) return override !== undefined ? override : keepExisting;
 
     const warehouses = new Set(lines.map((l) => l.product.threePlId).filter((id): id is string => !!id));
     if (warehouses.size > 1) {
@@ -480,8 +521,8 @@ export class OrdersService {
 
   /**
    * Per-item snapshot of the product's current prices and its Stock Owner's share terms.
-   * DROPSHIP: no product-level price yet — the assigned 3PL enters the buy price once they pick up
-   * the order (see setDropshipBuyPrice below).
+   * DROPSHIP: no product-level price — the line's buy total is entered on the order by the admin
+   * and/or the assigned 3PL (see setDropshipBuyPrice below).
    */
   private async snapshotItem(line: OrderLine, position: number) {
     const { product, quantity } = line;
@@ -504,11 +545,16 @@ export class OrdersService {
       stockOwnerCostSnapshot: null as number | null,
       stockOwnerPayoutModeSnapshot: stockOwnerProfile?.payoutMode ?? null,
       stockOwnerSharePercentSnapshot: stockOwnerProfile?.sharePercent ?? null,
+      buyTotalOriginal: null as number | null,
+      buyTotalSnapshot: null as number | null,
     };
   }
 
-  /** Lets the assigned 3PL fill in the buy price for a DROPSHIP order once they can see it (status past PENDING). */
-  async setDropshipBuyPrice(companyId: string, requester: JwtPayload, id: string, buyPrice: number) {
+  /**
+   * Lets the assigned 3PL enter or correct the buy total of one line on a DROPSHIP order once they can
+   * see it (status past PENDING), until it's invoiced. Their payout is the sum of the lines.
+   */
+  async setDropshipBuyPrice(companyId: string, requester: JwtPayload, id: string, itemId: string, buyTotal: number) {
     const order = await this.get(companyId, id);
     if (order.threePlId !== requester.sub) {
       throw new ForbiddenException("This order is not assigned to you");
@@ -518,31 +564,27 @@ export class OrdersService {
     }
     assertNotInvoiced(order);
 
-    // DROPSHIP orders always have exactly one item.
-    const item = order.items[0];
-    const product = item ? await this.productModel.findByPk(item.productId) : null;
-    if (!product || product.fulfillmentType !== ProductFulfillmentType.DROPSHIP) {
+    const item = order.items.find((i) => i.id === itemId);
+    if (!item) throw new NotFoundException("Order item not found");
+    if (!(await this.isDropshipOrder(order))) {
       throw new BadRequestException("Buy price can only be entered for DROPSHIP orders");
     }
 
-    // The buy price the 3PL enters IS their payout for a DROPSHIP order — no separate rate.
     if (!order.exchangeRates) {
       // Pre-currency order: amounts stay plain PKR.
-      item.buyPriceSnapshot = buyPrice;
-      order.threePlPayoutSnapshot = buyPrice;
+      item.buyTotalSnapshot = buyTotal;
+      order.threePlPayoutSnapshot = sumBuyTotals(order.items.map((i) => i.buyTotalSnapshot));
     } else {
       // Entered in the 3PL's own currency, converted with the order's locked rate for it.
-      const currency = order.threePlCurrency ?? (await this.currencyOf(requester.sub));
-      order.threePlCurrency = currency;
-      item.currency = currency;
-      item.buyPriceOriginal = buyPrice;
-      order.threePlPayoutOriginal = buyPrice;
-      if (!order.exchangeRates[currency]) {
-        order.exchangeRates = { ...order.exchangeRates, ...(await this.exchangeRatesService.resolve([currency])) };
+      order.threePlCurrency = order.threePlCurrency ?? (await this.currencyOf(requester.sub));
+      item.buyTotalOriginal = buyTotal;
+      syncDropshipPayout(order, order.items);
+      if (!order.exchangeRates[order.threePlCurrency]) {
+        order.exchangeRates = { ...order.exchangeRates, ...(await this.exchangeRatesService.resolve([order.threePlCurrency])) };
       }
-      convertOrderAmounts(order, [item], order.exchangeRates);
+      convertOrderAmounts(order, order.items, order.exchangeRates);
     }
-    await item.save();
+    for (const i of order.items) if (i.changed()) await i.save();
     await order.save();
     return order;
   }
@@ -606,4 +648,40 @@ async function adjustStock(product: Product, delta: number, transaction?: Transa
   if (delta === 0 || product.fulfillmentType !== ProductFulfillmentType.STOCK) return;
   product.stockQuantity += delta;
   await product.save({ transaction });
+}
+
+/** A dropship line's buy total is in the 3PL's currency, so it can only be entered once a 3PL is picked. */
+function assertDropshipTotalsAllowed(lines: OrderLine[], threePlId: string | null) {
+  if (!threePlId && lines.some((l) => l.buyTotal != null)) {
+    throw new BadRequestException("Pick a 3PL before entering dropship buy prices — they're in the 3PL's currency");
+  }
+}
+
+/**
+ * DROPSHIP: every line's buy total is in the order's 3PL's currency, and the 3PL's payout is their sum
+ * (not the per-order fee) once every line has one. Works on the as-entered (*Original) amounts; the
+ * caller converts to PKR. Without a 3PL there's no currency, so totals are cleared.
+ */
+function syncDropshipPayout(
+  order: { threePlCurrency: Currency | null; threePlPayoutOriginal: number | null },
+  items: { currency: Currency | null; buyTotalOriginal: number | null; buyTotalSnapshot: number | null }[],
+) {
+  for (const item of items) {
+    item.currency = order.threePlCurrency;
+    if (!order.threePlCurrency) {
+      item.buyTotalOriginal = null;
+      item.buyTotalSnapshot = null;
+    }
+  }
+  order.threePlPayoutOriginal = order.threePlCurrency ? sumBuyTotals(items.map((i) => i.buyTotalOriginal)) : null;
+}
+
+/** Null while any line still lacks a buy total. */
+function sumBuyTotals(totals: (number | null)[]): number | null {
+  if (!totals.length || totals.some((t) => t == null)) return null;
+  return round2(totals.reduce<number>((sum, t) => sum + t!, 0));
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }

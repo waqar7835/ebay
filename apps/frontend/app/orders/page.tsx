@@ -137,12 +137,18 @@ export default function OrdersPage() {
     }
   }
 
-  async function handleSubmitBuyPrice(orderId: string) {
-    const value = Number(buyPriceDrafts[orderId]);
-    if (Number.isNaN(value)) return;
-    setBuyPriceSaving(orderId);
+  // Drafts and saving state are per order item: a dropship order has a buy price per product line.
+  async function handleSubmitBuyPrice(orderId: string, itemId: string) {
+    const draft = buyPriceDrafts[itemId];
+    const value = Number(draft);
+    if (!draft || Number.isNaN(value)) return;
+    setBuyPriceSaving(itemId);
     try {
-      await submitDropshipBuyPrice(orderId, value);
+      await submitDropshipBuyPrice(orderId, itemId, value);
+      setBuyPriceDrafts((d) => {
+        const { [itemId]: _saved, ...rest } = d;
+        return rest;
+      });
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save buy price");
@@ -153,9 +159,11 @@ export default function OrdersPage() {
 
   // Order amounts are stored in PKR (converted from each user's currency when the order was saved).
   const money = pkr;
-  // Buy price × qty across the order's items; null while a dropship item still awaits its buy price.
+  // Stock: buy price × qty; dropship: each line's buy total. Null while a dropship line still awaits its price.
+  const itemBuyTotal = (i: OrderDto["items"][number]) =>
+    i.buyTotalSnapshot ?? (i.buyPriceSnapshot == null ? null : i.buyPriceSnapshot * i.quantity);
   const buyTotal = (o: OrderDto) =>
-    o.items.some((i) => i.buyPriceSnapshot == null) ? null : o.items.reduce((sum, i) => sum + i.buyPriceSnapshot! * i.quantity, 0);
+    o.items.some((i) => itemBuyTotal(i) == null) ? null : o.items.reduce((sum, i) => sum + itemBuyTotal(i)!, 0);
 
   const columns: TableColumnsType<OrderDto> = [
     {
@@ -210,26 +218,49 @@ export default function OrdersPage() {
             title: "Buy Price",
             key: "buyPrice",
             render: (_: unknown, order: OrderDto) => {
-              // DROPSHIP orders always have exactly one item.
-              const item = order.items[0];
-              const product = productById.get(item?.productId ?? "");
+              const product = productById.get(order.items[0]?.productId ?? "");
               if (product?.fulfillmentType !== "DROPSHIP") return "—";
-              if (item.buyPriceSnapshot != null) return money(item.buyPriceSnapshot);
+              // One price per product line (all units), editable until the order is invoiced.
+              const locked = isInvoiced(order);
               return (
-                <Space.Compact size="small">
-                  <InputNumber
-                    value={buyPriceDrafts[order.id] ? Number(buyPriceDrafts[order.id]) : null}
-                    onChange={(v) => setBuyPriceDrafts((d) => ({ ...d, [order.id]: v == null ? "" : String(v) }))}
-                    placeholder="0.00"
-                    prefix={myCurrency ? currencySymbol(myCurrency) : undefined}
-                    min={0}
-                    step={0.01}
-                    className="w-28"
-                  />
-                  <Button onClick={() => handleSubmitBuyPrice(order.id)} loading={buyPriceSaving === order.id}>
-                    Save
-                  </Button>
-                </Space.Compact>
+                <div className="flex min-w-56 flex-col gap-1">
+                  {order.items.map((item) => {
+                    const title = productById.get(item.productId)?.title ?? "Product";
+                    const saved = item.buyTotalOriginal ?? item.buyTotalSnapshot;
+                    const draft = buyPriceDrafts[item.id];
+                    return (
+                      <div key={item.id}>
+                        {order.items.length > 1 && (
+                          <div className="truncate text-xs text-slate-500">
+                            {title} ×{item.quantity}
+                          </div>
+                        )}
+                        {locked ? (
+                          money(item.buyTotalSnapshot, "—")
+                        ) : (
+                          <Space.Compact size="small">
+                            <InputNumber
+                              value={draft !== undefined ? (draft === "" ? null : Number(draft)) : saved}
+                              onChange={(v) => setBuyPriceDrafts((d) => ({ ...d, [item.id]: v == null ? "" : String(v) }))}
+                              placeholder="0.00"
+                              prefix={myCurrency ? currencySymbol(myCurrency) : undefined}
+                              min={0}
+                              step={0.01}
+                              className="w-28"
+                            />
+                            <Button
+                              onClick={() => handleSubmitBuyPrice(order.id, item.id)}
+                              loading={buyPriceSaving === item.id}
+                              disabled={!draft}
+                            >
+                              Save
+                            </Button>
+                          </Space.Compact>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               );
             },
           },

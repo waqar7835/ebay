@@ -459,7 +459,7 @@ export class InvoicesService {
         status: INVOICEABLE_STATUSES,
         [cols.owner]: userId,
         [cols.invoice]: unclaimed,
-        // A DROPSHIP 3PL isn't owed anything until they've entered their buy price.
+        // A DROPSHIP order isn't owed to the 3PL until every line has its buy price.
         ...(role === Role.THREE_PL ? { threePlPayoutSnapshot: { [Op.ne]: null } } : {}),
       } as WhereOptions<Order>,
       order: [["orderDate", "ASC"]],
@@ -666,8 +666,8 @@ export class InvoicesService {
   }
 
   /**
-   * STOCK orders pay the 3PL its fee per order; on a DROPSHIP order the payout is the buy price the
-   * 3PL entered (they bought the product). The invoice shows the two in separate sections.
+   * STOCK orders pay the 3PL its fee per order; on a DROPSHIP order the payout is the sum of the
+   * lines' buy totals (the 3PL bought the products). The invoice shows the two in separate sections.
    */
   private threePlLine(order: Order, products: Map<string, { title: string; fulfillmentType: ProductFulfillmentType }>): DraftLine {
     const fee = round2(order.threePlPayoutSnapshot ?? 0);

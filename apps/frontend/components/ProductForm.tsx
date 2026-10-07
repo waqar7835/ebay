@@ -1,7 +1,7 @@
 "use client";
 
 import type { ProductDto, ProductFulfillmentType, UserDto } from "@ebay-order-management/shared";
-import { Alert, Button, Card, Form, Input, InputNumber, Select } from "antd";
+import { Alert, Button, Card, Form, Input, InputNumber, Select, Tag } from "antd";
 import { useEffect, useState } from "react";
 import ProductImagesUpload, { productImageItems, type ProductImageItem } from "@/components/ProductImagesUpload";
 import { listUsers, type CreateProductPayload } from "@/lib/api";
@@ -54,6 +54,10 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
   const pricePrefix = priceCurrency ? currencySymbol(priceCurrency) : "";
 
   async function handleFinish(values: ProductFormValues) {
+    if (!isStock && images.length === 0) {
+      setFormError("A dropship product needs at least one image");
+      return;
+    }
     setFormError(null);
     setSubmitting(true);
     try {
@@ -115,7 +119,7 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
               <Select
                 options={[
                   { value: "STOCK", label: "Stock — held at a 3PL warehouse" },
-                  { value: "DROPSHIP", label: "Dropship — no 3PL" },
+                  { value: "DROPSHIP", label: "Dropship — 3PL and buy price are set on each order" },
                 ]}
               />
             </Form.Item>
@@ -155,7 +159,7 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
         </div>
 
         <div className="flex flex-col gap-6">
-          <Card title="Images">
+          <Card title="Images" extra={!isStock && <Tag className="mr-0">At least one required</Tag>}>
             <ProductImagesUpload value={images} onChange={setImages} disabled={submitting} />
           </Card>
 
