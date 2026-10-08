@@ -43,6 +43,7 @@ import {
 } from "@/lib/api";
 import { searchable, userOptions } from "@/lib/selectOptions";
 import { CURRENCY_SYMBOL, invoiceMoney } from "@/lib/currency";
+import { formatDate } from "@/lib/date";
 
 const INVOICE_ROLES = ["ACCOUNT_HOLDER", "STOCK_OWNER", "THREE_PL"] as InvoiceRole[];
 
@@ -242,7 +243,7 @@ export default function InvoiceWizard({ invoiceId }: { invoiceId?: string }) {
 
   const columns: TableColumnsType<InvoiceableOrderDto> = [
     { title: "Order #", dataIndex: "ebayOrderRef", render: (v: string) => <span className="font-medium">{v}</span> },
-    { title: "Date", dataIndex: "orderDate" },
+    { title: "Date", dataIndex: "orderDate", render: (v: string) => formatDate(v) },
     {
       title: "Status",
       key: "status",

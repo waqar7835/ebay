@@ -26,7 +26,9 @@ import { OrdersService } from "./orders.service";
 import { CreateOrderDto } from "./dto/create-order.dto";
 import { UpdateOrderDto } from "./dto/update-order.dto";
 import { UpdateOrderStatusDto } from "./dto/update-status.dto";
+import { BulkUpdateOrderStatusDto } from "./dto/bulk-update-status.dto";
 import { DropshipBuyPriceDto } from "./dto/dropship-buy-price.dto";
+import { ThreePlFulfillmentDto } from "./dto/three-pl-fulfillment.dto";
 
 @ApiTags("orders")
 @ApiBearerAuth()
@@ -54,9 +56,22 @@ export class OrdersController {
     });
   }
 
+  /**
+   * Bulk status change from the portal orders list (managers, and 3PLs for their own PROCESSING -> SHIPPED moves;
+   * access is checked in the service). Declared before ":id" routes so "status" isn't read as an id.
+   */
+  @Patch("status")
+  bulkUpdateStatus(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: BulkUpdateOrderStatusDto,
+    @Query("companyId") companyId?: string,
+  ) {
+    return this.ordersService.bulkUpdateStatus(resolveCompanyId(user, companyId), user, dto);
+  }
+
   @Get(":id")
   get(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Query("companyId") companyId?: string) {
-    return this.ordersService.get(resolveCompanyId(user, companyId), id);
+    return this.ordersService.getForRequester(resolveCompanyId(user, companyId), user, id);
   }
 
   @Post()
@@ -84,6 +99,16 @@ export class OrdersController {
     @Query("companyId") companyId?: string,
   ) {
     return this.ordersService.setDropshipBuyPrice(resolveCompanyId(user, companyId), user, id, dto.itemId, dto.buyTotal);
+  }
+
+  @Patch(":id/three-pl")
+  updateThreePlFulfillment(
+    @CurrentUser() user: JwtPayload,
+    @Param("id") id: string,
+    @Body() dto: ThreePlFulfillmentDto,
+    @Query("companyId") companyId?: string,
+  ) {
+    return this.ordersService.updateThreePlFulfillment(resolveCompanyId(user, companyId), user, id, dto);
   }
 
   @Patch(":id/status")

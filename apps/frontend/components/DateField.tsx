@@ -2,6 +2,7 @@
 
 import { DatePicker } from "antd";
 import dayjs from "dayjs";
+import { DATE_FORMAT } from "@/lib/date";
 
 interface DateFieldProps {
   /** ISO date-only string (YYYY-MM-DD), or "" / undefined for empty. */
@@ -18,9 +19,13 @@ export default function DateField({ value, onChange, placeholder, allowClear = t
   return (
     <DatePicker
       className={className}
+      // Wide enough for the longest month ("30 September 2026") without clipping.
+      style={{ minWidth: 175 }}
       placeholder={placeholder}
       allowClear={allowClear}
       disabled={disabled}
+      // Shows "08 October 2026"; typing an ISO or DD/MM/YYYY date still parses.
+      format={[DATE_FORMAT, "YYYY-MM-DD", "DD/MM/YYYY"]}
       value={value ? dayjs(value) : null}
       onChange={(d) => onChange?.(d ? d.format("YYYY-MM-DD") : "")}
     />

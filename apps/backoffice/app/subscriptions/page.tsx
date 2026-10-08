@@ -27,6 +27,7 @@ import {
 } from "@/lib/api";
 import { pkr } from "@/lib/currency";
 import { searchable } from "@/lib/selectOptions";
+import { formatDate, formatDateTime } from "@/lib/date";
 
 const PAYMENT_STATUS_COLOR: Record<string, string> = { SUBMITTED: "blue", APPROVED: "green", REJECTED: "red" };
 
@@ -190,7 +191,7 @@ export default function SubscriptionsPage() {
         locale={{ emptyText: paymentFilter === "SUBMITTED" ? "Nothing waiting for review." : "No payments yet." }}
         columns={[
           { title: "Company", dataIndex: "companyName" },
-          { title: "Submitted", dataIndex: "createdAt", render: (v: string) => new Date(v).toLocaleString() },
+          { title: "Submitted", dataIndex: "createdAt", render: (v: string) => formatDateTime(v) },
           { title: "Plan", dataIndex: "planName" },
           { title: "Duration", dataIndex: "months", render: (m: number) => durationLabel(m) },
           {
@@ -224,7 +225,7 @@ export default function SubscriptionsPage() {
                 <Tag color={PAYMENT_STATUS_COLOR[s]}>{s}</Tag>
                 {p.periodStart && p.periodEnd && (
                   <span className="text-xs text-gray-500">
-                    {p.periodStart} → {p.periodEnd}
+                    {formatDate(p.periodStart)} → {formatDate(p.periodEnd)}
                   </span>
                 )}
               </>
@@ -377,7 +378,7 @@ export default function SubscriptionsPage() {
         {
           title: "Ends",
           dataIndex: "subscriptionEndsAt",
-          render: (v: string | null) => v ?? "—",
+          render: (v: string | null) => formatDate(v),
           sorter: (a, b) => (a.subscriptionEndsAt ?? "").localeCompare(b.subscriptionEndsAt ?? ""),
         },
         {

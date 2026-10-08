@@ -7,6 +7,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  MaxLength,
   Min,
   ValidateNested,
 } from "class-validator";
@@ -52,6 +53,12 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString()
   supplierUrl?: string;
+
+  /** Notes for the 3PL; on update an empty string clears them. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  comments?: string;
 
   /** PKR rates typed in by the admin (e.g. when the rate API is down), keyed by currency. */
   @IsOptional()

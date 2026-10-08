@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import { getStoredUser, getToken, listAllCompanies } from "@/lib/api";
+import { formatDate } from "@/lib/date";
 
 export default function SuperAdminPage() {
   const router = useRouter();
@@ -57,13 +58,13 @@ export default function SuperAdminPage() {
               render: (_: unknown, c: any) =>
                 c.subscriptionPlan && c.subscriptionEndsAt >= today ? (
                   <Tag color="blue">
-                    {c.subscriptionPlan.name} · until {c.subscriptionEndsAt}
+                    {c.subscriptionPlan.name} · until {formatDate(c.subscriptionEndsAt)}
                   </Tag>
                 ) : (
                   <Tag>Free</Tag>
                 ),
             },
-            { title: "Created", dataIndex: "createdAt", render: (v: string) => new Date(v).toLocaleDateString() },
+            { title: "Created", dataIndex: "createdAt", render: (v: string) => formatDate(v) },
           ]}
         />
       </main>

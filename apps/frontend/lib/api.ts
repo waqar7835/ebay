@@ -195,7 +195,14 @@ export interface DashboardOrderItem {
   quantity: number;
 }
 
+/** Not-yet-invoiced orders for the viewer, all time, per status. */
+export interface UninvoicedCounts {
+  total: number;
+  byStatus: Record<string, number>;
+}
+
 export interface AccountHolderDashboard {
+  uninvoiced: UninvoicedCounts;
   cycleStart: string;
   cycleEnd: string;
   listStart: string;
@@ -212,6 +219,7 @@ export function accountHolderDashboard(filters: DashboardOrderFilters = {}) {
 }
 
 export interface StockOwnerDashboard {
+  uninvoiced: UninvoicedCounts;
   cycleStart: string;
   cycleEnd: string;
   listStart: string;
@@ -239,6 +247,7 @@ export interface ThreePlOrderRow {
 }
 
 export interface ThreePlDashboard {
+  uninvoiced: UninvoicedCounts;
   cycleStart: string;
   cycleEnd: string;
   listStart: string;
@@ -254,6 +263,7 @@ export function threePlDashboard(filters: DashboardOrderFilters = {}) {
 }
 
 export interface StaffDashboard {
+  uninvoiced: UninvoicedCounts;
   cycleStart: string;
   cycleEnd: string;
   totalCompanyProfit: number;
@@ -285,6 +295,14 @@ export function staffDashboard() {
 
 export function updateOrderStatus(orderId: string, status: OrderStatus) {
   return request<OrderDto>(`/orders/${orderId}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
+}
+
+/** Manager bulk action: one status for many orders, all-or-nothing. Orders already in that status are skipped. */
+export function bulkUpdateOrderStatus(orderIds: string[], status: OrderStatus) {
+  return request<{ updated: number; unchanged: number }>("/orders/status", {
+    method: "PATCH",
+    body: JSON.stringify({ orderIds, status }),
+  });
 }
 
 // --- Companies ---
@@ -516,6 +534,8 @@ export interface CreateOrderPayload {
   ebayNetProceeds: number;
   shippingCost?: number;
   supplierUrl?: string;
+  /** Notes for the 3PL; "" clears them on edit. */
+  comments?: string;
   /** PKR rates typed in by the admin; any currency left out uses the live rate. */
   exchangeRates?: ExchangeRates;
 }
@@ -541,8 +561,15 @@ export function updateOrder(orderId: string, payload: UpdateOrderPayload) {
 }
 
 // Assigned 3PL entering/correcting one line's buy total on a DROPSHIP order once it's visible to them (status past PENDING).
-export function submitDropshipBuyPrice(orderId: string, itemId: string, buyTotal: number) {
-  return request<OrderDto>(`/orders/${orderId}/dropship-buy-price`, { method: "PATCH", body: JSON.stringify({ itemId, buyTotal }) });
+/**
+ * A DROPSHIP 3PL's Edit popup: line buy totals (their currency, until invoiced), supplier URL, tracking number and
+ * PROCESSING -> SHIPPED. Omitted fields stay as they are; "" clears the URL / tracking number.
+ */
+export function updateThreePlOrder(
+  orderId: string,
+  input: { buyTotals?: { itemId: string; buyTotal: number }[]; supplierUrl?: string; trackingNumber?: string; markShipped?: boolean },
+) {
+  return request<OrderDto>(`/orders/${orderId}/three-pl`, { method: "PATCH", body: JSON.stringify(input) });
 }
 
 export async function uploadOrderShippingLabel(orderId: string, shippingLabel: File) {

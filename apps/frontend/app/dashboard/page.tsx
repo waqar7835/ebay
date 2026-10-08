@@ -42,8 +42,10 @@ import {
   stockOwnerDashboard,
   threePlDashboard,
   updateOrderStatus,
+  type UninvoicedCounts as UninvoicedCountsDto,
 } from "@/lib/api";
 import { pkr } from "@/lib/currency";
+import StatusCounts from "@/components/StatusCounts";
 
 const STATUS_OPTIONS: OrderStatus[] = ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "REFUNDED"] as OrderStatus[];
 const STATUS_COLORS: Record<string, string> = {
@@ -172,6 +174,16 @@ function StatusPieChart({ data }: { data: Record<string, number> }) {
         <Tooltip />
       </PieChart>
     </ResponsiveContainer>
+  );
+}
+
+/** Not-yet-invoiced orders for this viewer (all time, unaffected by the filters below), per status. */
+function UninvoicedCounts({ data, statuses = STATUS_OPTIONS }: { data: UninvoicedCountsDto; statuses?: string[] }) {
+  return (
+    <div className="mt-3">
+      <div className="mb-2 text-sm font-medium text-slate-600">Not invoiced yet</div>
+      <StatusCounts totalLabel="Total orders" total={data.total} statuses={statuses} counts={data.byStatus} />
+    </div>
   );
 }
 
@@ -333,6 +345,7 @@ export default function DashboardPage() {
             <p className="text-sm text-gray-500">
               {staff.orderCount} orders this cycle — total company profit {pkr(staff.totalCompanyProfit)}
             </p>
+            <UninvoicedCounts data={staff.uninvoiced} />
 
             <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
               <Card size="small" className="kpi-hero">
@@ -418,6 +431,7 @@ export default function DashboardPage() {
             <p className="text-sm text-gray-500">
               {ah.orderCount} orders this cycle — total profit {pkr(ah.totalProfit)}
             </p>
+            <UninvoicedCounts data={ah.uninvoiced} />
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <ChartCard title="Your payout per day">
                 <DailyLineChart data={ah.payoutByDay} color="#10b981" valueLabel="PKR" />
@@ -452,6 +466,7 @@ export default function DashboardPage() {
             <p className="text-sm text-gray-500">
               {so.itemsSold} items sold this cycle — total profit {pkr(so.totalProfit)}
             </p>
+            <UninvoicedCounts data={so.uninvoiced} />
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <ChartCard title="Items sold per day">
                 <DailyLineChart data={so.itemsSoldByDay} color="#f59e0b" valueLabel="items" />
@@ -487,6 +502,8 @@ export default function DashboardPage() {
           <section className="mt-8">
             <h2 className="text-lg font-medium">3PL</h2>
             <p className="text-sm text-gray-500">Earnings this cycle: {pkr(tp.totalEarnings)}</p>
+            {/* 3PLs never see PENDING orders. */}
+            <UninvoicedCounts data={tp.uninvoiced} statuses={STATUS_OPTIONS.filter((st) => st !== "PENDING")} />
             <div className="mt-3 grid grid-cols-1 sm:grid-cols-2">
               <ChartCard title="Orders fulfilled per day">
                 <DailyLineChart data={tp.fulfilledByDay} color="#8b5cf6" valueLabel="orders" />

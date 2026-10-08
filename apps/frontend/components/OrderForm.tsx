@@ -19,6 +19,7 @@ import ProductThumb from "@/components/ProductThumb";
 import { listExchangeRates, listProducts, listUsers, localDateOnly, mediaUrl, type UpdateOrderPayload } from "@/lib/api";
 import { currencySymbol, money, pkr } from "@/lib/currency";
 import { searchable, userOptions } from "@/lib/selectOptions";
+import { formatDate } from "@/lib/date";
 
 interface OrderFormProps {
   // Prefills the form for editing; omitted when creating.
@@ -47,6 +48,7 @@ interface OrderFormValues {
   ebayNetProceeds: number;
   shippingCost: number;
   supplierUrl?: string;
+  comments?: string;
 }
 
 function timeAgo(iso: string | null | undefined): string {
@@ -231,6 +233,8 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
           ebayNetProceeds: Number(values.ebayNetProceeds ?? 0),
           shippingCost: Number(values.shippingCost ?? 0),
           supplierUrl: values.supplierUrl || undefined,
+          // "" clears the comments on edit.
+          comments: values.comments ?? "",
           exchangeRates: Object.fromEntries(neededCurrencies.filter(editableRate).map((c) => [c, rateInputs[c]])),
           ...(initial && recalculate ? { recalculateRates: true } : {}),
         },
@@ -294,6 +298,7 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
         ebayNetProceeds: initial ? (initial.ebayNetProceedsOriginal ?? initial.ebayNetProceeds) : 0,
         shippingCost: initial ? (initial.shippingCostOriginal ?? initial.shippingCost) : 0,
         supplierUrl: initial?.supplierUrl ?? "",
+        comments: initial?.comments ?? "",
       }}
     >
       <div className="grid gap-6 lg:grid-cols-3">
@@ -448,6 +453,17 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
               <Input.TextArea rows={5} placeholder={"Name\nAddress\nPhone number"} />
             </Form.Item>
           </Card>
+
+          <Card title="Comments">
+            <Form.Item
+              name="comments"
+              label="Notes for the 3PL"
+              extra="Shown to the 3PL on their orders list. Account Holders and Stock Owners don't see it."
+              className="mb-0"
+            >
+              <Input.TextArea rows={3} maxLength={2000} showCount placeholder="e.g. Gift wrap this order" />
+            </Form.Item>
+          </Card>
         </div>
 
         <div className="flex flex-col gap-6">
@@ -499,7 +515,7 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
                     const live = liveByCurrency.get(c);
                     const editable = editableRate(c);
                     const note = !editable
-                      ? `Locked${initial?.exchangeRatesAt ? ` · ${new Date(initial.exchangeRatesAt).toLocaleDateString()}` : ""}`
+                      ? `Locked${initial?.exchangeRatesAt ? ` · ${formatDate(initial.exchangeRatesAt)}` : ""}`
                       : live?.unavailable
                         ? "No rate available — enter it"
                         : live?.fetchedAt

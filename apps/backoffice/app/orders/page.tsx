@@ -41,6 +41,7 @@ import {
 } from "@/lib/api";
 import { currencySymbol, money, pkr } from "@/lib/currency";
 import { searchable, userOptions } from "@/lib/selectOptions";
+import { formatDate } from "@/lib/date";
 
 const STATUSES: OrderStatus[] = ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "REFUNDED"] as OrderStatus[];
 
@@ -351,7 +352,7 @@ export default function OrdersPage() {
         return product ? (SOURCE_LABEL[product.fulfillmentType] ?? product.fulfillmentType) : "—";
       },
     },
-    { title: "Date", dataIndex: "orderDate", sorter: (a, b) => a.orderDate.localeCompare(b.orderDate) },
+    { title: "Date", dataIndex: "orderDate", render: (v: string) => formatDate(v), sorter: (a, b) => a.orderDate.localeCompare(b.orderDate) },
     { title: "Order #", dataIndex: "ebayOrderRef" },
     { title: "Tracking #", dataIndex: "trackingNumber", render: (v) => v ?? "—" },
     { title: "Qty", key: "qty", render: (_, o) => o.items.reduce((sum, i) => sum + i.quantity, 0) },

@@ -67,11 +67,12 @@ export default function Nav() {
 
   const isAdmin = user?.roles.includes("ADMIN" as Role) ?? false;
   const perms = user?.staffPermissions;
+  const isStockOwner = user?.roles.includes("STOCK_OWNER" as Role) ?? false;
 
   const links = [
     { href: "/dashboard", label: "Dashboard", show: true, icon: <NavIcon icon={<DashboardOutlined />} bg="#dbeafe" fg="#2563eb" /> },
-    { href: "/products", label: "Products", show: isAdmin || !!perms?.canManageStock, icon: <NavIcon icon={<AppstoreOutlined />} bg="#d1fae5" fg="#059669" /> },
-    { href: "/orders", label: "Orders", show: isAdmin || !!perms?.canManageOrders, icon: <NavIcon icon={<ShoppingCartOutlined />} bg="#ede9fe" fg="#7c3aed" /> },
+    { href: "/products", label: "Products", show: isAdmin || !!perms?.canManageStock || isStockOwner, icon: <NavIcon icon={<AppstoreOutlined />} bg="#d1fae5" fg="#059669" /> },
+    { href: "/orders", label: "Orders", show: isAdmin || !!perms?.canManageOrders || isStockOwner, icon: <NavIcon icon={<ShoppingCartOutlined />} bg="#ede9fe" fg="#7c3aed" /> },
     { href: "/users", label: "Users", show: isAdmin || !!perms?.canManageUsers, icon: <NavIcon icon={<TeamOutlined />} bg="#e0f2fe" fg="#0284c7" /> },
     { href: "/invoices", label: "Invoices", show: true, icon: <NavIcon icon={<FileTextOutlined />} bg="#fce7f3" fg="#db2777" /> },
     { href: "/subscription", label: "Subscription", show: isAdmin || !!perms?.canManageUsers, icon: <NavIcon icon={<CreditCardOutlined />} bg="#fef3c7" fg="#d97706" /> },

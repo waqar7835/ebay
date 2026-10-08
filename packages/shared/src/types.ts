@@ -230,6 +230,8 @@ export interface OrderDto {
   shippingLabelUrl: string | null;
   /** Supplier/product listing link, admin-entered — used for DROPSHIP orders. */
   supplierUrl: string | null;
+  /** Admin/Staff notes for the 3PL; null for Account Holders / Stock Owners (never sent to them). */
+  comments: string | null;
   statusChangedAt: string;
   buyerDetails: string;
   /** In PKR. The amount as entered (in the Account Holder's currency) is ebayNetProceedsOriginal. */

@@ -19,6 +19,7 @@ import {
   subscriptionPrice,
 } from "@/lib/api";
 import { pkr } from "@/lib/currency";
+import { formatDate, formatDateTime } from "@/lib/date";
 
 const PAYMENT_STATUS_COLOR: Record<string, string> = { SUBMITTED: "blue", APPROVED: "green", REJECTED: "red" };
 
@@ -160,7 +161,7 @@ export default function SubscriptionPage() {
               <div className="mt-1 text-2xl font-semibold">{currentPlan.name}</div>
               <div className="mt-2 text-sm opacity-90">
                 {subscription.endsAt
-                  ? `Active until ${new Date(`${subscription.endsAt}T00:00:00`).toLocaleDateString()} · ${subscription.daysLeft} day${subscription.daysLeft === 1 ? "" : "s"} left`
+                  ? `Active until ${formatDate(subscription.endsAt)} · ${subscription.daysLeft} day${subscription.daysLeft === 1 ? "" : "s"} left`
                   : "Free plan — no expiry"}
               </div>
             </Card>
@@ -294,7 +295,7 @@ export default function SubscriptionPage() {
           pagination={false}
           locale={{ emptyText: "No payments yet." }}
           columns={[
-            { title: "Submitted", dataIndex: "createdAt", render: (v: string) => new Date(v).toLocaleString() },
+            { title: "Submitted", dataIndex: "createdAt", render: (v: string) => formatDateTime(v) },
             { title: "Plan", dataIndex: "planName" },
             { title: "Duration", dataIndex: "months", render: (m: number) => durationLabel(m) },
             {
@@ -310,7 +311,7 @@ export default function SubscriptionPage() {
             {
               title: "Covers",
               key: "period",
-              render: (_, p) => (p.periodStart && p.periodEnd ? `${p.periodStart} → ${p.periodEnd}` : "—"),
+              render: (_, p) => (p.periodStart && p.periodEnd ? `${formatDate(p.periodStart)} → ${formatDate(p.periodEnd)}` : "—"),
             },
             { title: "Status", dataIndex: "status", render: (s: string) => <Tag color={PAYMENT_STATUS_COLOR[s]}>{s}</Tag> },
             {

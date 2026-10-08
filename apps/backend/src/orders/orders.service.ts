@@ -16,6 +16,8 @@ import { AccountHolderProfile } from "../database/models/account-holder-profile.
 import { StockOwnerProfile } from "../database/models/stock-owner-profile.model";
 import { ThreePlProfile } from "../database/models/three-pl-profile.model";
 import { User } from "../database/models/user.model";
+import { StaffProfile } from "../database/models/staff-profile.model";
+import { BackofficeStaffProfile } from "../database/models/backoffice-staff-profile.model";
 import { SubscriptionsService } from "../subscriptions/subscriptions.service";
 import { FinanceService } from "../finance/finance.service";
 import { ExchangeRatesService } from "../exchange-rates/exchange-rates.service";
@@ -23,6 +25,8 @@ import type { JwtPayload } from "../auth/jwt.strategy";
 import { CreateOrderDto } from "./dto/create-order.dto";
 import { UpdateOrderDto } from "./dto/update-order.dto";
 import { UpdateOrderStatusDto } from "./dto/update-status.dto";
+import { BulkUpdateOrderStatusDto } from "./dto/bulk-update-status.dto";
+import { ThreePlFulfillmentDto } from "./dto/three-pl-fulfillment.dto";
 import { OrderItemInputDto } from "./dto/order-item.dto";
 import { daysInStatus, isOrderStale } from "./order-staleness.util";
 import {
@@ -67,6 +71,8 @@ export class OrdersService {
     @InjectModel(StockOwnerProfile) private readonly stockOwnerProfileModel: typeof StockOwnerProfile,
     @InjectModel(ThreePlProfile) private readonly threePlProfileModel: typeof ThreePlProfile,
     @InjectModel(User) private readonly userModel: typeof User,
+    @InjectModel(StaffProfile) private readonly staffProfileModel: typeof StaffProfile,
+    @InjectModel(BackofficeStaffProfile) private readonly backofficeStaffProfileModel: typeof BackofficeStaffProfile,
     private readonly subscriptions: SubscriptionsService,
     private readonly financeService: FinanceService,
     private readonly exchangeRatesService: ExchangeRatesService,
@@ -111,6 +117,19 @@ export class OrdersService {
     return [...new Set(items.map((i) => i.orderId))];
   }
 
+  /** Order comments are notes for the 3PL: only managers and 3PLs receive them. */
+  private canSeeComments(isManager: boolean, requester: JwtPayload) {
+    return isManager || requester.roles.includes(Role.THREE_PL);
+  }
+
+  /** GET /orders/:id — the order as this requester may see it. */
+  async getForRequester(companyId: string, requester: JwtPayload, id: string) {
+    const order = await this.get(companyId, id);
+    const isManager = requester.roles.some((r) => MANAGER_ROLES.includes(r));
+    const json = order.toJSON() as Order;
+    return { ...json, comments: this.canSeeComments(isManager, requester) ? json.comments : null };
+  }
+
   async get(companyId: string, id: string) {
     const order = await this.orderModel.findOne({ where: { id, companyId } });
     if (!order) throw new NotFoundException("Order not found");
@@ -131,6 +150,7 @@ export class OrdersService {
       items: isStockOwnerOnly ? json.items.filter((i) => i.stockOwnerId === requester.sub) : json.items,
       daysInStatus: daysInStatus(order.statusChangedAt, now),
       stale: isOrderStale(order.status, order.statusChangedAt, staleOrderDays, now),
+      comments: this.canSeeComments(isManager, requester) ? json.comments : null,
       // Company profit is a manager-only figure — Account Holders/Stock Owners/3PLs only ever see their own payout.
       companyProfit: isManager ? this.financeService.companyProfit(order) : undefined,
     };
@@ -214,6 +234,7 @@ export class OrdersService {
             trackingNumber: dto.trackingNumber ?? null,
             buyerDetails: dto.buyerDetails,
             supplierUrl: dto.supplierUrl ?? null,
+            comments: dto.comments?.trim() || null,
             ...amounts,
             exchangeRates: rates,
             exchangeRatesAt: new Date(),
@@ -258,6 +279,7 @@ export class OrdersService {
     if (dto.ebayNetProceeds !== undefined) order.ebayNetProceedsOriginal = dto.ebayNetProceeds;
     if (dto.shippingCost !== undefined) order.shippingCostOriginal = dto.shippingCost;
     if (dto.supplierUrl !== undefined) order.supplierUrl = dto.supplierUrl;
+    if (dto.comments !== undefined) order.comments = dto.comments.trim() || null;
 
     // An order's type (all-Stock or all-Dropship) is fixed once it's created — see changeItems.
     const dropship = await this.isDropshipOrder(order);
@@ -556,37 +578,77 @@ export class OrdersService {
    */
   async setDropshipBuyPrice(companyId: string, requester: JwtPayload, id: string, itemId: string, buyTotal: number) {
     const order = await this.get(companyId, id);
+    this.assertAssignedThreePl(order, requester);
+    await this.applyDropshipBuyTotals(order, requester, [{ itemId, buyTotal }]);
+    for (const i of order.items) if (i.changed()) await i.save();
+    await order.save();
+    return order;
+  }
+
+  /**
+   * A DROPSHIP 3PL's Edit popup on the orders list: line buy totals (until the order is invoiced), the supplier URL,
+   * the tracking number and PROCESSING -> SHIPPED. Only while the order is PROCESSING or SHIPPED; all in one save.
+   */
+  async updateThreePlFulfillment(companyId: string, requester: JwtPayload, id: string, dto: ThreePlFulfillmentDto) {
+    const order = await this.get(companyId, id);
+    this.assertAssignedThreePl(order, requester);
+    if (order.status !== OrderStatus.PROCESSING && order.status !== OrderStatus.SHIPPED) {
+      throw new BadRequestException("Only PROCESSING or SHIPPED orders can be edited");
+    }
+    if (!(await this.isDropshipOrder(order))) {
+      throw new BadRequestException("Only DROPSHIP orders can be edited by their 3PL");
+    }
+
+    return this.orderModel.sequelize!.transaction(async (transaction) => {
+      if (dto.buyTotals?.length) await this.applyDropshipBuyTotals(order, requester, dto.buyTotals);
+      if (dto.supplierUrl !== undefined) order.supplierUrl = dto.supplierUrl.trim() || null;
+      if (dto.trackingNumber !== undefined) order.trackingNumber = dto.trackingNumber.trim() || null;
+      for (const i of order.items) if (i.changed()) await i.save({ transaction });
+      if (dto.markShipped && order.status === OrderStatus.PROCESSING) {
+        this.assertStatusTransitionAllowed(order, requester, OrderStatus.SHIPPED);
+        await this.applyStatus(order, OrderStatus.SHIPPED, transaction);
+      } else {
+        await order.save({ transaction });
+      }
+      return order;
+    });
+  }
+
+  private assertAssignedThreePl(order: Order, requester: JwtPayload) {
     if (order.threePlId !== requester.sub) {
       throw new ForbiddenException("This order is not assigned to you");
     }
     if (order.status === OrderStatus.PENDING) {
       throw new ForbiddenException("This order is not visible to 3PL users yet");
     }
-    assertNotInvoiced(order);
+  }
 
-    const item = order.items.find((i) => i.id === itemId);
-    if (!item) throw new NotFoundException("Order item not found");
+  /** Sets dropship line buy totals entered by the order's 3PL (in their currency) and re-syncs the payout. No save. */
+  private async applyDropshipBuyTotals(order: Order, requester: JwtPayload, totals: { itemId: string; buyTotal: number }[]) {
+    assertNotInvoiced(order);
     if (!(await this.isDropshipOrder(order))) {
       throw new BadRequestException("Buy price can only be entered for DROPSHIP orders");
     }
+    const items = totals.map(({ itemId, buyTotal }) => {
+      const item = order.items.find((i) => i.id === itemId);
+      if (!item) throw new NotFoundException("Order item not found");
+      return { item, buyTotal };
+    });
 
     if (!order.exchangeRates) {
       // Pre-currency order: amounts stay plain PKR.
-      item.buyTotalSnapshot = buyTotal;
+      for (const { item, buyTotal } of items) item.buyTotalSnapshot = buyTotal;
       order.threePlPayoutSnapshot = sumBuyTotals(order.items.map((i) => i.buyTotalSnapshot));
     } else {
       // Entered in the 3PL's own currency, converted with the order's locked rate for it.
       order.threePlCurrency = order.threePlCurrency ?? (await this.currencyOf(requester.sub));
-      item.buyTotalOriginal = buyTotal;
+      for (const { item, buyTotal } of items) item.buyTotalOriginal = buyTotal;
       syncDropshipPayout(order, order.items);
       if (!order.exchangeRates[order.threePlCurrency]) {
         order.exchangeRates = { ...order.exchangeRates, ...(await this.exchangeRatesService.resolve([order.threePlCurrency])) };
       }
       convertOrderAmounts(order, order.items, order.exchangeRates);
     }
-    for (const i of order.items) if (i.changed()) await i.save();
-    await order.save();
-    return order;
   }
 
   async uploadShippingLabel(companyId: string, id: string, shippingLabelUrl: string) {
@@ -599,23 +661,63 @@ export class OrdersService {
   async updateStatus(companyId: string, requester: JwtPayload, id: string, dto: UpdateOrderStatusDto) {
     const order = await this.get(companyId, id);
     this.assertStatusTransitionAllowed(order, requester, dto.status);
+    await this.applyStatus(order, dto.status);
+    return order;
+  }
 
-    order.status = dto.status;
+  /**
+   * Sets one status on many orders at once, all-or-nothing: any missing order or disallowed move rolls the whole
+   * change back. Orders already in that status are left untouched. Managers need canManageOrders; a 3PL may use it
+   * too, limited per order by assertStatusTransitionAllowed (its own orders, PROCESSING -> SHIPPED only).
+   */
+  async bulkUpdateStatus(companyId: string, requester: JwtPayload, dto: BulkUpdateOrderStatusDto) {
+    await this.assertCanBulkUpdateStatus(requester);
+    const ids = [...new Set(dto.orderIds)];
+    return this.orderModel.sequelize!.transaction(async (transaction) => {
+      const orders = await this.orderModel.findAll({ where: { id: ids, companyId }, transaction });
+      if (orders.length !== ids.length) {
+        throw new NotFoundException("Some of the selected orders no longer exist — refresh and try again");
+      }
+      let updated = 0;
+      for (const order of orders) {
+        if (order.status === dto.status) continue;
+        this.assertStatusTransitionAllowed(order, requester, dto.status);
+        await this.applyStatus(order, dto.status, transaction);
+        updated++;
+      }
+      return { updated, unchanged: orders.length - updated };
+    });
+  }
+
+  private async assertCanBulkUpdateStatus(requester: JwtPayload) {
+    if (requester.roles.includes(Role.SUPER_ADMIN)) return;
+    if (requester.realm === "backoffice") {
+      const profile = await this.backofficeStaffProfileModel.findByPk(requester.sub);
+      if (requester.roles.includes(Role.PLATFORM_STAFF) && profile?.canManageOrders) return;
+    } else {
+      if (requester.roles.includes(Role.ADMIN) || requester.roles.includes(Role.THREE_PL)) return;
+      const profile = requester.roles.includes(Role.STAFF) ? await this.staffProfileModel.findByPk(requester.sub) : null;
+      if (profile?.canManageOrders) return;
+    }
+    throw new ForbiddenException("You do not have permission to perform this action");
+  }
+
+  private async applyStatus(order: Order, status: OrderStatus, transaction?: Transaction) {
+    order.status = status;
     order.statusChangedAt = new Date();
-    if (dto.status === OrderStatus.DELIVERED) {
+    if (status === OrderStatus.DELIVERED) {
       order.deliveredAt = new Date();
     }
 
-    if (TERMINAL_RESTOCK_STATUSES.includes(dto.status) && !order.restocked) {
+    if (TERMINAL_RESTOCK_STATUSES.includes(status) && !order.restocked) {
       for (const item of order.items) {
-        const product = await this.productModel.findByPk(item.productId);
-        if (product) await adjustStock(product, item.quantity);
+        const product = await this.productModel.findByPk(item.productId, { transaction });
+        if (product) await adjustStock(product, item.quantity, transaction);
       }
       order.restocked = true;
     }
 
-    await order.save();
-    return order;
+    await order.save({ transaction });
   }
 
   private assertStatusTransitionAllowed(order: Order, requester: JwtPayload, next: OrderStatus) {

@@ -34,12 +34,12 @@ export class ProductsController {
 
   @Get()
   list(@CurrentUser() user: JwtPayload, @Query("companyId") companyId?: string, @Query("stockOwnerId") stockOwnerId?: string) {
-    return this.productsService.list(resolveCompanyId(user, companyId), stockOwnerId);
+    return this.productsService.list(resolveCompanyId(user, companyId), user, stockOwnerId);
   }
 
   @Get(":id")
   get(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Query("companyId") companyId?: string) {
-    return this.productsService.getWithCurrency(resolveCompanyId(user, companyId), id);
+    return this.productsService.getWithCurrency(resolveCompanyId(user, companyId), user, id);
   }
 
   @Post()

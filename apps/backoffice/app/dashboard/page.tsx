@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import { getToken, staffDashboard } from "@/lib/api";
 import { pkr } from "@/lib/currency";
+import { formatDate } from "@/lib/date";
 
 interface DashboardData {
   cycleStart: string;
@@ -64,7 +65,7 @@ export default function DashboardPage() {
         {data && (
           <>
             <p className="mt-2 text-sm text-gray-500">
-              Cycle: {new Date(data.cycleStart).toLocaleDateString()} – {new Date(data.cycleEnd).toLocaleDateString()}
+              Cycle: {formatDate(data.cycleStart)} – {formatDate(data.cycleEnd)}
             </p>
 
             <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">

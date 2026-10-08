@@ -11,6 +11,7 @@ import InvoiceTemplatesList from "@/components/InvoiceTemplatesList";
 import { downloadInvoicePdf, getToken, listInvoices } from "@/lib/api";
 import { userLabel } from "@/lib/selectOptions";
 import { invoiceMoney } from "@/lib/currency";
+import { formatDate } from "@/lib/date";
 
 const STATUS_COLOR: Record<string, string> = { UNPAID: "orange", PAID: "green", VOID: "red" };
 
@@ -67,7 +68,7 @@ export default function InvoicesPage() {
       ),
     },
     { title: "Status", dataIndex: "status", render: (s: string) => <Tag color={STATUS_COLOR[s]}>{s}</Tag> },
-    { title: "Issued", dataIndex: "generatedAt", render: (v: string) => new Date(v).toLocaleDateString() },
+    { title: "Issued", dataIndex: "generatedAt", render: (v: string) => formatDate(v) },
     {
       key: "actions",
       render: (_, inv) => (

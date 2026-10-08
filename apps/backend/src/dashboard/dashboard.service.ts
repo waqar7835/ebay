@@ -72,7 +72,9 @@ export class DashboardService {
       payout: this.finance.compute(order).accountHolderPayout,
     }));
 
+    const uninvoiced = await this.uninvoiced(companyId, { role: "AH", userId });
     return {
+      uninvoiced,
       cycleStart: toDateOnly(cycle.start),
       cycleEnd: toDateOnly(cycle.end),
       listStart: toDateOnly(range.start),
@@ -132,7 +134,9 @@ export class DashboardService {
       };
     });
 
+    const uninvoiced = await this.uninvoiced(companyId, { role: "SO", userId });
     return {
+      uninvoiced,
       cycleStart: toDateOnly(cycle.start),
       cycleEnd: toDateOnly(cycle.end),
       listStart: toDateOnly(range.start),
@@ -205,7 +209,9 @@ export class DashboardService {
       stale: isOrderStale(o.status, o.statusChangedAt, cycle.staleOrderDays, now),
     });
 
+    const uninvoiced = await this.uninvoiced(companyId, { role: "3PL", userId });
     return {
+      uninvoiced,
       cycleStart: toDateOnly(cycle.start),
       cycleEnd: toDateOnly(cycle.end),
       listStart: toDateOnly(range.start),
@@ -356,7 +362,9 @@ export class DashboardService {
       ),
     }));
 
+    const uninvoiced = await this.uninvoiced(companyId, { role: "COMPANY" });
     return {
+      uninvoiced,
       cycleStart: start,
       cycleEnd: end,
       totalCompanyProfit,
@@ -379,6 +387,48 @@ export class DashboardService {
   }
 
   /** Orders with at least one item from this Stock Owner. */
+  /**
+   * Not-yet-invoiced orders for one user, all time, counted per status (decided 2026-10-08). Per role, "invoiced" is
+   * that role's own invoice id: the AH / 3PL id on the order, a Stock Owner's id on each of their items. For Admin/Staff
+   * an order is open while any part of it is: the AH side, the 3PL side (if it has a 3PL) or any Stock Owner item.
+   */
+  private async uninvoiced(companyId: string, who: { role: "AH" | "SO" | "3PL" | "COMPANY"; userId?: string }) {
+    let where: Record<string | symbol, unknown>;
+    if (who.role === "AH") {
+      where = { companyId, accountHolderId: who.userId, accountHolderInvoiceId: null };
+    } else if (who.role === "3PL") {
+      // 3PLs never see PENDING orders.
+      where = { companyId, threePlId: who.userId, threePlInvoiceId: null, status: { [Op.ne]: OrderStatus.PENDING } };
+    } else if (who.role === "SO") {
+      const items = await this.orderItemModel.findAll({
+        attributes: ["orderId"],
+        where: { stockOwnerId: who.userId, stockOwnerInvoiceId: null },
+      });
+      where = { companyId, id: [...new Set(items.map((i) => i.orderId))] };
+    } else {
+      const openItems = await this.orderItemModel.findAll({
+        attributes: ["orderId"],
+        where: { stockOwnerId: { [Op.ne]: null }, stockOwnerInvoiceId: null },
+        include: [{ model: Order, attributes: [], where: { companyId } }],
+      });
+      where = {
+        companyId,
+        [Op.or]: [
+          { accountHolderInvoiceId: null },
+          { threePlId: { [Op.ne]: null }, threePlInvoiceId: null },
+          { id: [...new Set(openItems.map((i) => i.orderId))] },
+        ],
+      };
+    }
+    const rows = (await this.orderModel.unscoped().count({ where, group: ["status"] })) as unknown as {
+      status: OrderStatus;
+      count: number;
+    }[];
+    const byStatus = Object.fromEntries(Object.values(OrderStatus).map((st) => [st, 0])) as Record<OrderStatus, number>;
+    for (const r of rows) byStatus[r.status] = Number(r.count);
+    return { total: Object.values(byStatus).reduce((sum, n) => sum + n, 0), byStatus };
+  }
+
   private async orderIdsForStockOwner(stockOwnerId: string): Promise<string[]> {
     const items = await this.orderItemModel.findAll({ attributes: ["orderId"], where: { stockOwnerId } });
     return [...new Set(items.map((i) => i.orderId))];

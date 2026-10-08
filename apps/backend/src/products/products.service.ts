@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectModel } from "@nestjs/sequelize";
-import { PRODUCT_MAX_IMAGES, ProductFulfillmentType } from "@ebay-order-management/shared";
+import { PRODUCT_MAX_IMAGES, ProductFulfillmentType, Role } from "@ebay-order-management/shared";
 import { Product } from "../database/models/product.model";
 import { User } from "../database/models/user.model";
 
@@ -11,19 +11,41 @@ function withCurrency(product: Product) {
   const { stockOwner, ...json } = product.toJSON() as Product & { stockOwner?: User | null };
   return { ...json, currency: stockOwner?.currency ?? null };
 }
+import type { JwtPayload } from "../auth/jwt.strategy";
 import { CreateProductDto, UpdateProductDto, UpdateStockDto } from "./dto/product.dto";
+
+/**
+ * Same test OrdersService uses to show a Stock Owner only their own order items: a portal Stock Owner account that
+ * isn't also a manager or Account Holder (an Account Holder needs every product on their orders).
+ */
+function isStockOwnerOnly(requester: JwtPayload) {
+  const roles = requester.roles;
+  return (
+    requester.realm !== "backoffice" &&
+    roles.includes(Role.STOCK_OWNER) &&
+    !roles.some((r) => r === Role.ADMIN || r === Role.STAFF || r === Role.ACCOUNT_HOLDER)
+  );
+}
+
+/** A Stock Owner sees their cost and buy price, never the price the company charges the Account Holder. */
+function forStockOwner<T extends { sellPrice?: unknown }>(product: T) {
+  return { ...product, sellPrice: null };
+}
 
 @Injectable()
 export class ProductsService {
   constructor(@InjectModel(Product) private readonly productModel: typeof Product) {}
 
-  async list(companyId: string, stockOwnerId?: string) {
+  async list(companyId: string, requester: JwtPayload, stockOwnerId?: string) {
+    // A Stock Owner only ever sees their own products, whatever filter is passed.
+    const ownerOnly = isStockOwnerOnly(requester);
+    const owner = ownerOnly ? requester.sub : stockOwnerId;
     const products = await this.productModel.findAll({
-      where: { companyId, ...(stockOwnerId ? { stockOwnerId } : {}) },
+      where: { companyId, ...(owner ? { stockOwnerId: owner } : {}) },
       order: [["createdAt", "DESC"]],
       ...WITH_CURRENCY,
     });
-    return products.map(withCurrency);
+    return products.map((p) => (ownerOnly ? forStockOwner(withCurrency(p)) : withCurrency(p)));
   }
 
   async get(companyId: string, id: string) {
@@ -32,8 +54,11 @@ export class ProductsService {
     return product;
   }
 
-  async getWithCurrency(companyId: string, id: string) {
-    return withCurrency(await this.get(companyId, id));
+  async getWithCurrency(companyId: string, requester: JwtPayload, id: string) {
+    const product = withCurrency(await this.get(companyId, id));
+    if (!isStockOwnerOnly(requester)) return product;
+    if (product.stockOwnerId !== requester.sub) throw new NotFoundException("Product not found");
+    return forStockOwner(product);
   }
 
   async create(companyId: string, dto: CreateProductDto) {
