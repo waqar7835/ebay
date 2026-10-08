@@ -18,6 +18,9 @@ export interface OrderAmounts {
   threePlPriceChargedOriginal: number | null;
   threePlPayoutSnapshot: number | null;
   threePlPayoutOriginal: number | null;
+  /** REFUNDED orders only (absent on a new order). In the Account Holder's currency, like the payout. */
+  refundAmount?: number | null;
+  refundAmountOriginal?: number | null;
 }
 
 export interface ItemAmounts {
@@ -51,6 +54,7 @@ export function convertOrderAmounts(order: OrderAmounts, items: ItemAmounts[], r
     order.ebayNetProceeds = toPkr(order.ebayNetProceedsOriginal, c, rates) ?? 0;
     order.shippingCost = toPkr(order.shippingCostOriginal, c, rates) ?? 0;
     order.threePlPriceChargedSnapshot = toPkr(order.threePlPriceChargedOriginal, c, rates);
+    if (order.refundAmountOriginal != null) order.refundAmount = toPkr(order.refundAmountOriginal, c, rates);
   }
   if (order.threePlCurrency) {
     order.threePlPayoutSnapshot = toPkr(order.threePlPayoutOriginal, order.threePlCurrency, rates);
@@ -81,6 +85,7 @@ export function adoptLegacyAmounts(
     order.ebayNetProceedsOriginal = order.ebayNetProceeds;
     order.shippingCostOriginal = order.shippingCost;
     order.threePlPriceChargedOriginal = order.threePlPriceChargedSnapshot;
+    if (order.refundAmount != null) order.refundAmountOriginal = order.refundAmount;
   }
   if (!order.threePlCurrency) {
     order.threePlCurrency = currencyOf("threePl");

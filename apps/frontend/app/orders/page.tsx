@@ -23,6 +23,7 @@ import { EditAction } from "@/components/RowActions";
 import { money as ownMoney, pkr } from "@/lib/currency";
 import ProductThumb from "@/components/ProductThumb";
 import ThreePlOrderModal from "@/components/ThreePlOrderModal";
+import RefundChoice, { FULL_REFUND, refundAmountFor, type RefundChoiceValue } from "@/components/RefundChoice";
 import StatusCounts, { STATUS_COLORS } from "@/components/StatusCounts";
 import DateField from "@/components/DateField";
 import {
@@ -128,6 +129,11 @@ export default function OrdersPage() {
   const [bulkStatus, setBulkStatus] = useState<OrderStatus | undefined>(defaultBulkStatus);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [bulkSaving, setBulkSaving] = useState(false);
+  // REFUNDED asks full or partial: in the bulk confirm popup when one order is selected, or in its own popup when a
+  // Staff member picks it from the inline status dropdown.
+  const [refundChoice, setRefundChoice] = useState<RefundChoiceValue>(FULL_REFUND);
+  const [refundOrder, setRefundOrder] = useState<OrderDto | null>(null);
+  const [refundSaving, setRefundSaving] = useState(false);
 
   function refresh(f = filter) {
     listOrders({
@@ -198,12 +204,16 @@ export default function OrdersPage() {
   const statusCounts = new Map<string, number>(STATUSES.map((s) => [s, orders.filter((o) => o.status === s).length]));
   if (isThreePl) statusCounts.set(NO_TRACKING, orders.filter(needsTracking).length);
   const selectedOrders = orders.filter((o) => selectedIds.includes(o.id));
+  // A partial refund is one order at a time; refunding several orders at once refunds each in full.
+  const singleRefund = bulkStatus === "REFUNDED" && selectedOrders.length === 1 && selectedOrders[0].status !== "REFUNDED";
+  const bulkRefundAmount = singleRefund ? refundAmountFor(selectedOrders[0], refundChoice) : undefined;
 
   async function handleBulkSave() {
-    if (!bulkStatus) return;
+    if (!bulkStatus || bulkRefundAmount === null) return;
     setBulkSaving(true);
     try {
-      await bulkUpdateOrderStatus(selectedOrders.map((o) => o.id), bulkStatus);
+      if (singleRefund) await updateOrderStatus(selectedOrders[0].id, bulkStatus, bulkRefundAmount);
+      else await bulkUpdateOrderStatus(selectedOrders.map((o) => o.id), bulkStatus);
       setConfirmOpen(false);
       setSelectedIds([]);
       setBulkStatus(defaultBulkStatus);
@@ -216,9 +226,35 @@ export default function OrdersPage() {
     }
   }
 
-  async function handleStatusChange(orderId: string, status: OrderStatus) {
-    await updateOrderStatus(orderId, status);
+  async function handleStatusChange(order: OrderDto, status: OrderStatus) {
+    if (status === "REFUNDED") {
+      setRefundChoice(FULL_REFUND);
+      setRefundOrder(order);
+      return;
+    }
+    try {
+      await updateOrderStatus(order.id, status);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update the order");
+    }
     refresh();
+  }
+
+  async function handleRefundSave() {
+    if (!refundOrder) return;
+    const amount = refundAmountFor(refundOrder, refundChoice);
+    if (amount === null) return;
+    setRefundSaving(true);
+    try {
+      await updateOrderStatus(refundOrder.id, "REFUNDED" as OrderStatus, amount);
+      setRefundOrder(null);
+      refresh();
+    } catch (err) {
+      setRefundOrder(null);
+      setError(err instanceof Error ? err.message : "Failed to refund the order");
+    } finally {
+      setRefundSaving(false);
+    }
   }
 
   function handlePrintLabel(shippingLabelUrl: string) {
@@ -522,7 +558,7 @@ export default function OrdersPage() {
                 <Select
                   size="small"
                   value={order.status}
-                  onChange={(v) => handleStatusChange(order.id, v)}
+                  onChange={(v) => handleStatusChange(order, v)}
                   options={STATUSES.map((s) => ({ value: s, label: s }))}
                   className="w-32"
                 />
@@ -712,7 +748,14 @@ export default function OrdersPage() {
                 options={bulkStatuses.map((s) => ({ value: s, label: s }))}
                 className="w-40"
               />
-              <Button type="primary" disabled={!bulkStatus} onClick={() => setConfirmOpen(true)}>
+              <Button
+                type="primary"
+                disabled={!bulkStatus}
+                onClick={() => {
+                  setRefundChoice(FULL_REFUND);
+                  setConfirmOpen(true);
+                }}
+              >
                 Save
               </Button>
             </div>
@@ -726,6 +769,18 @@ export default function OrdersPage() {
           footer={<Button onClick={() => setCommentOrder(null)}>Close</Button>}
         >
           <p className="whitespace-pre-wrap break-words">{commentOrder?.comments}</p>
+        </Modal>
+
+        <Modal
+          open={!!refundOrder}
+          title="Refund order"
+          onCancel={() => !refundSaving && setRefundOrder(null)}
+          maskClosable={!refundSaving}
+          okText="Mark as refunded"
+          okButtonProps={{ loading: refundSaving, disabled: !refundOrder || refundAmountFor(refundOrder, refundChoice) === null }}
+          onOk={handleRefundSave}
+        >
+          {refundOrder && <RefundChoice order={refundOrder} value={refundChoice} onChange={setRefundChoice} />}
         </Modal>
 
         <ThreePlOrderModal
@@ -750,7 +805,7 @@ export default function OrdersPage() {
             <Button key="cancel" onClick={() => setConfirmOpen(false)} disabled={bulkSaving}>
               Cancel
             </Button>,
-            <Button key="verify" type="primary" loading={bulkSaving} onClick={handleBulkSave}>
+            <Button key="verify" type="primary" loading={bulkSaving} disabled={bulkRefundAmount === null} onClick={handleBulkSave}>
               Verify &amp; update
             </Button>,
           ]}
@@ -764,6 +819,19 @@ export default function OrdersPage() {
             } of ${selectedOrders.length} selected orders will be updated.`}
             className="mb-4"
           />
+          {singleRefund && (
+            <div className="mb-4">
+              <RefundChoice order={selectedOrders[0]} value={refundChoice} onChange={setRefundChoice} />
+            </div>
+          )}
+          {bulkStatus === "REFUNDED" && selectedOrders.length > 1 && (
+            <Alert
+              type="info"
+              showIcon
+              className="mb-4"
+              title="Each order is refunded in full (its whole eBay payout). For a partial refund, select one order at a time."
+            />
+          )}
           <Table<OrderDto>
             rowKey="id"
             size="small"

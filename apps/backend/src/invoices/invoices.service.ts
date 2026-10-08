@@ -28,7 +28,7 @@ import { InvoiceLineItem } from "../database/models/invoice-line-item.model";
 import { User } from "../database/models/user.model";
 import { UserRoleAssignment } from "../database/models/user-role.model";
 import { StaffProfile } from "../database/models/staff-profile.model";
-import { FinanceService, lineSellTotal } from "../finance/finance.service";
+import { FinanceService, isDropshipOrder, lineSellTotal } from "../finance/finance.service";
 import { ExchangeRatesService } from "../exchange-rates/exchange-rates.service";
 import { readUpload } from "../uploads/uploads.util";
 import type { JwtPayload } from "../auth/jwt.strategy";
@@ -480,59 +480,51 @@ export class InvoicesService {
         open.set(order.id, { order, line: this.threePlLine(order, products), claimIds: [order.id] });
     }
 
-    const refundedOrders = await this.orderModel.findAll({
-      where: {
-        companyId,
-        status: OrderStatus.REFUNDED,
-        [cols.owner]: userId,
-        [cols.invoice]: { [Op.ne]: null },
-        [cols.refund]: unclaimed,
-      } as WhereOptions<Order>,
-      order: [["orderDate", "ASC"]],
-    });
-    const refunds = await this.refundCandidates(
-      refundedOrders
-        // A refunded order on the invoice being edited just drops off it — no adjustment against itself.
-        .filter((order) => order[cols.invoice] !== editingInvoiceId)
-        .map((order) => ({ order, invoiceId: order[cols.invoice]!, claimIds: [order.id] })),
-      currency,
-    );
+    const refundedOrders = (
+      await this.orderModel.findAll({
+        where: {
+          companyId,
+          status: OrderStatus.REFUNDED,
+          [cols.owner]: userId,
+          [cols.invoice]: { [Op.ne]: null },
+          [cols.refund]: unclaimed,
+        } as WhereOptions<Order>,
+        order: [["orderDate", "ASC"]],
+      })
+    )
+      // A refunded order on the invoice being edited just drops off it — no adjustment against itself.
+      .filter((order) => order[cols.invoice] !== editingInvoiceId)
+      // Only a DROPSHIP 3PL pays back on a refund (the buy price it was reimbursed); a STOCK 3PL keeps its fee.
+      .filter((order) => role === Role.ACCOUNT_HOLDER || isDropshipOrder(order));
+    const refundable = refundedOrders.map((order) => ({ order, invoiceId: order[cols.invoice]!, claimIds: [order.id] }));
+    let refunds: Map<string, Candidate>;
+    if (role === Role.ACCOUNT_HOLDER) {
+      const rates = await this.accountHolderRates(refundedOrders, currency as Currency);
+      refunds = await this.refundCandidates(refundable, currency, (order, original) =>
+        accountHolderRefund(order, original, currency as Currency, rates.get(order.id)!),
+      );
+    } else {
+      refunds = await this.refundCandidates(refundable, currency, (_order, original) => ({
+        credit: original.netAmount,
+        note: "buy price paid back",
+      }));
+    }
     return { open, refunds };
   }
 
   private async stockOwnerCandidates(companyId: string, userId: string, editingInvoiceId?: string) {
     // Not yet on an invoice — or on the one being edited.
     const isOpen = (invoiceId: string | null) => !invoiceId || invoiceId === editingInvoiceId;
-    const items = await this.orderItemModel.findAll({
-      where: {
-        stockOwnerId: userId,
-        stockOwnerRefundInvoiceId: editingInvoiceId ? { [Op.or]: [null, editingInvoiceId] } : null,
-      },
-    });
+    const items = await this.orderItemModel.findAll({ where: { stockOwnerId: userId } });
     const orders = await this.orderModel.findAll({
-      where: {
-        companyId,
-        id: [...new Set(items.map((i) => i.orderId))],
-        status: [...INVOICEABLE_STATUSES, OrderStatus.REFUNDED],
-      },
+      where: { companyId, id: [...new Set(items.map((i) => i.orderId))], status: INVOICEABLE_STATUSES },
       order: [["orderDate", "ASC"]],
     });
     const titles = await this.productTitles(items);
 
     const open = new Map<string, Candidate>();
-    const refundable: { order: Order; invoiceId: string; claimIds: string[] }[] = [];
     for (const order of orders) {
-      const mine = order.items.filter((i) => i.stockOwnerId === userId && isOpen(i.stockOwnerRefundInvoiceId));
-      if (order.status === OrderStatus.REFUNDED) {
-        // Group by the invoice that paid them out (the same one, unless the order was edited in between).
-        const byInvoice = new Map<string, string[]>();
-        for (const item of mine.filter((i) => !isOpen(i.stockOwnerInvoiceId))) {
-          byInvoice.set(item.stockOwnerInvoiceId!, [...(byInvoice.get(item.stockOwnerInvoiceId!) ?? []), item.id]);
-        }
-        for (const [invoiceId, claimIds] of byInvoice) refundable.push({ order, invoiceId, claimIds });
-        continue;
-      }
-      const openItems = mine.filter((i) => isOpen(i.stockOwnerInvoiceId));
+      const openItems = order.items.filter((i) => i.stockOwnerId === userId && isOpen(i.stockOwnerInvoiceId));
       if (openItems.length) {
         open.set(order.id, {
           order,
@@ -541,7 +533,9 @@ export class InvoicesService {
         });
       }
     }
-    return { open, refunds: await this.refundCandidates(refundable, PKR) };
+    // A refund is never charged back to the Stock Owner (decided 2026-10-08): once shipped, the product is the
+    // Account Holder's responsibility.
+    return { open, refunds: new Map<string, Candidate>() };
   }
 
   private async productTitles(items: OrderItem[]) {
@@ -572,10 +566,11 @@ export class InvoicesService {
     return rates;
   }
 
-  /** A negative line reversing what each order paid out on its original invoice. */
+  /** A negative adjustment per refunded order, worked out by `adjust` from the order's line on its original invoice. */
   private async refundCandidates(
     refundable: { order: Order; invoiceId: string; claimIds: string[] }[],
     currency: string,
+    adjust: (order: Order, original: InvoiceLineItem) => { credit: number; note: string },
   ) {
     const refunds = new Map<string, Candidate>();
     if (!refundable.length) return refunds;
@@ -595,16 +590,17 @@ export class InvoicesService {
       const original = originals.find((l) => l.invoiceId === invoiceId && l.orderId === order.id);
       // An adjustment can only reverse an amount in the same currency as this invoice.
       if (!original || invoiceById.get(invoiceId)?.currency !== currency) continue;
+      const { credit, note } = adjust(order, original);
       refunds.set(order.id, {
         order,
         claimIds,
         line: {
           orderId: order.id,
           kind: InvoiceLineKind.REFUND,
-          description: `Refund adjustment: Order ${order.ebayOrderRef} (invoiced on ${invoiceById.get(invoiceId)!.invoiceNumber})`,
+          description: `Refund adjustment: Order ${order.ebayOrderRef} — ${note} (invoiced on ${invoiceById.get(invoiceId)!.invoiceNumber})`,
           grossAmount: 0,
-          deductionAmount: original.netAmount,
-          netAmount: round2(-original.netAmount),
+          deductionAmount: credit,
+          netAmount: round2(-credit),
           details: null,
         },
       });
@@ -834,6 +830,31 @@ export class InvoicesService {
     const other = await this.invoiceModel.findByPk(refundInvoiceId, { attributes: ["invoiceNumber"], transaction });
     return other?.invoiceNumber ?? "another invoice";
   }
+}
+
+/**
+ * The Account Holder's refund adjustment (decided 2026-10-08). They hold the eBay money, so they pay the refund; the
+ * company gives back only the part of its profit share the refund wiped out. The order is re-worked as if the payout
+ * were lower by the refund, with the company's share never going below 0: while there's profit left the two sides
+ * split the refund by their share %, after that the Account Holder carries the rest. The products, 3PL charge and
+ * shipping stay owed. A full refund therefore credits the company's whole share (e.g. payout 25, costs 17, 50/50 →
+ * share 4, credit 4).
+ */
+function accountHolderRefund(order: Order, original: InvoiceLineItem, currency: Currency, pkrRate: number) {
+  const asEntered = !!order.exchangeRates && order.accountHolderCurrency === currency;
+  const refundPkr = order.refundAmount ?? order.ebayNetProceeds;
+  const refundOriginal = order.refundAmountOriginal ?? order.ebayNetProceedsOriginal;
+  const refund = round2(asEntered && refundOriginal != null ? refundOriginal : refundPkr / pkrRate);
+  const payout = round2(asEntered && order.ebayNetProceedsOriginal != null ? order.ebayNetProceedsOriginal : order.ebayNetProceeds / pkrRate);
+
+  const profit = original.grossAmount;
+  const companyShare = round2(original.grossAmount - original.deductionAmount);
+  const details = original.details as { companySharePercent?: number } | null;
+  const companyPercent = details?.companySharePercent ?? round2(100 - order.accountHolderSharePercentSnapshot);
+  const shareAfter = Math.max(0, round2((profit - refund) * (companyPercent / 100)));
+  const credit = Math.max(0, round2(companyShare - shareAfter));
+  const kind = refund >= payout ? "full refund" : "partial refund";
+  return { credit, note: `${kind} of ${refund.toFixed(2)} ${currency}` };
 }
 
 const STATUS_LABELS: Record<InvoiceStatus, string> = {

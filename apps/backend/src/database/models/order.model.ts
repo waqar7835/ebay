@@ -173,6 +173,29 @@ export class Order extends Model {
   })
   declare threePlPayoutOriginal: number | null;
 
+  // REFUNDED orders: how much of the eBay payout was refunded (full = the whole payout; dropship orders are always
+  // full). Entered in the Account Holder's currency (refundAmountOriginal) and kept in PKR (refundAmount).
+  // Null while the order isn't REFUNDED.
+  @Column({
+    type: DataType.DECIMAL(12, 2),
+    allowNull: true,
+    field: "refund_amount",
+    get(this: Order) {
+      return toNullableDecimal(this.getDataValue("refundAmount" as keyof Order));
+    },
+  })
+  declare refundAmount: number | null;
+
+  @Column({
+    type: DataType.DECIMAL(12, 2),
+    allowNull: true,
+    field: "refund_amount_original",
+    get(this: Order) {
+      return toNullableDecimal(this.getDataValue("refundAmountOriginal" as keyof Order));
+    },
+  })
+  declare refundAmountOriginal: number | null;
+
   // Invoice that paid this order out to its Account Holder / 3PL — null means still open for that role.
   // The *Refund* ones hold the invoice that carried the negative adjustment after a refund.
   // (Stock Owner status is per item, on order_items.)

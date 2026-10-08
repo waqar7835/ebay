@@ -320,11 +320,15 @@ export function staffDashboard() {
   return request<StaffDashboard>("/dashboard/staff");
 }
 
-export function updateOrderStatus(orderId: string, status: OrderStatus) {
-  return request<OrderDto>(`/orders/${orderId}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
+/** `refundAmount` (REFUNDED only): a partial refund in the order's Account Holder currency; omitted = full refund. */
+export function updateOrderStatus(orderId: string, status: OrderStatus, refundAmount?: number) {
+  return request<OrderDto>(`/orders/${orderId}/status`, { method: "PATCH", body: JSON.stringify({ status, refundAmount }) });
 }
 
-/** Manager bulk action: one status for many orders, all-or-nothing. Orders already in that status are skipped. */
+/**
+ * Manager bulk action: one status for many orders, all-or-nothing. Orders already in that status are skipped.
+ * REFUNDED through here is always a full refund.
+ */
 export function bulkUpdateOrderStatus(orderIds: string[], status: OrderStatus) {
   return request<{ updated: number; unchanged: number }>("/orders/status", {
     method: "PATCH",

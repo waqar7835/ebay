@@ -285,8 +285,9 @@ export function updateOrder(orderId: string, payload: UpdateOrderPayload) {
   return request<OrderDto>(`/orders/${orderId}`, { method: "PATCH", body: JSON.stringify(payload) });
 }
 
-export function updateOrderStatus(orderId: string, status: OrderStatus) {
-  return request<OrderDto>(`/orders/${orderId}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
+/** `refundAmount` (REFUNDED only): a partial refund in the order's Account Holder currency; omitted = full refund. */
+export function updateOrderStatus(orderId: string, status: OrderStatus, refundAmount?: number) {
+  return request<OrderDto>(`/orders/${orderId}/status`, { method: "PATCH", body: JSON.stringify({ status, refundAmount }) });
 }
 
 // --- Invoice templates (read-only here: the company Admin manages them in the portal) ---

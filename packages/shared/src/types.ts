@@ -274,6 +274,12 @@ export interface OrderDto {
   createdAt: string;
   updatedAt: string;
   deliveredAt: string | null;
+  /**
+   * REFUNDED orders: the refunded part of the eBay payout, in PKR / as entered in the Account Holder's currency
+   * (equal to the payout for a full refund — dropship orders are always refunded in full). Null otherwise.
+   */
+  refundAmount: number | null;
+  refundAmountOriginal: number | null;
   /** Invoice that paid this order out to its Account Holder / 3PL (null = open for that role). Stock Owner status is per item. */
   accountHolderInvoiceId: string | null;
   accountHolderRefundInvoiceId: string | null;
@@ -407,7 +413,11 @@ export interface InvoiceableOrderDto {
   ebayOrderRef: string;
   orderDate: string;
   status: OrderStatus;
-  /** REFUND = already invoiced for this user and since refunded — adds a negative adjustment. */
+  /**
+   * REFUND = already invoiced for this user and since refunded — adds a negative adjustment: for an Account Holder the
+   * company's lost profit share, for a DROPSHIP 3PL the buy price paid back. Stock Owners and STOCK 3PLs are never
+   * charged back.
+   */
   kind: InvoiceLineKind.ORDER | InvoiceLineKind.REFUND;
   description: string;
   currency: string;

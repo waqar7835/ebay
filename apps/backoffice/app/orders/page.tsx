@@ -17,11 +17,13 @@ import {
   Form,
   Input,
   InputNumber,
+  Modal,
   Segmented,
   Select,
   Table,
   type TableColumnsType,
 } from "antd";
+import RefundChoice, { FULL_REFUND, refundAmountFor, type RefundChoiceValue } from "@/components/RefundChoice";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
@@ -110,6 +112,9 @@ export default function OrdersPage() {
   const [rateInputs, setRateInputs] = useState<ExchangeRates>({});
   // An order is all-Stock or all-Dropship: picked on create, fixed on edit.
   const [mode, setMode] = useState<ProductFulfillmentType>("STOCK" as ProductFulfillmentType);
+  const [refundOrder, setRefundOrder] = useState<OrderDto | null>(null);
+  const [refundChoice, setRefundChoice] = useState<RefundChoiceValue>(FULL_REFUND);
+  const [refundSaving, setRefundSaving] = useState(false);
 
   function refresh() {
     listOrders()
@@ -315,9 +320,35 @@ export default function OrdersPage() {
     }
   }
 
-  async function handleStatusChange(orderId: string, status: OrderStatus) {
-    await updateOrderStatus(orderId, status);
+  async function handleStatusChange(order: OrderDto, status: OrderStatus) {
+    // REFUNDED asks full or partial first.
+    if (status === "REFUNDED") {
+      setRefundChoice(FULL_REFUND);
+      setRefundOrder(order);
+      return;
+    }
+    try {
+      await updateOrderStatus(order.id, status);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update the order");
+    }
     refresh();
+  }
+
+  async function handleRefundSave() {
+    if (!refundOrder) return;
+    const amount = refundAmountFor(refundOrder, refundChoice);
+    if (amount === null) return;
+    setRefundSaving(true);
+    try {
+      await updateOrderStatus(refundOrder.id, "REFUNDED" as OrderStatus, amount);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to refund the order");
+    } finally {
+      setRefundSaving(false);
+      setRefundOrder(null);
+      refresh();
+    }
   }
 
   const columns: TableColumnsType<OrderDto> = [
@@ -373,7 +404,7 @@ export default function OrdersPage() {
         <Select
           size="small"
           value={order.status}
-          onChange={(v) => handleStatusChange(order.id, v)}
+          onChange={(v) => handleStatusChange(order, v)}
           options={STATUSES.map((s) => ({ value: s, label: s }))}
           className="w-32"
         />
@@ -621,6 +652,18 @@ export default function OrdersPage() {
           scroll={{ x: "max-content" }}
           locale={{ emptyText: "No orders yet." }}
         />
+
+        <Modal
+          open={!!refundOrder}
+          title="Refund order"
+          onCancel={() => !refundSaving && setRefundOrder(null)}
+          maskClosable={!refundSaving}
+          okText="Mark as refunded"
+          okButtonProps={{ loading: refundSaving, disabled: !refundOrder || refundAmountFor(refundOrder, refundChoice) === null }}
+          onOk={handleRefundSave}
+        >
+          {refundOrder && <RefundChoice order={refundOrder} value={refundChoice} onChange={setRefundChoice} />}
+        </Modal>
       </main>
     </>
   );

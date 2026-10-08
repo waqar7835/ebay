@@ -36,7 +36,9 @@ import {
   orderCurrencies,
 } from "./order-currency.util";
 
-const TERMINAL_RESTOCK_STATUSES = [OrderStatus.CANCELLED, OrderStatus.REFUNDED];
+// A cancelled order's stock goes back on the shelf. A refunded one doesn't (decided 2026-10-08): once shipped, the
+// product is the Account Holder's responsibility, and the Stock Owner is still paid for it.
+const TERMINAL_RESTOCK_STATUSES = [OrderStatus.CANCELLED];
 // 3PLs no longer see PENDING orders at all (a manager must make that first move), so they only
 // ever self-advance PROCESSING -> SHIPPED.
 const THREE_PL_ALLOWED_FORWARD: Partial<Record<OrderStatus, OrderStatus>> = {
@@ -700,7 +702,10 @@ export class OrdersService {
   async updateStatus(companyId: string, requester: JwtPayload, id: string, dto: UpdateOrderStatusDto) {
     const order = await this.get(companyId, id);
     this.assertStatusTransitionAllowed(order, requester, dto.status);
-    await this.applyStatus(order, dto.status);
+    if (dto.refundAmount !== undefined && dto.status !== OrderStatus.REFUNDED) {
+      throw new BadRequestException("A refund amount only goes with the REFUNDED status");
+    }
+    await this.applyStatus(order, dto.status, undefined, dto.refundAmount);
     return this.getForRequester(companyId, requester, id);
   }
 
@@ -741,8 +746,13 @@ export class OrdersService {
     throw new ForbiddenException("You do not have permission to perform this action");
   }
 
-  private async applyStatus(order: Order, status: OrderStatus, transaction?: Transaction) {
+  /** `refundAmount` (REFUNDED only): a partial refund in the Account Holder's currency; omitted = the full payout. */
+  private async applyStatus(order: Order, status: OrderStatus, transaction?: Transaction, refundAmount?: number) {
     await this.assertCanShip(order, status);
+    if (order.status === OrderStatus.REFUNDED && status !== OrderStatus.REFUNDED) this.clearRefund(order);
+    if (status === OrderStatus.REFUNDED && order.status !== OrderStatus.REFUNDED) {
+      await this.recordRefund(order, refundAmount);
+    }
     order.status = status;
     order.statusChangedAt = new Date();
     if (status === OrderStatus.DELIVERED) {
@@ -758,6 +768,38 @@ export class OrdersService {
     }
 
     await order.save({ transaction });
+  }
+
+  /**
+   * Stores how much of the eBay payout was refunded (decided 2026-10-08): the full payout unless a partial amount is
+   * given, in the Account Holder's currency like the payout itself (plain PKR on orders from before currencies).
+   * Dropship orders are always refunded in full.
+   */
+  private async recordRefund(order: Order, refundAmount?: number) {
+    const payout = order.ebayNetProceedsOriginal ?? order.ebayNetProceeds;
+    if (refundAmount !== undefined) {
+      if (await this.isDropshipOrder(order)) {
+        throw new BadRequestException(`Order ${order.ebayOrderRef}: dropship orders are always refunded in full`);
+      }
+      if (refundAmount > payout) {
+        throw new BadRequestException(`Order ${order.ebayOrderRef}: the refund can't be more than the eBay payout (${payout})`);
+      }
+    }
+    const amount = round2(refundAmount ?? payout);
+    const rate = order.accountHolderCurrency ? order.exchangeRates?.[order.accountHolderCurrency] : undefined;
+    order.refundAmountOriginal = order.ebayNetProceedsOriginal != null ? amount : null;
+    order.refundAmount = rate && order.ebayNetProceedsOriginal != null ? round2(amount * rate) : amount;
+  }
+
+  /** Taking an order out of REFUNDED drops its refund — unless a refund adjustment for it is already on an invoice. */
+  private clearRefund(order: Order) {
+    if (order.accountHolderRefundInvoiceId || order.threePlRefundInvoiceId || order.items.some((i) => i.stockOwnerRefundInvoiceId)) {
+      throw new BadRequestException(
+        `Order ${order.ebayOrderRef}: its refund is already on an invoice — delete that invoice before changing the status`,
+      );
+    }
+    order.refundAmount = null;
+    order.refundAmountOriginal = null;
   }
 
   /**
