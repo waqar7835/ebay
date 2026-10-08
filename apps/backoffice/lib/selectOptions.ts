@@ -27,6 +27,14 @@ export function userOptions(users: ({ id: string } & UserLike)[]) {
   return users.map((u) => ({ value: u.id, label: userLabel(u), search: `${userLabel(u)} ${u.email}` }));
 }
 
+/**
+ * Name only (email when unnamed) — for pickers already limited to one role (e.g. the orders list's Account Holder /
+ * 3PL filters, the product and order forms' Stock Owner / Account Holder / 3PL fields), where "(Role)" would just repeat itself. Search still matches the email.
+ */
+export function userNameOptions(users: ({ id: string } & UserLike)[]) {
+  return users.map((u) => ({ value: u.id, label: u.name || u.email, search: `${u.name ?? ""} ${u.email}` }));
+}
+
 export function productOptions(products: { id: string; sku: string; title: string; fulfillmentType: string }[]) {
   return products.map((p) => ({
     value: p.id,

@@ -37,7 +37,7 @@ import {
   mediaUrl,
   updateOrderStatus,
 } from "@/lib/api";
-import { searchable, userLabel, userOptions } from "@/lib/selectOptions";
+import { searchable, userLabel, userNameOptions } from "@/lib/selectOptions";
 import { formatDate } from "@/lib/date";
 
 interface UserOption {
@@ -548,7 +548,7 @@ export default function OrdersPage() {
                     placeholder="All"
                     value={filter.accountHolderId || undefined}
                     onChange={(v) => setFilter((f) => ({ ...f, accountHolderId: v ?? "" }))}
-                    options={userOptions(accountHolders)}
+                    options={userNameOptions(accountHolders)}
                     className="mt-1 flex w-56"
                   />
                 </label>
@@ -560,7 +560,7 @@ export default function OrdersPage() {
                     placeholder="All"
                     value={filter.threePlId || undefined}
                     onChange={(v) => setFilter((f) => ({ ...f, threePlId: v ?? "" }))}
-                    options={userOptions(threePls)}
+                    options={userNameOptions(threePls)}
                     className="mt-1 flex w-56"
                   />
                 </label>

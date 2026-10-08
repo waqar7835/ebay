@@ -80,15 +80,40 @@ function withSelectedCompany(path: string): string {
   return `${path}${path.includes("?") ? "&" : "?"}companyId=${companyId}`;
 }
 
+/**
+ * A readable message for a failed API response: the server's message (validation errors arrive as a list), or a plain
+ * fallback by status — never a bare "Internal server error" / "Request failed: 500".
+ */
+function apiErrorMessage(status: number, body: { message?: unknown }): string {
+  const raw = Array.isArray(body.message) ? body.message.join(". ") : typeof body.message === "string" ? body.message : "";
+  if (raw && raw !== "Internal server error") return raw;
+  if (status === 401) return "Your session has expired. Please log in again.";
+  if (status === 403) return "You don't have permission to do this.";
+  if (status === 404) return "This item no longer exists. Refresh the page and try again.";
+  if (status === 409) return "This conflicts with existing data. Refresh the page and try again.";
+  if (status === 413) return "The file is too large.";
+  if (status >= 500) return "Something went wrong on our side. Please try again in a moment.";
+  return "The request couldn't be completed. Please check the form and try again.";
+}
+
+/** fetch that turns a network failure (API down, offline) into a readable error. */
+async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch {
+    throw new Error("Can't reach the server. Check your connection and try again.");
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API_URL}${withSelectedCompany(path)}`, {
+  const res = await apiFetch(`${API_URL}${withSelectedCompany(path)}`, {
     ...options,
     headers: { "Content-Type": "application/json", ...authHeaders(), ...(options.headers ?? {}) },
     cache: "no-store",
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.message ?? `Request failed: ${res.status}`);
+    throw new Error(apiErrorMessage(res.status, body));
   }
   if (res.status === 204) return undefined as T;
   return res.json();
@@ -209,14 +234,14 @@ export async function setProductImages(productId: string, images: Array<string |
     return `new:${newIndex++}`;
   });
   form.append("layout", JSON.stringify(layout));
-  const res = await fetch(`${API_URL}${withSelectedCompany(`/products/${productId}/images`)}`, {
+  const res = await apiFetch(`${API_URL}${withSelectedCompany(`/products/${productId}/images`)}`, {
     method: "PUT",
     headers: authHeaders(),
     body: form,
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.message ?? `Request failed: ${res.status}`);
+    throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<ProductDto>;
 }
@@ -277,13 +302,13 @@ export function listInvoices(userId?: string) {
 }
 
 export async function downloadInvoicePdf(invoiceId: string): Promise<Blob> {
-  const res = await fetch(`${API_URL}${withSelectedCompany(`/invoices/${invoiceId}/pdf`)}`, {
+  const res = await apiFetch(`${API_URL}${withSelectedCompany(`/invoices/${invoiceId}/pdf`)}`, {
     headers: authHeaders(),
     cache: "no-store",
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.message ?? `Request failed: ${res.status}`);
+    throw new Error(apiErrorMessage(res.status, body));
   }
   return res.blob();
 }
@@ -305,14 +330,14 @@ export function staffDashboard() {
 // --- Subscriptions (plans + billing periods: Super Admin edits; payments: Super Admin reviews) ---
 // These are platform-wide, so they bypass withSelectedCompany() via rawRequest().
 async function rawRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await apiFetch(`${API_URL}${path}`, {
     ...options,
     headers: { "Content-Type": "application/json", ...authHeaders(), ...(options.headers ?? {}) },
     cache: "no-store",
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(Array.isArray(body.message) ? body.message.join(", ") : (body.message ?? `Request failed: ${res.status}`));
+    throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json();
 }
@@ -422,10 +447,10 @@ export function updatePlatformSettings(input: UpdatePlatformSettingsInput) {
 export async function uploadPlatformLogo(logo: File) {
   const form = new FormData();
   form.append("logo", logo);
-  const res = await fetch(`${API_URL}/platform-settings/logo`, { method: "POST", headers: authHeaders(), body: form });
+  const res = await apiFetch(`${API_URL}/platform-settings/logo`, { method: "POST", headers: authHeaders(), body: form });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.message ?? `Request failed: ${res.status}`);
+    throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<PlatformSettingsDto>;
 }

@@ -5,6 +5,7 @@ import { ValidationPipe } from "@nestjs/common";
 import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger";
 import { AppModule } from "./app.module";
 import { ensureUploadsDir } from "./uploads/uploads.util";
+import { DatabaseExceptionFilter } from "./common/filters/database-exception.filter";
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -17,6 +18,7 @@ async function bootstrap() {
     credentials: true,
   });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  app.useGlobalFilters(new DatabaseExceptionFilter());
   app.useStaticAssets(ensureUploadsDir(), { prefix: "/uploads/" });
 
   const config = new DocumentBuilder()

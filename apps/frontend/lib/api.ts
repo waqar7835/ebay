@@ -79,28 +79,53 @@ function authHeaders(): Record<string, string> {
 }
 
 /** Like request(), for endpoints that return a file (PDFs). */
+/**
+ * A readable message for a failed API response: the server's message (validation errors arrive as a list), or a plain
+ * fallback by status — never a bare "Internal server error" / "Request failed: 500".
+ */
+function apiErrorMessage(status: number, body: { message?: unknown }): string {
+  const raw = Array.isArray(body.message) ? body.message.join(". ") : typeof body.message === "string" ? body.message : "";
+  if (raw && raw !== "Internal server error") return raw;
+  if (status === 401) return "Your session has expired. Please log in again.";
+  if (status === 403) return "You don't have permission to do this.";
+  if (status === 404) return "This item no longer exists. Refresh the page and try again.";
+  if (status === 409) return "This conflicts with existing data. Refresh the page and try again.";
+  if (status === 413) return "The file is too large.";
+  if (status >= 500) return "Something went wrong on our side. Please try again in a moment.";
+  return "The request couldn't be completed. Please check the form and try again.";
+}
+
+/** fetch that turns a network failure (API down, offline) into a readable error. */
+async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch {
+    throw new Error("Can't reach the server. Check your connection and try again.");
+  }
+}
+
 async function requestBlob(path: string, options: RequestInit = {}): Promise<Blob> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await apiFetch(`${API_URL}${path}`, {
     ...options,
     headers: { "Content-Type": "application/json", ...authHeaders(), ...(options.headers ?? {}) },
     cache: "no-store",
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.message ?? `Request failed: ${res.status}`);
+    throw new Error(apiErrorMessage(res.status, body));
   }
   return res.blob();
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await apiFetch(`${API_URL}${path}`, {
     ...options,
     headers: { "Content-Type": "application/json", ...authHeaders(), ...(options.headers ?? {}) },
     cache: "no-store",
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    const error = new Error(body.message ?? `Request failed: ${res.status}`) as Error & { status?: number };
+    const error = new Error(apiErrorMessage(res.status, body)) as Error & { status?: number };
     error.status = res.status;
     throw error;
   }
@@ -331,14 +356,14 @@ export function updateCompanyBillingAnchorDay(billingAnchorDay: number) {
 export async function uploadCompanyLogo(logo: File) {
   const form = new FormData();
   form.append("logo", logo);
-  const res = await fetch(`${API_URL}/companies/me/logo`, {
+  const res = await apiFetch(`${API_URL}/companies/me/logo`, {
     method: "POST",
     headers: authHeaders(),
     body: form,
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.message ?? `Request failed: ${res.status}`);
+    throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<CompanyDto>;
 }
@@ -351,10 +376,10 @@ export function getMyProfile() {
 async function uploadAvatar(path: string, file: File) {
   const form = new FormData();
   form.append("avatar", file);
-  const res = await fetch(`${API_URL}${path}`, { method: "POST", headers: authHeaders(), body: form });
+  const res = await apiFetch(`${API_URL}${path}`, { method: "POST", headers: authHeaders(), body: form });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.message ?? `Request failed: ${res.status}`);
+    throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<UserDto>;
 }
@@ -490,14 +515,14 @@ export async function setProductImages(productId: string, images: Array<string |
     return `new:${newIndex++}`;
   });
   form.append("layout", JSON.stringify(layout));
-  const res = await fetch(`${API_URL}/products/${productId}/images`, {
+  const res = await apiFetch(`${API_URL}/products/${productId}/images`, {
     method: "PUT",
     headers: authHeaders(),
     body: form,
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.message ?? `Request failed: ${res.status}`);
+    throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<ProductDto>;
 }
@@ -575,14 +600,14 @@ export function updateThreePlOrder(
 export async function uploadOrderShippingLabel(orderId: string, shippingLabel: File) {
   const form = new FormData();
   form.append("shippingLabel", shippingLabel);
-  const res = await fetch(`${API_URL}/orders/${orderId}/shipping-label`, {
+  const res = await apiFetch(`${API_URL}/orders/${orderId}/shipping-label`, {
     method: "POST",
     headers: authHeaders(),
     body: form,
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.message ?? `Request failed: ${res.status}`);
+    throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<OrderDto>;
 }
@@ -675,10 +700,10 @@ export function setDefaultInvoiceTemplate(templateId: string) {
 }
 
 async function sendForm(path: string, form: FormData): Promise<Response> {
-  const res = await fetch(`${API_URL}${path}`, { method: "POST", headers: authHeaders(), body: form, cache: "no-store" });
+  const res = await apiFetch(`${API_URL}${path}`, { method: "POST", headers: authHeaders(), body: form, cache: "no-store" });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.message ?? `Request failed: ${res.status}`);
+    throw new Error(apiErrorMessage(res.status, body));
   }
   return res;
 }
@@ -743,14 +768,14 @@ export async function submitSubscriptionPayment(planId: string, billingPeriodId:
   if (referenceNote) form.append("referenceNote", referenceNote);
   form.append("receipt", receipt);
 
-  const res = await fetch(`${API_URL}/subscriptions/payments`, {
+  const res = await apiFetch(`${API_URL}/subscriptions/payments`, {
     method: "POST",
     headers: authHeaders(),
     body: form,
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.message ?? `Request failed: ${res.status}`);
+    throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<SubscriptionPaymentDto>;
 }

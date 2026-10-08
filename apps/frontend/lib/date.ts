@@ -1,8 +1,8 @@
 import dayjs from "dayjs";
 
-/** App-wide display formats (decided 2026-10-08): "08 October 2026" and "08 October 2026, 14:35". */
-export const DATE_FORMAT = "DD MMMM YYYY";
-export const DATE_TIME_FORMAT = "DD MMMM YYYY, HH:mm";
+/** App-wide display formats (decided 2026-10-08): "08 Oct 2026" and "08 Oct 2026, 14:35". */
+export const DATE_FORMAT = "DD MMM YYYY";
+export const DATE_TIME_FORMAT = "DD MMM YYYY, HH:mm";
 
 /**
  * Formats a YYYY-MM-DD date-only string or an ISO timestamp for display. Date-only strings are read as calendar dates

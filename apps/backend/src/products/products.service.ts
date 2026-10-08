@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { Op } from "sequelize";
 import { InjectModel } from "@nestjs/sequelize";
 import { PRODUCT_MAX_IMAGES, ProductFulfillmentType, Role } from "@ebay-order-management/shared";
 import { Product } from "../database/models/product.model";
@@ -62,14 +63,28 @@ export class ProductsService {
   }
 
   async create(companyId: string, dto: CreateProductDto) {
+    await this.assertSkuAvailable(companyId, dto.sku);
     return this.productModel.create({ companyId, ...this.toProductFields(dto) });
   }
 
   async update(companyId: string, id: string, dto: UpdateProductDto) {
     const product = await this.get(companyId, id);
+    if (dto.sku !== undefined) await this.assertSkuAvailable(companyId, dto.sku, id);
     product.set(this.toProductFields(dto));
     await product.save();
     return product;
+  }
+
+  // SKUs are unique per company (products_company_id_sku_unique); this pre-check just gives a friendly error before
+  // hitting the constraint (DatabaseExceptionFilter covers the race).
+  private async assertSkuAvailable(companyId: string, sku: string, excludeId?: string) {
+    const existing = await this.productModel.findOne({
+      where: { companyId, sku, ...(excludeId ? { id: { [Op.ne]: excludeId } } : {}) },
+      attributes: ["id", "title"],
+    });
+    if (existing) {
+      throw new ConflictException(`SKU "${sku}" is already used by "${existing.title}". Use a different SKU.`);
+    }
   }
 
   private toProductFields(dto: CreateProductDto) {

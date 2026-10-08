@@ -40,7 +40,7 @@ import {
   updateOrderStatus,
 } from "@/lib/api";
 import { currencySymbol, money, pkr } from "@/lib/currency";
-import { searchable, userOptions } from "@/lib/selectOptions";
+import { searchable, userNameOptions } from "@/lib/selectOptions";
 import { formatDate } from "@/lib/date";
 
 const STATUSES: OrderStatus[] = ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "REFUNDED"] as OrderStatus[];
@@ -414,7 +414,7 @@ export default function OrdersPage() {
                   rules={[{ required: true, message: "Select a client" }]}
                   className="flex-1"
                 >
-                  <Select showSearch={searchable} placeholder="Select…" options={userOptions(accountHolders)} />
+                  <Select showSearch={searchable} placeholder="Select…" options={userNameOptions(accountHolders)} />
                 </Form.Item>
               </div>
 
@@ -443,7 +443,7 @@ export default function OrdersPage() {
                     extra={dropshipThreePls.length === 0 ? "No 3PL users are set up for Dropshipping fulfillment yet." : undefined}
                     className="mb-3 max-w-md"
                   >
-                    <Select showSearch={searchable} allowClear placeholder="None" options={userOptions(dropshipThreePls)} />
+                    <Select showSearch={searchable} allowClear placeholder="None" options={userNameOptions(dropshipThreePls)} />
                   </Form.Item>
                 )}
                 <Form.List name="items">

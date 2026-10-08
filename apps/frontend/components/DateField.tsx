@@ -19,12 +19,12 @@ export default function DateField({ value, onChange, placeholder, allowClear = t
   return (
     <DatePicker
       className={className}
-      // Wide enough for the longest month ("30 September 2026") without clipping.
-      style={{ minWidth: 175 }}
+      // Wide enough for "30 Sep 2026" without clipping.
+      style={{ minWidth: 140 }}
       placeholder={placeholder}
       allowClear={allowClear}
       disabled={disabled}
-      // Shows "08 October 2026"; typing an ISO or DD/MM/YYYY date still parses.
+      // Shows "08 Oct 2026"; typing an ISO or DD/MM/YYYY date still parses.
       format={[DATE_FORMAT, "YYYY-MM-DD", "DD/MM/YYYY"]}
       value={value ? dayjs(value) : null}
       onChange={(d) => onChange?.(d ? d.format("YYYY-MM-DD") : "")}

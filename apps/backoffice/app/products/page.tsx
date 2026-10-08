@@ -9,7 +9,7 @@ import { EditAction } from "@/components/RowActions";
 import ProductImagesUpload, { productImageItems, type ProductImageItem } from "@/components/ProductImagesUpload";
 import { createProduct, getToken, listProducts, listUsers, mediaUrl, setProductImages, updateProduct } from "@/lib/api";
 import { currencySymbol, money } from "@/lib/currency";
-import { searchable, userOptions } from "@/lib/selectOptions";
+import { searchable, userNameOptions } from "@/lib/selectOptions";
 
 interface ProductRow {
   id: string;
@@ -228,24 +228,29 @@ export default function ProductsPage() {
                 </Form.Item>
               </div>
 
-              <Form.Item name="fulfillmentType" label="Fulfillment type">
-                <Select
-                  options={[
-                    { value: "STOCK", label: "Stock (held by a 3PL)" },
-                    { value: "DROPSHIP", label: "Dropship" },
-                  ]}
-                />
-              </Form.Item>
+              {/* Same width as SKU: mirrors the SKU / Title / Size row above. */}
+              <div className="flex gap-3">
+                <Form.Item name="fulfillmentType" label="Fulfillment type" className="flex-1">
+                  <Select
+                    options={[
+                      { value: "STOCK", label: "Stock" },
+                      { value: "DROPSHIP", label: "Dropship" },
+                    ]}
+                  />
+                </Form.Item>
+                <div className="flex-1" />
+                <div className="w-40" />
+              </div>
 
               {isStock && (
                 <Form.Item name="stockOwnerId" label="Stock Owner" rules={[{ required: true, message: "Select a Stock Owner" }]}>
-                  <Select showSearch={searchable} placeholder="Select…" options={userOptions(stockOwners)} />
+                  <Select showSearch={searchable} placeholder="Select…" options={userNameOptions(stockOwners)} />
                 </Form.Item>
               )}
 
               {isStock && (
                 <Form.Item name="threePlId" label="3PL warehouse" rules={[{ required: true, message: "Select a 3PL warehouse" }]}>
-                  <Select showSearch={searchable} placeholder="Select…" options={userOptions(threePls)} />
+                  <Select showSearch={searchable} placeholder="Select…" options={userNameOptions(threePls)} />
                 </Form.Item>
               )}
 

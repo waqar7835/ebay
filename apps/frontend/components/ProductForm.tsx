@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import ProductImagesUpload, { productImageItems, type ProductImageItem } from "@/components/ProductImagesUpload";
 import { listUsers, type CreateProductPayload } from "@/lib/api";
 import { currencySymbol } from "@/lib/currency";
-import { searchable, userOptions } from "@/lib/selectOptions";
+import { searchable, userNameOptions } from "@/lib/selectOptions";
 
 interface ProductFormProps {
   // Prefills the form for editing; omitted when creating.
@@ -115,24 +115,27 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
                 <Input placeholder="e.g. 8cm x 5cm" />
               </Form.Item>
             </div>
-            <Form.Item name="fulfillmentType" label="Fulfillment type" className="mb-0">
-              <Select
-                options={[
-                  { value: "STOCK", label: "Stock — held at a 3PL warehouse" },
-                  { value: "DROPSHIP", label: "Dropship — 3PL and buy price are set on each order" },
-                ]}
-              />
-            </Form.Item>
+            {/* Same width as SKU: one column of the 4-column grid above. */}
+            <div className="grid gap-x-4 sm:grid-cols-4">
+              <Form.Item name="fulfillmentType" label="Fulfillment type" className="mb-0">
+                <Select
+                  options={[
+                    { value: "STOCK", label: "Stock" },
+                    { value: "DROPSHIP", label: "Dropship" },
+                  ]}
+                />
+              </Form.Item>
+            </div>
           </Card>
 
           {isStock && (
             <Card title="Stock Owner & warehouse">
               <div className="grid gap-x-4 sm:grid-cols-2">
                 <Form.Item name="stockOwnerId" label="Stock Owner" rules={[{ required: true, message: "Select a Stock Owner" }]} className="mb-0">
-                  <Select showSearch={searchable} placeholder="Select…" options={userOptions(stockOwners)} />
+                  <Select showSearch={searchable} placeholder="Select…" options={userNameOptions(stockOwners)} />
                 </Form.Item>
                 <Form.Item name="threePlId" label="3PL warehouse" rules={[{ required: true, message: "Select a 3PL warehouse" }]} className="mb-0">
-                  <Select showSearch={searchable} placeholder="Select…" options={userOptions(threePls)} />
+                  <Select showSearch={searchable} placeholder="Select…" options={userNameOptions(threePls)} />
                 </Form.Item>
               </div>
             </Card>

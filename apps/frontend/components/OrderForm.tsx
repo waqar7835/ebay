@@ -18,7 +18,7 @@ import FileUpload from "@/components/FileUpload";
 import ProductThumb from "@/components/ProductThumb";
 import { listExchangeRates, listProducts, listUsers, localDateOnly, mediaUrl, type UpdateOrderPayload } from "@/lib/api";
 import { currencySymbol, money, pkr } from "@/lib/currency";
-import { searchable, userOptions } from "@/lib/selectOptions";
+import { searchable, userNameOptions } from "@/lib/selectOptions";
 import { formatDate } from "@/lib/date";
 
 interface OrderFormProps {
@@ -269,7 +269,7 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
           showSearch={searchable}
           allowClear={isDropship}
           placeholder={isDropship ? "None" : "Select…"}
-          options={userOptions(eligibleThreePls)}
+          options={userNameOptions(eligibleThreePls)}
         />
       </Form.Item>
       {isDropship && (
@@ -314,7 +314,7 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
                 rules={[{ required: true, message: "Select a client" }]}
                 className="sm:col-span-2"
               >
-                <Select showSearch={searchable} placeholder="Select…" options={userOptions(accountHolders)} />
+                <Select showSearch={searchable} placeholder="Select…" options={userNameOptions(accountHolders)} />
               </Form.Item>
             </div>
             <div className="grid gap-x-4 sm:grid-cols-2">
@@ -453,17 +453,6 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
               <Input.TextArea rows={5} placeholder={"Name\nAddress\nPhone number"} />
             </Form.Item>
           </Card>
-
-          <Card title="Comments">
-            <Form.Item
-              name="comments"
-              label="Notes for the 3PL"
-              extra="Shown to the 3PL on their orders list. Account Holders and Stock Owners don't see it."
-              className="mb-0"
-            >
-              <Input.TextArea rows={3} maxLength={2000} showCount placeholder="e.g. Gift wrap this order" />
-            </Form.Item>
-          </Card>
         </div>
 
         <div className="flex flex-col gap-6">
@@ -553,6 +542,17 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
                 View current shipping label
               </a>
             )}
+          </Card>
+
+          <Card title="Comments">
+            <Form.Item
+              name="comments"
+              label="Notes for the 3PL"
+              extra="Shown to the 3PL on their orders list. Account Holders and Stock Owners don't see it."
+              className="mb-0"
+            >
+              <Input.TextArea rows={3} maxLength={2000} showCount placeholder="e.g. Gift wrap this order" />
+            </Form.Item>
           </Card>
 
           <Card>
