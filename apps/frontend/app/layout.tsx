@@ -5,12 +5,15 @@ import AntdProvider from "@/components/AntdProvider";
 import { ROLE_THEME_BOOT_SCRIPT } from "@/lib/roleTheme";
 import { TAGLINE } from "@/lib/brand";
 import { getSiteSettings } from "@/lib/siteSettings";
+import { mediaUrl } from "@/lib/api";
 
 const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-jakarta" });
 
 export async function generateMetadata(): Promise<Metadata> {
-  const { brandName } = await getSiteSettings();
-  return { title: { default: brandName, template: `%s · ${brandName}` }, description: TAGLINE };
+  const { brandName, faviconUrl, logoUrl } = await getSiteSettings();
+  // The uploaded favicon, else the site logo.
+  const icon = mediaUrl(faviconUrl ?? logoUrl);
+  return { title: { default: brandName, template: `%s · ${brandName}` }, description: TAGLINE, ...(icon ? { icons: { icon } } : {}) };
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

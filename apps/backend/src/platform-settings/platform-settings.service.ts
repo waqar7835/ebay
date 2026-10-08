@@ -39,6 +39,7 @@ export class PlatformSettingsService {
     return {
       brandName: r.brandName,
       logoUrl: r.logoUrl,
+      faviconUrl: r.faviconUrl,
       helloEmail: r.helloEmail,
       supportEmail: r.supportEmail,
       replyHours: r.replyHours ?? [],
@@ -89,6 +90,13 @@ export class PlatformSettingsService {
   async setLogo(logoUrl: string | null): Promise<PlatformSettingsDto> {
     const r = await this.row();
     await r.update({ logoUrl });
+    this.cached = null;
+    return this.get();
+  }
+
+  async setFavicon(faviconUrl: string | null): Promise<PlatformSettingsDto> {
+    const r = await this.row();
+    await r.update({ faviconUrl });
     this.cached = null;
     return this.get();
   }

@@ -13,6 +13,10 @@ export class PlatformSetting extends Model {
   @Column({ type: DataType.STRING, allowNull: true, field: "logo_url" })
   declare logoUrl: string | null;
 
+  /** Browser-tab icon; null = the logo is used instead. */
+  @Column({ type: DataType.STRING, allowNull: true, field: "favicon_url" })
+  declare faviconUrl: string | null;
+
   @Column({ type: DataType.STRING, allowNull: true, field: "hello_email" })
   declare helloEmail: string | null;
 

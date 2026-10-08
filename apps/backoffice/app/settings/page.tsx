@@ -11,9 +11,11 @@ import {
   getStoredUser,
   getToken,
   mediaUrl,
+  removePlatformFavicon,
   removePlatformLogo,
   sendTestEmail,
   updatePlatformSettings,
+  uploadPlatformFavicon,
   uploadPlatformLogo,
 } from "@/lib/api";
 
@@ -67,6 +69,7 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [logoBusy, setLogoBusy] = useState(false);
+  const [faviconBusy, setFaviconBusy] = useState(false);
   const [testTo, setTestTo] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
@@ -141,6 +144,30 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleFavicon(file: File) {
+    setFaviconBusy(true);
+    try {
+      apply(await uploadPlatformFavicon(file));
+      message.success("Favicon updated");
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : "Couldn't upload the favicon");
+    } finally {
+      setFaviconBusy(false);
+    }
+  }
+
+  async function handleRemoveFavicon() {
+    setFaviconBusy(true);
+    try {
+      apply(await removePlatformFavicon());
+      message.success("Favicon removed — the logo is used instead");
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : "Couldn't remove the favicon");
+    } finally {
+      setFaviconBusy(false);
+    }
+  }
+
   async function handleTest() {
     setTesting(true);
     setTestResult(null);
@@ -197,6 +224,45 @@ export default function SettingsPage() {
             </Space>
           </div>
           <p className="mt-3 text-xs text-gray-500">PNG (keeps transparency), JPEG or WebP, up to 2 MB. Shown next to the brand name on the public site.</p>
+        </Card>
+
+        <Card className="mt-4" title="Favicon" loading={!settings}>
+          <div className="flex flex-wrap items-center gap-6">
+            <div className="flex h-20 w-48 items-center justify-center gap-3 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-2">
+              {settings?.faviconUrl || settings?.logoUrl ? (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={mediaUrl(settings.faviconUrl ?? settings.logoUrl)} alt="Current favicon" className="h-8 w-8 object-contain" />
+                  {!settings.faviconUrl && <span className="text-xs text-gray-400">Using the logo</span>}
+                </>
+              ) : (
+                <span className="text-xs text-gray-400">No favicon or logo yet</span>
+              )}
+            </div>
+            <Space wrap>
+              <Upload
+                accept="image/png,image/x-icon,image/vnd.microsoft.icon,.ico,image/jpeg,image/webp"
+                showUploadList={false}
+                beforeUpload={(file) => {
+                  void handleFavicon(file);
+                  return false;
+                }}
+              >
+                <Button icon={<UploadOutlined />} loading={faviconBusy}>
+                  {settings?.faviconUrl ? "Replace favicon" : "Upload favicon"}
+                </Button>
+              </Upload>
+              {settings?.faviconUrl && (
+                <Button icon={<DeleteOutlined />} danger onClick={handleRemoveFavicon} disabled={faviconBusy}>
+                  Remove
+                </Button>
+              )}
+            </Space>
+          </div>
+          <p className="mt-3 text-xs text-gray-500">
+            The browser-tab icon for the public site, the portal and the backoffice. PNG or ICO (square, e.g. 64×64), JPEG or WebP, up to 1 MB.
+            Without one, the logo above is used.
+          </p>
         </Card>
 
         <Form<SettingsForm> form={form} layout="vertical" onFinish={handleSave} disabled={!settings} className="mt-4">

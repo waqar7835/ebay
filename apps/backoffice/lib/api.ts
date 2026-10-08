@@ -459,6 +459,21 @@ export function removePlatformLogo() {
   return request<PlatformSettingsDto>("/platform-settings/logo", { method: "DELETE" });
 }
 
+export async function uploadPlatformFavicon(favicon: File) {
+  const form = new FormData();
+  form.append("favicon", favicon);
+  const res = await apiFetch(`${API_URL}/platform-settings/favicon`, { method: "POST", headers: authHeaders(), body: form });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(apiErrorMessage(res.status, body));
+  }
+  return res.json() as Promise<PlatformSettingsDto>;
+}
+
+export function removePlatformFavicon() {
+  return request<PlatformSettingsDto>("/platform-settings/favicon", { method: "DELETE" });
+}
+
 export function sendTestEmail(to: string) {
   return request<{ message: string }>("/platform-settings/test-email", { method: "POST", body: JSON.stringify({ to }) });
 }

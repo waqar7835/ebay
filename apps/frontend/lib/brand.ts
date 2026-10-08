@@ -10,6 +10,7 @@ export const TAGLINE = "Orders, partner payouts and invoices for eBay reselling 
 export const DEFAULT_SITE: PublicSiteDto = {
   brandName: "OrderSplit",
   logoUrl: null,
+  faviconUrl: null,
   helloEmail: null,
   supportEmail: null,
   replyHours: [],

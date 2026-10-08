@@ -19,6 +19,16 @@ const LOGO_UPLOAD = multerUploadOptions("branding", {
   },
 });
 
+/** Same formats as the logo plus ICO; small, since browsers show it at 16–48px. */
+const FAVICON_TYPES = ["image/png", "image/jpeg", "image/webp", "image/x-icon", "image/vnd.microsoft.icon"];
+const FAVICON_UPLOAD = multerUploadOptions("branding", {
+  maxFileSize: 1024 * 1024,
+  fileFilter: (_req, file, cb) => {
+    if (FAVICON_TYPES.includes(file.mimetype)) cb(null, true);
+    else cb(new BadRequestException("The favicon must be a PNG, ICO, JPEG or WebP image"), false);
+  },
+});
+
 /** Super Admin only (backoffice realm): branding, public contact details, contact-form destination and SMTP. */
 @ApiTags("platform-settings")
 @ApiBearerAuth()
@@ -51,6 +61,18 @@ export class PlatformSettingsController {
   @Delete("logo")
   removeLogo() {
     return this.settings.setLogo(null);
+  }
+
+  @Post("favicon")
+  @UseInterceptors(FileInterceptor("favicon", FAVICON_UPLOAD))
+  uploadFavicon(@UploadedFile() file: Express.Multer.File | undefined) {
+    if (!file) throw new BadRequestException("Choose an image");
+    return this.settings.setFavicon(publicUploadUrl("branding", file.filename));
+  }
+
+  @Delete("favicon")
+  removeFavicon() {
+    return this.settings.setFavicon(null);
   }
 
   /** Sends a real email with the saved SMTP settings and reports the SMTP error if it fails. */

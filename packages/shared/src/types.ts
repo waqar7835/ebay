@@ -717,6 +717,8 @@ export interface ReplyHoursRow {
 export interface PublicSiteDto {
   brandName: string;
   logoUrl: string | null;
+  /** Browser-tab icon as uploaded; null = clients fall back to `logoUrl`. */
+  faviconUrl: string | null;
   helloEmail: string | null;
   supportEmail: string | null;
   replyHours: ReplyHoursRow[];
