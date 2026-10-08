@@ -15,6 +15,7 @@ import { ExchangeRatesModule } from "../exchange-rates/exchange-rates.module";
 import { User } from "../database/models/user.model";
 import { OrdersController } from "./orders.controller";
 import { OrdersService } from "./orders.service";
+import { OrdersScheduler } from "./orders.scheduler";
 
 @Module({
   imports: [
@@ -35,7 +36,7 @@ import { OrdersService } from "./orders.service";
     ExchangeRatesModule,
   ],
   controllers: [OrdersController],
-  providers: [OrdersService],
+  providers: [OrdersService, OrdersScheduler],
   exports: [OrdersService],
 })
 export class OrdersModule {}

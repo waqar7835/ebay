@@ -221,6 +221,10 @@ export class Order extends Model {
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
   declare restocked: boolean;
 
+  /** When the order was last marked SHIPPED — what a 3PL's auto-delivery counts its delivery days from. */
+  @Column({ type: DataType.DATE, allowNull: true, field: "shipped_at" })
+  declare shippedAt: Date | null;
+
   @Column({ type: DataType.DATE, allowNull: true, field: "delivered_at" })
   declare deliveredAt: Date | null;
 

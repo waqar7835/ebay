@@ -755,6 +755,7 @@ export class OrdersService {
     if (status === OrderStatus.REFUNDED && order.status !== OrderStatus.REFUNDED) {
       await this.recordRefund(order, refundAmount);
     }
+    if (status === OrderStatus.SHIPPED && order.status !== OrderStatus.SHIPPED) order.shippedAt = new Date();
     order.status = status;
     order.statusChangedAt = new Date();
     if (status === OrderStatus.DELIVERED) {
@@ -770,6 +771,34 @@ export class OrdersService {
     }
 
     await order.save({ transaction });
+  }
+
+  /**
+   * 3PL auto-delivery (decided 2026-10-08, run by OrdersScheduler): for every 3PL with it switched on, its SHIPPED orders
+   * shipped since it was switched on and at least `deliveryDays` ago become DELIVERED. A STOCK 3PL's order waits until it
+   * has a tracking number; a DROPSHIP 3PL doesn't enter tracking numbers, so its orders don't. Returns how many moved.
+   */
+  async autoDeliver(now = new Date()): Promise<number> {
+    const profiles = await this.threePlProfileModel.findAll({
+      where: { autoDeliveryEnabled: true, deliveryDays: { [Op.gt]: 0 }, autoDeliveryEnabledAt: { [Op.ne]: null } },
+    });
+    let delivered = 0;
+    for (const profile of profiles) {
+      const cutoff = new Date(now.getTime() - profile.deliveryDays! * 24 * 60 * 60 * 1000);
+      const orders = await this.orderModel.findAll({
+        where: {
+          threePlId: profile.userId,
+          status: OrderStatus.SHIPPED,
+          shippedAt: { [Op.lte]: cutoff, [Op.gte]: profile.autoDeliveryEnabledAt },
+        },
+      });
+      for (const order of orders) {
+        if (profile.fulfillmentType === ProductFulfillmentType.STOCK && !order.trackingNumber?.trim()) continue;
+        await this.applyStatus(order, OrderStatus.DELIVERED);
+        delivered++;
+      }
+    }
+    return delivered;
   }
 
   /**

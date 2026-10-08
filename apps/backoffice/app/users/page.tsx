@@ -4,6 +4,7 @@ import { Currency, DEFAULT_CURRENCY, type ProductFulfillmentType, type Role, typ
 import { Alert, Button, Card, Checkbox, Form, Input, InputNumber, Select, Space, Table, Tag, type TableColumnsType } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import AutoDeliveryFields from "@/components/AutoDeliveryFields";
 import Nav from "@/components/Nav";
 import RoleTag from "@/components/RoleTag";
 import { DeleteAction, ToggleStatusAction } from "@/components/RowActions";
@@ -58,6 +59,8 @@ export default function UsersPage() {
   const [stockOwnerSharePercent, setStockOwnerSharePercent] = useState("0");
   const [payoutPerOrder, setPayoutPerOrder] = useState("0");
   const [threePlFulfillmentType, setThreePlFulfillmentType] = useState<ProductFulfillmentType>("STOCK" as ProductFulfillmentType);
+  const [autoDelivery, setAutoDelivery] = useState(false);
+  const [deliveryDays, setDeliveryDays] = useState<number | null>(null);
   const [billingCycleStartDay, setBillingCycleStartDay] = useState("1");
   const [staffPermissions, setStaffPermissions] = useState<StaffPermissionsState>(DEFAULT_STAFF_PERMISSIONS);
   const [hasRevenueShare, setHasRevenueShare] = useState(false);
@@ -108,6 +111,10 @@ export default function UsersPage() {
 
   async function handleInvite() {
     setFormError(null);
+    if (roles.includes("THREE_PL" as Role) && autoDelivery && !deliveryDays) {
+      setFormError("Enter the delivery days for auto-delivery");
+      return;
+    }
     setSubmitting(true);
     try {
       await inviteUser({
@@ -141,6 +148,8 @@ export default function UsersPage() {
               payoutPerOrder: threePlFulfillmentType === ("STOCK" as ProductFulfillmentType) ? Number(payoutPerOrder) : undefined,
               billingCycleStartDay: Number(billingCycleStartDay),
               fulfillmentType: threePlFulfillmentType,
+              autoDeliveryEnabled: autoDelivery,
+              deliveryDays: autoDelivery ? deliveryDays : null,
             }
           : undefined,
       });
@@ -338,6 +347,7 @@ export default function UsersPage() {
                       Dropshipping 3PLs have no fixed rate — they&apos;re paid the buy price they enter against each order.
                     </p>
                   )}
+                  <AutoDeliveryFields enabled={autoDelivery} onEnabledChange={setAutoDelivery} days={deliveryDays} onDaysChange={setDeliveryDays} />
                 </Card>
               )}
 

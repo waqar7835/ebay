@@ -277,6 +277,14 @@ export class UsersService {
       billingCycleStartDay: input.billingCycleStartDay,
       fulfillmentType: input.fulfillmentType,
     });
+    // Auto-delivery: left as it is when not sent. Switching it on stamps the time, so only orders shipped from now on
+    // are auto-delivered; changing the days keeps that time.
+    if (input.autoDeliveryEnabled !== undefined) {
+      if (input.autoDeliveryEnabled && !profile.autoDeliveryEnabled) profile.autoDeliveryEnabledAt = new Date();
+      profile.autoDeliveryEnabled = input.autoDeliveryEnabled;
+      profile.deliveryDays = input.autoDeliveryEnabled ? (input.deliveryDays ?? null) : null;
+      if (!input.autoDeliveryEnabled) profile.autoDeliveryEnabledAt = null;
+    }
     await profile.save();
     return profile;
   }

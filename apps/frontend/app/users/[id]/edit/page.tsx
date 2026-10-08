@@ -5,6 +5,7 @@ import { MailOutlined } from "@ant-design/icons";
 import { Alert, Button, Card, Form, Input, InputNumber, Select, Switch, Tag } from "antd";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import AutoDeliveryFields from "@/components/AutoDeliveryFields";
 import BackLink from "@/components/BackLink";
 import Nav from "@/components/Nav";
 import RoleTag from "@/components/RoleTag";
@@ -72,6 +73,8 @@ export default function EditUserPage() {
 
   const [fulfillmentType, setFulfillmentType] = useState<ProductFulfillmentType>("STOCK" as ProductFulfillmentType);
   const [payoutPerOrder, setPayoutPerOrder] = useState("0");
+  const [autoDelivery, setAutoDelivery] = useState(false);
+  const [deliveryDays, setDeliveryDays] = useState<number | null>(null);
   const [tpBillingCycleStartDay, setTpBillingCycleStartDay] = useState("1");
 
   useEffect(() => {
@@ -110,6 +113,8 @@ export default function EditUserPage() {
         if (u.threePlProfile) {
           setFulfillmentType(u.threePlProfile.fulfillmentType);
           setPayoutPerOrder(String(u.threePlProfile.payoutPerOrder));
+          setAutoDelivery(u.threePlProfile.autoDeliveryEnabled);
+          setDeliveryDays(u.threePlProfile.deliveryDays);
           setTpBillingCycleStartDay(String(u.threePlProfile.billingCycleStartDay));
         }
       })
@@ -119,6 +124,10 @@ export default function EditUserPage() {
   async function handleSubmit() {
     if (!user) return;
     setFormError(null);
+    if (user.threePlProfile && autoDelivery && !deliveryDays) {
+      setFormError("Enter the delivery days for auto-delivery");
+      return;
+    }
     setSubmitting(true);
     try {
       const currencyChanged = hasAmounts && currency !== user.currency;
@@ -151,6 +160,8 @@ export default function EditUserPage() {
           fulfillmentType,
           payoutPerOrder: fulfillmentType === ("STOCK" as ProductFulfillmentType) ? Number(payoutPerOrder) : undefined,
           billingCycleStartDay: Number(tpBillingCycleStartDay),
+          autoDeliveryEnabled: autoDelivery,
+          deliveryDays: autoDelivery ? deliveryDays : null,
         });
       }
       router.push("/users");
@@ -316,6 +327,7 @@ export default function EditUserPage() {
                         Dropshipping 3PLs have no fixed rate — they&apos;re paid the buy price they enter against each order.
                       </p>
                     )}
+                    <AutoDeliveryFields enabled={autoDelivery} onEnabledChange={setAutoDelivery} days={deliveryDays} onDaysChange={setDeliveryDays} />
                   </Card>
                 )}
               </div>

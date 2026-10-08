@@ -423,7 +423,7 @@ export interface InviteUserPayload {
   staffPermissions?: StaffPermissionsDto;
   accountHolderProfile?: Pick<AccountHolderProfileDto, "sharePercent" | "threePlPriceCharged" | "billingCycleStartDay">;
   stockOwnerProfile?: Pick<StockOwnerProfileDto, "payoutMode" | "sharePercent" | "billingCycleStartDay">;
-  threePlProfile?: Partial<Pick<ThreePlProfileDto, "payoutPerOrder">> &
+  threePlProfile?: Partial<Pick<ThreePlProfileDto, "payoutPerOrder" | "autoDeliveryEnabled" | "deliveryDays">> &
     Pick<ThreePlProfileDto, "billingCycleStartDay" | "fulfillmentType">;
 }
 
@@ -441,7 +441,8 @@ export function updateUser(id: string, payload: { name?: string; currency?: Curr
 
 export function updateThreePlProfile(
   id: string,
-  payload: Partial<Pick<ThreePlProfileDto, "payoutPerOrder">> & Pick<ThreePlProfileDto, "billingCycleStartDay" | "fulfillmentType">,
+  payload: Partial<Pick<ThreePlProfileDto, "payoutPerOrder" | "autoDeliveryEnabled" | "deliveryDays">> &
+    Pick<ThreePlProfileDto, "billingCycleStartDay" | "fulfillmentType">,
 ) {
   return request<unknown>(`/users/${id}/three-pl-profile`, { method: "PATCH", body: JSON.stringify(payload) });
 }

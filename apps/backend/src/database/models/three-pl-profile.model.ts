@@ -33,4 +33,18 @@ export class ThreePlProfile extends Model {
     field: "fulfillment_type",
   })
   declare fulfillmentType: ProductFulfillmentType;
+
+  /**
+   * Auto-delivery (decided 2026-10-08): when on, an order this 3PL marks shipped after `autoDeliveryEnabledAt` moves to
+   * DELIVERED once `deliveryDays` have passed (a STOCK order also needs its tracking number first). Off by default.
+   */
+  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false, field: "auto_delivery_enabled" })
+  declare autoDeliveryEnabled: boolean;
+
+  @Column({ type: DataType.INTEGER, allowNull: true, field: "delivery_days" })
+  declare deliveryDays: number | null;
+
+  /** When auto-delivery was last switched on — orders shipped before then are never auto-delivered. */
+  @Column({ type: DataType.DATE, allowNull: true, field: "auto_delivery_enabled_at" })
+  declare autoDeliveryEnabledAt: Date | null;
 }

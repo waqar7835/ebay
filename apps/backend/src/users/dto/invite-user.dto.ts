@@ -46,6 +46,13 @@ export class ThreePlProfileInput {
   payoutPerOrder?: number;
   @IsInt() @Min(1) @Max(28) billingCycleStartDay!: number;
   @IsEnum(ProductFulfillmentType) fulfillmentType!: ProductFulfillmentType;
+  /** Auto-mark this 3PL's shipped orders DELIVERED after `deliveryDays` (required when on). Omitted = off. */
+  @IsOptional() @IsBoolean() autoDeliveryEnabled?: boolean;
+  @ValidateIf((o) => o.autoDeliveryEnabled === true)
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  deliveryDays?: number | null;
 }
 
 export class InviteUserDto {

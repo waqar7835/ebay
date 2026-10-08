@@ -120,6 +120,13 @@ export interface ThreePlProfileDto {
   payoutPerOrder: number;
   billingCycleStartDay: number;
   fulfillmentType: ProductFulfillmentType;
+  /**
+   * Auto-delivery: orders this 3PL marks shipped after it was switched on (`autoDeliveryEnabledAt`) move to DELIVERED
+   * once `deliveryDays` have passed — a STOCK order only once it has a tracking number. Off by default.
+   */
+  autoDeliveryEnabled: boolean;
+  deliveryDays: number | null;
+  autoDeliveryEnabledAt: string | null;
 }
 
 export interface UserDto {
@@ -274,6 +281,8 @@ export interface OrderDto {
   createdAt: string;
   updatedAt: string;
   deliveredAt: string | null;
+  /** When the order was last marked SHIPPED (what 3PL auto-delivery counts from). */
+  shippedAt: string | null;
   /**
    * REFUNDED orders: the refunded part of the eBay payout, in PKR / as entered in the Account Holder's currency
    * (equal to the payout for a full refund — dropship orders are always refunded in full). Null otherwise.

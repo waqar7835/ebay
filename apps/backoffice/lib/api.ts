@@ -170,7 +170,7 @@ export interface InviteUserPayload {
   staffPermissions?: StaffPermissionsDto;
   accountHolderProfile?: Pick<AccountHolderProfileDto, "sharePercent" | "threePlPriceCharged" | "billingCycleStartDay">;
   stockOwnerProfile?: Pick<StockOwnerProfileDto, "payoutMode" | "sharePercent" | "billingCycleStartDay">;
-  threePlProfile?: Partial<Pick<ThreePlProfileDto, "payoutPerOrder">> &
+  threePlProfile?: Partial<Pick<ThreePlProfileDto, "payoutPerOrder" | "autoDeliveryEnabled" | "deliveryDays">> &
     Pick<ThreePlProfileDto, "billingCycleStartDay" | "fulfillmentType">;
 }
 
