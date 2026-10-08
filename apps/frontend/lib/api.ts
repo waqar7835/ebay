@@ -536,6 +536,8 @@ export interface OrderListFilters {
   status?: OrderStatus;
   startDate?: string;
   endDate?: string;
+  /** eBay order number; when set the API ignores every other filter. */
+  orderRef?: string;
 }
 
 export function listOrders(filters: OrderListFilters = {}) {
@@ -545,6 +547,7 @@ export function listOrders(filters: OrderListFilters = {}) {
   if (filters.status) params.set("status", filters.status);
   if (filters.startDate) params.set("startDate", filters.startDate);
   if (filters.endDate) params.set("endDate", filters.endDate);
+  if (filters.orderRef) params.set("orderRef", filters.orderRef);
   const qs = params.toString();
   return request<OrderDto[]>(`/orders${qs ? `?${qs}` : ""}`);
 }

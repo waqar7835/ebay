@@ -182,6 +182,13 @@ body {
   pointer-events: auto;
 }
 
+/* Orders list: rows whose order has a comment for the 3PL (kept on hover and when selected). */
+.ant-table-wrapper .ant-table-tbody > tr.order-row-comment > td,
+.ant-table-wrapper .ant-table-tbody > tr.order-row-comment:hover > td,
+.ant-table-wrapper .ant-table-tbody > tr.order-row-comment.ant-table-row-selected > td {
+  background: #ffccc7;
+}
+
 /* Profile page header: the role theme's gradient, with a white avatar tile. */
 .profile-hero {
   background: linear-gradient(120deg, var(--theme-a), var(--theme-b) 55%, var(--theme-c));

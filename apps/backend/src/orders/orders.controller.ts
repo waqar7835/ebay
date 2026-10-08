@@ -46,8 +46,10 @@ export class OrdersController {
     @Query("status") status?: OrderStatus,
     @Query("startDate") startDate?: string,
     @Query("endDate") endDate?: string,
+    @Query("orderRef") orderRef?: string,
   ) {
     return this.ordersService.list(resolveCompanyId(user, companyId), user, {
+      orderRef,
       accountHolderId,
       threePlId,
       status,

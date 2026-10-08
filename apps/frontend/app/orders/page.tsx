@@ -6,6 +6,7 @@ import {
   Alert,
   Button,
   Card,
+  Input,
   Modal,
   Select,
   Space,
@@ -70,7 +71,15 @@ export default function OrdersPage() {
   const [products, setProducts] = useState<ProductDto[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<{ accountHolderId: string; threePlId: string; status: string; startDate: string; endDate: string }>({
+  const [filter, setFilter] = useState<{
+    accountHolderId: string;
+    threePlId: string;
+    status: string;
+    startDate: string;
+    endDate: string;
+    orderRef: string;
+  }>({
+    orderRef: "",
     accountHolderId: "",
     threePlId: "",
     status: "",
@@ -78,6 +87,8 @@ export default function OrdersPage() {
     endDate: "",
   });
   const [filterInit, setFilterInit] = useState(false);
+  // Typed order number; copied into filter.orderRef after a short pause so each keystroke isn't a request.
+  const [orderRefInput, setOrderRefInput] = useState("");
   // A DROPSHIP 3PL edits its orders (buy prices, supplier URL, tracking, mark shipped) in a popup.
   const [threePlEditing, setThreePlEditing] = useState<OrderDto | null>(null);
   // Order whose full comment is open in a popup.
@@ -120,6 +131,8 @@ export default function OrdersPage() {
 
   function refresh(f = filter) {
     listOrders({
+      // With an order number the API ignores every other filter and finds the order in any status or date.
+      orderRef: f.orderRef.trim() || undefined,
       accountHolderId: f.accountHolderId || undefined,
       threePlId: f.threePlId || undefined,
       // Bulk mode filters status on the client so the counts above the table can cover every status.
@@ -151,7 +164,7 @@ export default function OrdersPage() {
       getMyCompany()
         .then((company) => {
           const cycle = computeCurrentCycle(company.billingAnchorDay);
-          setFilter({ accountHolderId: "", threePlId: "", status: "", startDate: cycle.start, endDate: cycle.end });
+          setFilter((f) => ({ ...f, accountHolderId: "", threePlId: "", status: "", startDate: cycle.start, endDate: cycle.end }));
           setFilterInit(true);
         })
         .catch(() => setFilterInit(true));
@@ -165,7 +178,15 @@ export default function OrdersPage() {
     setSelectedIds([]);
     if (filterInit) refresh(filter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter.accountHolderId, filter.threePlId, filter.status, filter.startDate, filter.endDate]);
+  }, [filter.accountHolderId, filter.threePlId, filter.status, filter.startDate, filter.endDate, filter.orderRef]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setFilter((f) => (f.orderRef === orderRefInput.trim() ? f : { ...f, orderRef: orderRefInput.trim() })), 400);
+    return () => clearTimeout(t);
+  }, [orderRefInput]);
+
+  // An order number search overrides the other filters (they're shown disabled and not applied).
+  const searchingRef = !!filter.orderRef;
 
   const productById = new Map(products.map((p) => [p.id, p]));
   const userById = new Map(users.map((u) => [u.id, u]));
@@ -173,7 +194,7 @@ export default function OrdersPage() {
   const threePls = users.filter((u) => u.roles.includes("THREE_PL"));
 
   const matchesStatus = (o: OrderDto) => (filter.status === NO_TRACKING ? needsTracking(o) : o.status === filter.status);
-  const visibleOrders = bulkMode && filter.status ? orders.filter(matchesStatus) : orders;
+  const visibleOrders = bulkMode && filter.status && !searchingRef ? orders.filter(matchesStatus) : orders;
   const statusCounts = new Map<string, number>(STATUSES.map((s) => [s, orders.filter((o) => o.status === s).length]));
   if (isThreePl) statusCounts.set(NO_TRACKING, orders.filter(needsTracking).length);
   const selectedOrders = orders.filter((o) => selectedIds.includes(o.id));
@@ -553,6 +574,16 @@ export default function OrdersPage() {
 
         <Card size="small" className="mt-4">
           <div className="flex flex-wrap items-end gap-3 text-xs">
+            <label>
+              Order ID
+              <Input
+                allowClear
+                placeholder="eBay order number"
+                value={orderRefInput}
+                onChange={(e) => setOrderRefInput(e.target.value)}
+                className="mt-1 flex w-56"
+              />
+            </label>
             {isManager && (
               <>
                 <label>
@@ -560,6 +591,7 @@ export default function OrdersPage() {
                   <Select
                     showSearch={searchable}
                     allowClear
+                    disabled={searchingRef}
                     placeholder="All"
                     value={filter.accountHolderId || undefined}
                     onChange={(v) => setFilter((f) => ({ ...f, accountHolderId: v ?? "" }))}
@@ -572,6 +604,7 @@ export default function OrdersPage() {
                   <Select
                     showSearch={searchable}
                     allowClear
+                    disabled={searchingRef}
                     placeholder="All"
                     value={filter.threePlId || undefined}
                     onChange={(v) => setFilter((f) => ({ ...f, threePlId: v ?? "" }))}
@@ -585,6 +618,7 @@ export default function OrdersPage() {
               Status
               <Select
                 allowClear
+                disabled={searchingRef}
                 placeholder="All"
                 value={filter.status || undefined}
                 onChange={(v) => setFilter((f) => ({ ...f, status: v ?? "" }))}
@@ -597,11 +631,11 @@ export default function OrdersPage() {
             </label>
             <label>
               Start date
-              <DateField value={filter.startDate} onChange={(v) => setFilter((f) => ({ ...f, startDate: v }))} className="mt-1 flex" />
+              <DateField disabled={searchingRef} value={filter.startDate} onChange={(v) => setFilter((f) => ({ ...f, startDate: v }))} className="mt-1 flex" />
             </label>
             <label>
               End date
-              <DateField value={filter.endDate} onChange={(v) => setFilter((f) => ({ ...f, endDate: v }))} className="mt-1 flex" />
+              <DateField disabled={searchingRef} value={filter.endDate} onChange={(v) => setFilter((f) => ({ ...f, endDate: v }))} className="mt-1 flex" />
             </label>
           </div>
         </Card>
@@ -613,7 +647,7 @@ export default function OrdersPage() {
               total={orders.length}
               statuses={countStatuses}
               counts={Object.fromEntries(statusCounts)}
-              active={filter.status || null}
+              active={searchingRef ? null : filter.status || null}
               onSelect={(st) => setFilter((f) => ({ ...f, status: st ?? "" }))}
               labels={{ [NO_TRACKING]: "No tracking #" }}
               colors={{ [NO_TRACKING]: "#ea580c" }}
@@ -627,6 +661,7 @@ export default function OrdersPage() {
           size="small"
           columns={columns}
           dataSource={visibleOrders}
+          rowClassName={(o) => (o.comments ? "order-row-comment" : "")}
           rowSelection={
             bulkMode
               ? {
@@ -646,7 +681,7 @@ export default function OrdersPage() {
           }
           pagination={{ pageSize: 50, hideOnSinglePage: true }}
           scroll={{ x: "max-content" }}
-          locale={{ emptyText: "No orders match these filters." }}
+          locale={{ emptyText: searchingRef ? `No order found for "${filter.orderRef}".` : "No orders match these filters." }}
         />
 
         {bulkMode && (

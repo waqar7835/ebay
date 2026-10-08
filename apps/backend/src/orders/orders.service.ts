@@ -58,6 +58,8 @@ export interface OrderListFilters {
   status?: OrderStatus;
   startDate?: string;
   endDate?: string;
+  /** eBay order number (case-insensitive, partial). When set, every other filter is ignored. */
+  orderRef?: string;
 }
 
 @Injectable()
@@ -79,6 +81,10 @@ export class OrdersService {
   ) {}
 
   async list(companyId: string, requester: JwtPayload, filters: OrderListFilters = {}) {
+    // Searching by order number finds the order wherever it is: status, date and user filters are dropped (the
+    // requester's own visibility scoping below still applies).
+    const orderRef = filters.orderRef?.trim();
+    if (orderRef) filters = { orderRef };
     const where: Record<string, unknown> = { companyId };
     const isManager = requester.roles.some((r) => MANAGER_ROLES.includes(r));
 
@@ -104,6 +110,7 @@ export class OrdersService {
       if (filters.endDate) orderDate[Op.lte] = filters.endDate;
       where.orderDate = orderDate;
     }
+    if (orderRef) where.ebayOrderRef = { [Op.iLike]: `%${orderRef.replace(/[\\%_]/g, "\\$&")}%` };
 
     const orders = await this.orderModel.findAll({ where, order: [["createdAt", "DESC"]] });
     const staleOrderDays = await this.staleOrderDays(companyId);
