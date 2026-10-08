@@ -270,8 +270,6 @@ export interface CreateOrderPayload {
 export type UpdateOrderPayload = Omit<Partial<CreateOrderPayload>, "threePlId"> & {
   /** Null removes a dropship order's 3PL. */
   threePlId?: string | null;
-  /** Re-convert every amount with today's rates instead of the ones locked on the order. */
-  recalculateRates?: boolean;
 };
 
 /** Current PKR rate per currency (flags an unreachable API / a rate that must be typed in). */

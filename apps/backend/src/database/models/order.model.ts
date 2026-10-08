@@ -110,14 +110,14 @@ export class Order extends Model {
   // Every amount above is in PKR. The fields below record what was entered and how it was converted:
   // Account Holder amounts (eBay proceeds, shipping, 3PL price charged) are in accountHolderCurrency,
   // the 3PL payout in threePlCurrency, each item's prices in its own `currency`. All null on orders
-  // from before currencies existed — those amounts are plain PKR until recalculated.
+  // from before currencies existed — those amounts are plain PKR until the order is next saved.
   @Column({ type: DataType.STRING(3), allowNull: true, field: "account_holder_currency" })
   declare accountHolderCurrency: Currency | null;
 
   @Column({ type: DataType.STRING(3), allowNull: true, field: "three_pl_currency" })
   declare threePlCurrency: Currency | null;
 
-  /** PKR per 1 unit of each currency on the order — locked at creation, changed only by an explicit recalculation. */
+  /** PKR per 1 unit of each currency on the order — today's rates as of the last admin save; frozen while the order is on an invoice. */
   @Column({
     type: DataType.JSONB,
     allowNull: true,

@@ -413,7 +413,7 @@ export class InvoicesService {
     const legacy = picked.find((c) => !c.order.exchangeRates);
     if (legacy) {
       throw new BadRequestException(
-        `Order ${legacy.order.ebayOrderRef} was saved before currencies — edit it and save with "Recalculate with today's rates" before invoicing`,
+        `Order ${legacy.order.ebayOrderRef} was saved before currencies — edit and save it (to convert it with today's rates) before invoicing`,
       );
     }
     const pickedRefunds = pick(dto.refundOrderIds, refunds);

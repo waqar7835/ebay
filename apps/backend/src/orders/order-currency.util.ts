@@ -3,7 +3,8 @@ import { Currency, ExchangeRates } from "@ebay-order-management/shared";
 
 /**
  * Amounts are entered in each party's own currency (the *Original fields) and stored converted to
- * PKR (the plain / *Snapshot fields) with the rates locked on the order. A null currency marks an
+ * PKR (the plain / *Snapshot fields) with the rates saved on the order (refreshed on every admin save
+ * until the order is invoiced). A null currency marks an
  * amount from before currencies existed — it's already PKR and is left as-is.
  */
 export interface OrderAmounts {
@@ -68,7 +69,7 @@ export function convertOrderAmounts(order: OrderAmounts, items: ItemAmounts[], r
 
 /**
  * For an order from before currencies: the stored amounts become the "originals" and each party's
- * currency is taken from the user as they are now — so a recalculation reads them in that currency.
+ * currency is taken from the user as they are now — so the next save converts them from that currency.
  */
 export function adoptLegacyAmounts(
   order: OrderAmounts,
@@ -98,33 +99,6 @@ export function adoptLegacyAmounts(
     item.buyPriceOriginal = item.buyPriceSnapshot;
     item.stockOwnerCostOriginal = item.stockOwnerCostSnapshot;
     item.buyTotalOriginal = item.buyTotalSnapshot;
-  }
-}
-
-/** Undoes adoptLegacyAmounts for an order that stays pre-currency: originals become the PKR amounts again. */
-export function keepLegacyAmounts(order: OrderAmounts, items: ItemAmounts[]) {
-  order.ebayNetProceeds = order.ebayNetProceedsOriginal ?? order.ebayNetProceeds;
-  order.shippingCost = order.shippingCostOriginal ?? order.shippingCost;
-  order.threePlPriceChargedSnapshot = order.threePlPriceChargedOriginal;
-  order.threePlPayoutSnapshot = order.threePlPayoutOriginal;
-  order.accountHolderCurrency = null;
-  order.threePlCurrency = null;
-  order.ebayNetProceedsOriginal = null;
-  order.shippingCostOriginal = null;
-  order.threePlPriceChargedOriginal = null;
-  order.threePlPayoutOriginal = null;
-  for (const item of items) {
-    item.sellPriceSnapshot = item.sellPriceOriginal;
-    item.buyPriceSnapshot = item.buyPriceOriginal;
-    item.stockOwnerCostSnapshot = item.stockOwnerCostOriginal;
-    item.buyTotalSnapshot = item.buyTotalOriginal;
-    item.clientTotalSnapshot = item.clientTotalOriginal;
-    item.clientTotalOriginal = null;
-    item.currency = null;
-    item.sellPriceOriginal = null;
-    item.buyPriceOriginal = null;
-    item.stockOwnerCostOriginal = null;
-    item.buyTotalOriginal = null;
   }
 }
 

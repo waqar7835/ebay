@@ -14,7 +14,6 @@ import {
   Alert,
   Button,
   Card,
-  Checkbox,
   Form,
   Input,
   InputNumber,
@@ -109,7 +108,6 @@ export default function OrdersPage() {
   const [liveRates, setLiveRates] = useState<ExchangeRateDto[]>([]);
   // PKR per unit as shown in the rate inputs (prefilled from the live/saved rates, editable).
   const [rateInputs, setRateInputs] = useState<ExchangeRates>({});
-  const [recalculate, setRecalculate] = useState(false);
   // An order is all-Stock or all-Dropship: picked on create, fixed on edit.
   const [mode, setMode] = useState<ProductFulfillmentType>("STOCK" as ProductFulfillmentType);
 
@@ -153,43 +151,35 @@ export default function OrdersPage() {
 
   // --- Currencies: each party's amounts are in their own currency, converted to PKR on save. ---
   const userById = new Map(users.map((u) => [u.id, u]));
-  const legacy = !!editingOrder && !editingOrder.exchangeRates; // created before currencies: plain PKR until recalculated
-  const lockedRates = editingOrder?.exchangeRates ?? {};
+  // Created before currencies: plain PKR amounts, read as each party's current currency and converted on save.
+  const legacy = !!editingOrder && !editingOrder.exchangeRates;
   const formAccountHolderId: string | undefined = Form.useWatch("accountHolderId", form);
   const accountHolderChanged = !!editingOrder && formAccountHolderId !== editingOrder.accountHolderId;
   const ahCurrency: Currency | null | undefined =
-    legacy && !recalculate && !accountHolderChanged
-      ? null
-      : editingOrder?.accountHolderCurrency && !accountHolderChanged
-        ? editingOrder.accountHolderCurrency
-        : formAccountHolderId
-          ? userById.get(formAccountHolderId)?.currency
-          : undefined;
+    editingOrder?.accountHolderCurrency && !accountHolderChanged
+      ? editingOrder.accountHolderCurrency
+      : formAccountHolderId
+        ? userById.get(formAccountHolderId)?.currency
+        : undefined;
   const threePlId = isDropship ? formThreePlId : firstWarehouse;
   // Dropship buy totals are entered in the order's 3PL's currency.
   const threePlCurrency: Currency | null | undefined = threePlId
-    ? legacy && !recalculate && threePlId === editingOrder?.threePlId
-      ? null
-      : (threePlId === editingOrder?.threePlId && editingOrder.threePlCurrency) || userById.get(threePlId)?.currency
+    ? (threePlId === editingOrder?.threePlId && editingOrder.threePlCurrency) || userById.get(threePlId)?.currency
     : undefined;
-  const neededCurrencies: Currency[] =
-    legacy && !recalculate
-      ? []
-      : [
-          ...new Set(
-            [
-              ahCurrency,
-              threePlId ? (threePlId === editingOrder?.threePlId && editingOrder.threePlCurrency) || userById.get(threePlId)?.currency : undefined,
-              ...formProducts.map((p) => (p ? (editingOrder?.items.find((i) => i.productId === p.id)?.currency ?? p.currency) : undefined)),
-            ].filter((c): c is Currency => !!c),
-          ),
-        ];
-  // Without "recalculate", an existing order keeps its locked rates; only currencies new to it take one from the form.
-  const editableRate = (c: Currency) => !editingOrder || recalculate || legacy || lockedRates[c] == null;
-  const rateFor = (c: Currency) => (editableRate(c) ? rateInputs[c] : lockedRates[c]);
+  const neededCurrencies: Currency[] = [
+    ...new Set(
+      [
+        ahCurrency,
+        threePlCurrency,
+        ...formProducts.map((p) => (p ? (editingOrder?.items.find((i) => i.productId === p.id)?.currency ?? p.currency) : undefined)),
+      ].filter((c): c is Currency => !!c),
+    ),
+  ];
+  // Rates aren't locked until the order is invoiced: every save converts it with these (today's, or typed in).
+  const rateFor = (c: Currency) => rateInputs[c];
   const missingRates = neededCurrencies.filter((c) => !rateFor(c));
   const liveByCurrency = new Map(liveRates.map((r) => [r.currency, r]));
-  const ratesStale = neededCurrencies.some((c) => editableRate(c) && liveByCurrency.get(c)?.stale);
+  const ratesStale = neededCurrencies.some((c) => liveByCurrency.get(c)?.stale);
 
   /** Options for one item row: only the order's type; other rows' products hidden; Stock products must share a 3PL. */
   function productOptionsFor(index: number) {
@@ -213,7 +203,6 @@ export default function OrdersPage() {
     setEditingOrderId(orderId);
     setMode(fulfillment);
     setFormError(null);
-    setRecalculate(false);
     setShowForm(true);
     // Form mounts on the same tick it's shown; defer so setFieldsValue hits the mounted fields.
     setTimeout(() => form.setFieldsValue(values));
@@ -303,7 +292,7 @@ export default function OrdersPage() {
       ebayNetProceeds: Number(values.ebayNetProceeds ?? 0),
       shippingCost: Number(values.shippingCost ?? 0),
       supplierUrl: values.supplierUrl || undefined,
-      exchangeRates: Object.fromEntries(neededCurrencies.filter(editableRate).map((c) => [c, rateInputs[c]])),
+      exchangeRates: Object.fromEntries(neededCurrencies.map((c) => [c, rateInputs[c]])),
       ...(dropshipThreePlId ? { threePlId: dropshipThreePlId } : {}),
     };
     try {
@@ -313,7 +302,6 @@ export default function OrdersPage() {
           ...(itemsChanged ? { items } : {}),
           // Null clears a dropship order's 3PL (leaving it out would keep the old one).
           ...(isDropship && itemsChanged ? { threePlId: dropshipThreePlId ?? null } : {}),
-          ...(recalculate ? { recalculateRates: true } : {}),
         });
       } else {
         await createOrder({ ...common, items });
@@ -566,19 +554,12 @@ export default function OrdersPage() {
                 </Form.Item>
               </div>
 
-              <Form.Item label="Exchange rates (to PKR)" tooltip="Amounts are converted to PKR with these rates, locked on the order">
-                {editingOrder && (
-                  <Checkbox checked={recalculate} onChange={(e) => setRecalculate(e.target.checked)} className="mb-2">
-                    Recalculate with today&apos;s rates
-                  </Checkbox>
-                )}
-                {legacy && !recalculate ? (
-                  <Alert
-                    type="info"
-                    showIcon
-                    title="Created before currencies — amounts are in PKR. Tick Recalculate to convert them from each user's currency."
-                  />
-                ) : neededCurrencies.length === 0 ? (
+              <Form.Item
+                label="Exchange rates (to PKR)"
+                tooltip="Every save converts the order with these rates (today's, or typed in). They're frozen once the order is invoiced."
+                extra={legacy ? "Created before currencies: saving converts its amounts from each user's currency with these rates." : undefined}
+              >
+                {neededCurrencies.length === 0 ? (
                   <div className="text-sm text-slate-500">Pick a client and products to see the rates used.</div>
                 ) : (
                   <>
@@ -593,7 +574,6 @@ export default function OrdersPage() {
                     <div className="flex flex-wrap gap-3">
                       {neededCurrencies.map((c) => {
                         const live = liveByCurrency.get(c);
-                        const editable = editableRate(c);
                         return (
                           <div key={c} className="w-56">
                             <InputNumber
@@ -601,19 +581,12 @@ export default function OrdersPage() {
                               min={0.000001}
                               step={0.01}
                               className="w-full"
-                              disabled={!editable}
-                              status={editable && !rateInputs[c] ? "error" : undefined}
+                              status={!rateInputs[c] ? "error" : undefined}
                               value={rateFor(c) ?? null}
                               onChange={(v) => setRateInputs((prev) => ({ ...prev, [c]: v == null ? undefined : Number(v) }))}
                             />
-                            <div className={`mt-1 text-xs ${editable && (live?.stale || live?.unavailable) ? "text-amber-600" : "text-slate-400"}`}>
-                              {!editable
-                                ? "Locked on this order"
-                                : live?.unavailable
-                                  ? "No rate available — enter it"
-                                  : live?.stale
-                                    ? "Saved rate (API down)"
-                                    : "Live rate"}
+                            <div className={`mt-1 text-xs ${live?.stale || live?.unavailable ? "text-amber-600" : "text-slate-400"}`}>
+                              {live?.unavailable ? "No rate available — enter it" : live?.stale ? "Saved rate (API down)" : "Live rate"}
                             </div>
                           </div>
                         );

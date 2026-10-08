@@ -257,7 +257,7 @@ export interface OrderDto {
   accountHolderSharePercentSnapshot: number;
   /**
    * Currency snapshots + amounts as entered. Null on orders from before currencies existed (their
-   * amounts are treated as PKR until the order is re-saved with "recalculate" ticked).
+   * amounts are treated as PKR until the order is next saved, which converts them with today's rates).
    */
   accountHolderCurrency: Currency | null;
   threePlCurrency: Currency | null;
@@ -265,7 +265,10 @@ export interface OrderDto {
   shippingCostOriginal: number | null;
   threePlPriceChargedOriginal: number | null;
   threePlPayoutOriginal: number | null;
-  /** PKR per 1 unit of each currency used on this order, locked when the order was created (or last recalculated). */
+  /**
+   * PKR per 1 unit of each currency used on this order: today's rates as of its last save by Admin/Staff (every save
+   * refreshes them). They stay frozen while the order is on an invoice, since an invoiced order can't be edited.
+   */
   exchangeRates: ExchangeRates | null;
   exchangeRatesAt: string | null;
   createdAt: string;
@@ -410,7 +413,7 @@ export interface InvoiceableOrderDto {
   currency: string;
   /**
    * Saved before currencies existed (no locked rates), so its amounts are ambiguous: it can't be
-   * invoiced until it's re-saved with "Recalculate with today's rates".
+   * invoiced until it's edited and saved (which converts it with today's rates).
    */
   needsRecalculation: boolean;
   grossAmount: number;

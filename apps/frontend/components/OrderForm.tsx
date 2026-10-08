@@ -11,7 +11,7 @@ import type {
   UserDto,
 } from "@ebay-order-management/shared";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Checkbox, Form, Input, InputNumber, Segmented, Select, Tag } from "antd";
+import { Alert, Button, Card, Form, Input, InputNumber, Segmented, Select, Tag } from "antd";
 import { useEffect, useState } from "react";
 import DateField from "@/components/DateField";
 import FileUpload from "@/components/FileUpload";
@@ -19,7 +19,6 @@ import ProductThumb from "@/components/ProductThumb";
 import { listExchangeRates, listProducts, listUsers, localDateOnly, mediaUrl, type UpdateOrderPayload } from "@/lib/api";
 import { currencySymbol, money, pkr } from "@/lib/currency";
 import { searchable, userNameOptions } from "@/lib/selectOptions";
-import { formatDate } from "@/lib/date";
 
 interface OrderFormProps {
   // Prefills the form for editing; omitted when creating.
@@ -74,7 +73,6 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
   const [ratesError, setRatesError] = useState<string | null>(null);
   // PKR per unit, as shown in the rate inputs (prefilled from the live/saved rates, editable by the admin).
   const [rateInputs, setRateInputs] = useState<ExchangeRates>({});
-  const [recalculate, setRecalculate] = useState(false);
   // An order is all-Stock or all-Dropship, picked on create and fixed afterwards (Stock items always
   // have a Stock Owner, dropship items never do).
   const [mode, setMode] = useState<ProductFulfillmentType>(
@@ -118,42 +116,32 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
   const userById = new Map(users.map((u) => [u.id, u]));
 
   // --- Currencies: each party's amounts are entered in their own currency, converted to PKR on save. ---
-  const legacy = !!initial && !initial.exchangeRates; // created before currencies: plain PKR until recalculated
-  const lockedRates = initial?.exchangeRates ?? {};
+  // Created before currencies: plain PKR amounts, read as each party's current currency and converted on save.
+  const legacy = !!initial && !initial.exchangeRates;
   const accountHolderId: string | undefined = Form.useWatch("accountHolderId", form) ?? initial?.accountHolderId;
   const threePlId: string | undefined = Form.useWatch("threePlId", form) ?? undefined;
   const accountHolderChanged = !!initial && accountHolderId !== initial.accountHolderId;
   const ahUserCurrency = accountHolderId ? userById.get(accountHolderId)?.currency : undefined;
   // Dropship buy totals are entered in the order's 3PL's currency.
   const threePlCurrency: Currency | null | undefined = threePlId
-    ? legacy && !recalculate && threePlId === initial?.threePlId
-      ? null
-      : (threePlId === initial?.threePlId && initial.threePlCurrency) || userById.get(threePlId)?.currency
+    ? (threePlId === initial?.threePlId && initial.threePlCurrency) || userById.get(threePlId)?.currency
     : undefined;
   const ahCurrency: Currency | null | undefined =
-    legacy && !recalculate && !accountHolderChanged
-      ? null
-      : initial?.accountHolderCurrency && !accountHolderChanged
-        ? initial.accountHolderCurrency
-        : ahUserCurrency;
-  const convertsToPkr = !legacy || recalculate;
-  const neededCurrencies: Currency[] = convertsToPkr
-    ? [
-        ...new Set(
-          [
-            ahCurrency,
-            threePlId ? (threePlId === initial?.threePlId && initial.threePlCurrency) || userById.get(threePlId)?.currency : undefined,
-            ...chosen.map((p) => initial?.items.find((i) => i.productId === p.id)?.currency ?? p.currency),
-          ].filter((c): c is Currency => !!c),
-        ),
-      ]
-    : [];
-  // Without "recalculate", an existing order keeps its locked rates; only currencies new to it take one from the form.
-  const editableRate = (c: Currency) => !initial || recalculate || legacy || lockedRates[c] == null;
-  const rateFor = (c: Currency) => (editableRate(c) ? rateInputs[c] : lockedRates[c]);
+    initial?.accountHolderCurrency && !accountHolderChanged ? initial.accountHolderCurrency : ahUserCurrency;
+  const neededCurrencies: Currency[] = [
+    ...new Set(
+      [
+        ahCurrency,
+        threePlCurrency,
+        ...chosen.map((p) => initial?.items.find((i) => i.productId === p.id)?.currency ?? p.currency),
+      ].filter((c): c is Currency => !!c),
+    ),
+  ];
+  // Rates aren't locked until the order is invoiced: every save converts it with these (today's, or typed in).
+  const rateFor = (c: Currency) => rateInputs[c];
   const missingRates = neededCurrencies.filter((c) => !rateFor(c));
   const liveByCurrency = new Map(liveRates.map((r) => [r.currency, r]));
-  const staleCurrencies = neededCurrencies.filter((c) => editableRate(c) && liveByCurrency.get(c)?.stale);
+  const staleCurrencies = neededCurrencies.filter((c) => liveByCurrency.get(c)?.stale);
   const sellTotalPkr = rows.reduce((sum, r, i) => {
     const p = selected[i];
     if (!p?.sellPrice || !p.currency) return sum;
@@ -245,8 +233,7 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
           supplierUrl: values.supplierUrl || undefined,
           // "" clears the comments on edit.
           comments: values.comments ?? "",
-          exchangeRates: Object.fromEntries(neededCurrencies.filter(editableRate).map((c) => [c, rateInputs[c]])),
-          ...(initial && recalculate ? { recalculateRates: true } : {}),
+          exchangeRates: Object.fromEntries(neededCurrencies.map((c) => [c, rateInputs[c]])),
         },
         shippingLabel,
       );
@@ -491,7 +478,7 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
             <Form.Item name="shippingCost" label="Shipping label cost" tooltip="In the client's currency" className="mb-3">
               <InputNumber prefix={currencySymbol(ahCurrency)} min={0} step={0.01} className="w-full" />
             </Form.Item>
-            {!isDropship && chosen.length > 0 && convertsToPkr && missingRates.length === 0 && (
+            {!isDropship && chosen.length > 0 && missingRates.length === 0 && (
               <div className="flex justify-between border-t border-slate-100 pt-3 text-sm text-slate-500">
                 <span>Products at sell price</span>
                 <span className="font-medium text-slate-700">{pkr(sellTotalPkr)}</span>
@@ -500,21 +487,17 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
           </Card>
 
           <Card title="Exchange rates" extra={<Tag className="mr-0">to PKR</Tag>}>
-            {initial && (
-              <Checkbox checked={recalculate} onChange={(e) => setRecalculate(e.target.checked)} className="mb-3">
-                Recalculate with today&apos;s rates
-              </Checkbox>
-            )}
-            {legacy && !recalculate ? (
-              <Alert
-                type="info"
-                showIcon
-                title="Created before currencies — amounts are in PKR. Tick Recalculate to convert them from each user's currency."
-              />
-            ) : neededCurrencies.length === 0 ? (
+            {neededCurrencies.length === 0 ? (
               <p className="mb-0 text-sm text-slate-500">Pick a client and products to see the rates used.</p>
             ) : (
               <>
+                <p className="mb-3 text-xs text-slate-500">
+                  {legacy
+                    ? "Created before currencies: saving converts its amounts from each user's currency with these rates."
+                    : initial
+                      ? "Saving updates the order to these rates. They're frozen once the order is invoiced."
+                      : "Today's rates — type one in if the rate service is down. They're frozen once the order is invoiced."}
+                </p>
                 {ratesError && (
                   <Alert type="warning" showIcon className="mb-3" title={ratesError} action={<Button size="small" onClick={loadRates}>Retry</Button>} />
                 )}
@@ -530,14 +513,11 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
                 <div className="flex flex-col gap-3">
                   {neededCurrencies.map((c) => {
                     const live = liveByCurrency.get(c);
-                    const editable = editableRate(c);
-                    const note = !editable
-                      ? `Locked${initial?.exchangeRatesAt ? ` · ${formatDate(initial.exchangeRatesAt)}` : ""}`
-                      : live?.unavailable
-                        ? "No rate available — enter it"
-                        : live?.fetchedAt
-                          ? `${live.stale ? "Saved" : "Live"} · ${timeAgo(live.fetchedAt)}`
-                          : "";
+                    const note = live?.unavailable
+                      ? "No rate available — enter it"
+                      : live?.fetchedAt
+                        ? `${live.stale ? "Saved" : "Live"} · ${timeAgo(live.fetchedAt)}`
+                        : "";
                     return (
                       <div key={c}>
                         <InputNumber
@@ -545,13 +525,12 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
                           min={0.000001}
                           step={0.01}
                           className="w-full"
-                          disabled={!editable}
-                          status={editable && !rateInputs[c] ? "error" : undefined}
+                          status={!rateInputs[c] ? "error" : undefined}
                           value={rateFor(c) ?? null}
                           onChange={(v) => setRateInputs((prev) => ({ ...prev, [c]: v == null ? undefined : Number(v) }))}
                         />
                         {note && (
-                          <div className={`mt-1 text-xs ${editable && (live?.stale || live?.unavailable) ? "text-amber-600" : "text-slate-400"}`}>
+                          <div className={`mt-1 text-xs ${live?.stale || live?.unavailable ? "text-amber-600" : "text-slate-400"}`}>
                             {note}
                           </div>
                         )}

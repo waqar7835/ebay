@@ -33,7 +33,6 @@ import {
   adoptLegacyAmounts,
   cleanManualRates,
   convertOrderAmounts,
-  keepLegacyAmounts,
   orderCurrencies,
 } from "./order-currency.util";
 
@@ -293,7 +292,7 @@ export class OrdersService {
     const order = await this.get(companyId, id);
     assertNotInvoiced(order);
     // An order from before currencies holds plain PKR amounts. Treat them as entered in each party's
-    // current currency while editing; finalizeAmounts() either converts them (recalculate) or puts them back.
+    // current currency; finalizeAmounts() converts them with today's rates.
     const legacy = !order.exchangeRates;
     if (legacy) await this.adoptLegacy(order, []);
 
@@ -331,33 +330,22 @@ export class OrdersService {
   }
 
   /**
-   * Converts the order's entered amounts to PKR after an edit. By default the order keeps the rates
-   * locked on it — only a currency that's new to the order (e.g. a new Account Holder in AUD) gets
-   * today's rate. With `recalculateRates` every rate is refreshed (the admin's typed-in rates win).
-   * A pre-currency order edited without recalculating stays as it was: plain PKR, no rates.
+   * Converts the order's entered amounts to PKR after an edit. Rates aren't locked until the order is invoiced
+   * (decided 2026-10-08): every save by Admin/Staff re-converts everything with today's rates (the admin's typed-in
+   * rates win, e.g. when the rate API is down). Once the order is on any invoice it can't be edited (assertNotInvoiced),
+   * so the rates it had then stay frozen until that invoice is deleted or voided. A pre-currency order saved here has
+   * its plain-PKR amounts read as each party's current currency and converted too.
    */
   private async finalizeAmounts(order: Order, legacy: boolean, dto: UpdateOrderDto, dropship: boolean, transaction: Transaction) {
     const items = await this.orderItemModel.findAll({ where: { orderId: order.id }, transaction });
     // Items kept from before currencies (new ones already carry their currency).
     if (legacy) await this.adoptLegacy(order, items);
     if (dropship) syncDropshipPayout(order, items);
-    if (legacy && !dto.recalculateRates) {
-      keepLegacyAmounts(order, items);
-    } else {
-      const manual = cleanManualRates(dto.exchangeRates);
-      const currencies = orderCurrencies(order, items);
-      let rates: ExchangeRates;
-      if (legacy || dto.recalculateRates) {
-        rates = await this.exchangeRatesService.resolve(currencies, manual);
-        order.exchangeRatesAt = new Date();
-      } else {
-        const locked = order.exchangeRates ?? {};
-        const missing = [...currencies].filter((c) => !locked[c]);
-        rates = { ...locked, ...(await this.exchangeRatesService.resolve(missing, manual)) };
-      }
-      convertOrderAmounts(order, items, rates);
-      order.exchangeRates = Object.fromEntries([...currencies].map((c) => [c, rates[c]]));
-    }
+    const currencies = orderCurrencies(order, items);
+    const rates = await this.exchangeRatesService.resolve(currencies, cleanManualRates(dto.exchangeRates));
+    convertOrderAmounts(order, items, rates);
+    order.exchangeRates = Object.fromEntries([...currencies].map((c) => [c, rates[c]]));
+    order.exchangeRatesAt = new Date();
     for (const item of items) if (item.changed()) await item.save({ transaction });
   }
 

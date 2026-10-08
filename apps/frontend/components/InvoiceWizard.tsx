@@ -256,9 +256,9 @@ export default function InvoiceWizard({ invoiceId }: { invoiceId?: string }) {
           )}
           {r.needsRecalculation && (
             <Tooltip
-              title={`Saved before currencies. Edit the order and save with "Recalculate with today's rates" to invoice it.`}
+              title="Saved before currencies. Edit and save the order (it converts with today's rates) to invoice it."
             >
-              <Tag color="warning">Recalculate first</Tag>
+              <Tag color="warning">Re-save first</Tag>
             </Tooltip>
           )}
         </>
