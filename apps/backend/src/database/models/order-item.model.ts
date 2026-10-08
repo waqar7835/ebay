@@ -146,6 +146,29 @@ export class OrderItem extends Model {
   })
   declare buyTotalOriginal: number | null;
 
+  // DROPSHIP only: the "client buying price" — what the company charges the Account Holder for this line
+  // (all units), entered by Admin/Staff in the order's Account Holder currency (clientTotalOriginal) and
+  // converted to PKR (clientTotalSnapshot). Null until entered; required before the Account Holder invoice.
+  @Column({
+    type: DataType.DECIMAL(12, 2),
+    allowNull: true,
+    field: "client_total_snapshot",
+    get(this: OrderItem) {
+      return toNullableDecimal(this.getDataValue("clientTotalSnapshot" as keyof OrderItem));
+    },
+  })
+  declare clientTotalSnapshot: number | null;
+
+  @Column({
+    type: DataType.DECIMAL(12, 2),
+    allowNull: true,
+    field: "client_total_original",
+    get(this: OrderItem) {
+      return toNullableDecimal(this.getDataValue("clientTotalOriginal" as keyof OrderItem));
+    },
+  })
+  declare clientTotalOriginal: number | null;
+
   // Invoice that paid this item out to its Stock Owner — null means still open.
   @Column({ type: DataType.UUID, allowNull: true, field: "stock_owner_invoice_id" })
   declare stockOwnerInvoiceId: string | null;

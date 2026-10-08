@@ -28,7 +28,7 @@ import { InvoiceLineItem } from "../database/models/invoice-line-item.model";
 import { User } from "../database/models/user.model";
 import { UserRoleAssignment } from "../database/models/user-role.model";
 import { StaffProfile } from "../database/models/staff-profile.model";
-import { FinanceService } from "../finance/finance.service";
+import { FinanceService, lineSellTotal } from "../finance/finance.service";
 import { ExchangeRatesService } from "../exchange-rates/exchange-rates.service";
 import { readUpload } from "../uploads/uploads.util";
 import type { JwtPayload } from "../auth/jwt.strategy";
@@ -466,9 +466,11 @@ export class InvoicesService {
     });
     const open = new Map<string, Candidate>();
     if (role === Role.ACCOUNT_HOLDER) {
-      const titles = await this.productTitles(openOrders.flatMap((o) => o.items));
-      const rates = await this.accountHolderRates(openOrders, currency as Currency);
-      for (const order of openOrders) {
+      // A DROPSHIP order isn't billable to the Account Holder until every line has its client buying price.
+      const billable = openOrders.filter((o) => !o.items.some((i) => !i.stockOwnerId && i.clientTotalSnapshot == null));
+      const titles = await this.productTitles(billable.flatMap((o) => o.items));
+      const rates = await this.accountHolderRates(billable, currency as Currency);
+      for (const order of billable) {
         const line = this.accountHolderLine(order, currency as Currency, rates.get(order.id)!, titles);
         open.set(order.id, { order, line, claimIds: [order.id] });
       }
@@ -626,8 +628,11 @@ export class InvoicesService {
       asEntered ? (order.threePlPriceChargedOriginal ?? 0) : fromPkr(order.threePlPriceChargedSnapshot ?? 0),
     );
 
-    // Product prices are in their Stock Owner's currency, so always convert them from PKR.
-    const buying = order.items.map((i) => round2(fromPkr((i.sellPriceSnapshot ?? 0) * i.quantity)));
+    // STOCK: product sell price × qty, in the Stock Owner's currency, so always converted from PKR. DROPSHIP: the
+    // line's client buying price, entered in the Account Holder's currency (as entered when the invoice is in it).
+    const buying = order.items.map((i) =>
+      round2(asEntered && i.clientTotalOriginal != null ? i.clientTotalOriginal : fromPkr(lineSellTotal(i))),
+    );
     // The order-level selling, 3PL and shipping amounts are split across products by buying value (by qty if all zero).
     const weights = buying.some((b) => b > 0) ? buying : order.items.map((i) => i.quantity);
     const sellingSplit = allocate(selling, weights);

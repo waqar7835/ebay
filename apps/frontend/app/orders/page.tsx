@@ -245,7 +245,7 @@ export default function OrdersPage() {
       : pkr(o.ebayNetProceeds);
   /**
    * The Account Holder's breakdown, in their currency (the AH rate locked on the order; PKR on orders from before
-   * currencies): payout − buying price (product sell price × qty) − 3PL charge − shipping label = profit, the same
+   * currencies): payout − buying price (product sell price × qty; a dropship line's client buying price) − 3PL charge − shipping label = profit, the same
    * profit as FinanceService and their invoice. Payout / 3PL charge / shipping were entered in their currency, so those
    * are shown as entered; buying price is converted. Their share = profit × their share % snapshot.
    */
@@ -253,9 +253,18 @@ export default function OrdersPage() {
     const rate = o.accountHolderCurrency ? o.exchangeRates?.[o.accountHolderCurrency] : undefined;
     const own = !!rate && o.ebayNetProceedsOriginal != null;
     const fromPkr = (v: number) => (own ? round2(v / rate!) : v);
-    const sellPkr = o.items.reduce((sum, i) => sum + (i.sellPriceSnapshot ?? 0) * i.quantity, 0);
+    // STOCK: product sell price × qty (converted); DROPSHIP: the line's client buying price, entered in their currency.
+    const buying = round2(
+      o.items.reduce(
+        (sum, i) =>
+          sum +
+          (own && i.clientTotalOriginal != null
+            ? i.clientTotalOriginal
+            : fromPkr(i.clientTotalSnapshot ?? (i.sellPriceSnapshot ?? 0) * i.quantity)),
+        0,
+      ),
+    );
     const payout = own ? o.ebayNetProceedsOriginal! : o.ebayNetProceeds;
-    const buying = round2(fromPkr(sellPkr));
     const threePl = own ? (o.threePlPriceChargedOriginal ?? 0) : (o.threePlPriceChargedSnapshot ?? 0);
     const shipping = own ? (o.shippingCostOriginal ?? 0) : o.shippingCost;
     const profit = round2(payout - buying - threePl - shipping);

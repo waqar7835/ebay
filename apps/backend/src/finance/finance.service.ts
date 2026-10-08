@@ -8,10 +8,13 @@ export class FinanceService {
   /**
    * Pure calculation over an order's snapshotted values — never re-reads live rates.
    * Product-side figures are summed over the order's items; the 3PL fee is per order, charged once.
-   * DROPSHIP items have no Stock Owner or sell price; their buy price is a line total (buyTotalSnapshot,
-   * entered by the admin or the 3PL, possibly not yet) — missing pieces are treated as 0. The
-   * exact revenue-share formula for DROPSHIP orders is still to be finalized; this just keeps the
-   * calculation from crashing on nulls in the meantime.
+   *
+   * DROPSHIP orders (decided 2026-10-08): each line has a buy price (buyTotalSnapshot — what the 3PL paid,
+   * reimbursed to them as their whole payout) and a client buying price (clientTotalSnapshot — what the
+   * Account Holder is charged, the dropship counterpart of a STOCK product's sell price). There's no 3PL
+   * service charge or fee. So the Account Holder's profit subtracts the client prices, the company's
+   * product markup is client price − buy price, and the 3PL payout isn't counted a second time as a
+   * negative 3PL markup. Prices not entered yet count as 0.
    *
    * Pass `stockOwnerId` to get the stockOwner* figures for just that Stock Owner's items (for their
    * invoice/dashboard); every other figure always covers the whole order.
@@ -24,10 +27,10 @@ export class FinanceService {
     let stockOwnerGross = 0;
     let stockOwnerShareCut = 0;
     for (const item of items) {
-      const sell = item.sellPriceSnapshot ?? 0;
       const buy = item.buyPriceSnapshot ?? 0;
-      productMarkup += sell * item.quantity - (item.buyTotalSnapshot ?? buy * item.quantity);
-      sellTotal += sell * item.quantity;
+      const lineSell = lineSellTotal(item);
+      productMarkup += lineSell - (item.buyTotalSnapshot ?? buy * item.quantity);
+      sellTotal += lineSell;
       if (stockOwnerId && item.stockOwnerId !== stockOwnerId) continue;
       stockOwnerGross += buy * item.quantity;
       stockOwnerShareCut += itemShareCut(item);
@@ -36,7 +39,8 @@ export class FinanceService {
 
     const threePlPayout = order.threePlPayoutSnapshot ?? 0;
     const threePlPriceCharged = order.threePlPriceChargedSnapshot ?? 0;
-    const threePlMarkup = order.threePlId ? threePlPriceCharged - threePlPayout : 0;
+    // A dropship 3PL's payout is the buy prices, already taken off in productMarkup — not a fee.
+    const threePlMarkup = !order.threePlId ? 0 : isDropshipOrder(order) ? threePlPriceCharged : threePlPriceCharged - threePlPayout;
 
     const accountHolderProfit = order.ebayNetProceeds - order.shippingCost - sellTotal - threePlPriceCharged;
     const accountHolderPayout = accountHolderProfit * (order.accountHolderSharePercentSnapshot / 100);
@@ -65,6 +69,18 @@ export class FinanceService {
     const f = this.compute(order);
     return round2(f.productMarkup + f.threePlMarkup + f.companyRemainderFromOrder + f.stockOwnerShareCut);
   }
+}
+
+/** STOCK: sell price × qty; DROPSHIP: the line's client buying price. */
+export function lineSellTotal(item: OrderItem): number {
+  if (item.clientTotalSnapshot != null) return item.clientTotalSnapshot;
+  return (item.sellPriceSnapshot ?? 0) * item.quantity;
+}
+
+/** STOCK items always have a Stock Owner; DROPSHIP items never do (an order is all one or the other). */
+export function isDropshipOrder(order: Order): boolean {
+  const items = order.items ?? [];
+  return items.length > 0 && items.every((i) => !i.stockOwnerId);
 }
 
 /** Stock Owner PROFIT_SHARE: the company keeps sharePercent% of (buyPrice − stockOwnerCost) × qty. */

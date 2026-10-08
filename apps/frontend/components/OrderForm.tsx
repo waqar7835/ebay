@@ -35,6 +35,8 @@ interface ItemRow {
   quantity: number;
   /** Dropship only: what the 3PL pays for this line (all units), in the 3PL's currency. Optional. */
   buyTotal?: number | null;
+  /** Dropship only: what the client (Account Holder) is charged for this line (all units), in their currency. Optional. */
+  clientTotal?: number | null;
 }
 
 interface OrderFormValues {
@@ -163,6 +165,8 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
     quantity: i.quantity,
     // As entered (in the 3PL's currency; plain PKR on orders from before currencies).
     buyTotal: i.buyTotalOriginal ?? i.buyTotalSnapshot,
+    // As entered, in the Account Holder's currency.
+    clientTotal: i.clientTotalOriginal ?? i.clientTotalSnapshot,
   })) ?? [{ quantity: 1 }];
   const itemsChanged =
     !initial ||
@@ -171,7 +175,8 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
       (r, i) =>
         r?.productId !== initial.items[i]?.productId ||
         r?.quantity !== initial.items[i]?.quantity ||
-        (isDropship && (r?.buyTotal ?? null) !== (initialItems[i]?.buyTotal ?? null)),
+        (isDropship && (r?.buyTotal ?? null) !== (initialItems[i]?.buyTotal ?? null)) ||
+        (isDropship && (r?.clientTotal ?? null) !== (initialItems[i]?.clientTotal ?? null)),
     );
   const addedProduct = !!initial && rows.some((r) => r?.productId && !initial.items.some((i) => i.productId === r.productId));
 
@@ -213,7 +218,12 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
       productId: r.productId!,
       quantity: Number(r.quantity),
       // Buy totals are in the 3PL's currency, so they only go with a 3PL.
-      ...(isDropship ? { buyTotal: threePlId && r.buyTotal != null ? Number(r.buyTotal) : null } : {}),
+      ...(isDropship
+        ? {
+            buyTotal: threePlId && r.buyTotal != null ? Number(r.buyTotal) : null,
+            clientTotal: r.clientTotal != null ? Number(r.clientTotal) : null,
+          }
+        : {}),
     }));
     // On edit only send what changed: re-sending items would re-validate products that haven't changed.
     // A dropship order's new 3PL also re-sends the items, since their buy totals are in that 3PL's currency.
@@ -345,7 +355,7 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
               {initial
                 ? "An order's type can't be changed after it's created."
                 : isDropship
-                  ? "Pick any dropship products. Buy prices are optional — the 3PL can fill them in or correct them later."
+                  ? "Pick any dropship products. Both prices can be filled in later: the buy price (the 3PL can enter it too) is needed before the order ships, the client buying price before the client is invoiced."
                   : "Stock products can be combined when they're held at the same 3PL."}
             </p>
             {isDropship && threePlFields}
@@ -389,26 +399,44 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
                             <Form.Item name={[field.name, "quantity"]} rules={[{ required: true, message: "Qty" }]} className="mb-0 w-24">
                               <InputNumber min={1} precision={0} prefix="×" className="w-full" />
                             </Form.Item>
-                            {isDropship && (
+                            {fields.length > 1 && (
+                              <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(field.name)} title="Remove product" />
+                            )}
+                          </div>
+                          {isDropship && (
+                            <div className="mt-3 grid gap-x-3 sm:grid-cols-2">
                               <Form.Item
                                 name={[field.name, "buyTotal"]}
-                                className="mb-0 w-36"
-                                tooltip="Buy price for all units of this product"
+                                label="Buy price"
+                                tooltip="What the 3PL pays for all units of this product, in the 3PL's currency — reimbursed to the 3PL, who can also enter it. Needed before the order can be marked shipped."
+                                className="mb-0"
                               >
                                 <InputNumber
                                   min={0}
                                   step={0.01}
                                   prefix={threePlCurrency !== undefined ? currencySymbol(threePlCurrency) : undefined}
-                                  placeholder={threePlId ? "Price (optional)" : "Pick a 3PL"}
+                                  placeholder={threePlId ? "All units (optional)" : "Pick a 3PL first"}
                                   disabled={!threePlId}
                                   className="w-full"
                                 />
                               </Form.Item>
-                            )}
-                            {fields.length > 1 && (
-                              <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(field.name)} title="Remove product" />
-                            )}
-                          </div>
+                              <Form.Item
+                                name={[field.name, "clientTotal"]}
+                                label="Client buying price"
+                                tooltip="What the client (Account Holder) is charged for all units of this product, in the client's currency. The 3PL never sees it. Needed before the client can be invoiced."
+                                className="mb-0"
+                              >
+                                <InputNumber
+                                  min={0}
+                                  step={0.01}
+                                  prefix={ahCurrency !== undefined ? currencySymbol(ahCurrency) : undefined}
+                                  placeholder={accountHolderId ? "All units (optional)" : "Pick a client first"}
+                                  disabled={!accountHolderId}
+                                  className="w-full"
+                                />
+                              </Form.Item>
+                            </div>
+                          )}
                           {product && (
                             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
                               <span>

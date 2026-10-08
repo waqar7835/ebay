@@ -50,6 +50,8 @@ interface OrderLine {
   quantity: number;
   /** DROPSHIP only: the line's buy total in the 3PL's currency; undefined = not sent (keep on edit). */
   buyTotal?: number | null;
+  /** DROPSHIP only: the line's client buying price in the Account Holder's currency; undefined = keep on edit. */
+  clientTotal?: number | null;
 }
 
 export interface OrderListFilters {
@@ -134,7 +136,30 @@ export class OrdersService {
     const order = await this.get(companyId, id);
     const isManager = requester.roles.some((r) => MANAGER_ROLES.includes(r));
     const json = order.toJSON() as Order;
-    return { ...json, comments: this.canSeeComments(isManager, requester) ? json.comments : null };
+    return {
+      ...json,
+      items: this.visibleItems(json.items, isManager, requester),
+      comments: this.canSeeComments(isManager, requester) ? json.comments : null,
+    };
+  }
+
+  /**
+   * Dropship prices are role-specific (decided 2026-10-08): the buy price is between the company and the 3PL, the
+   * client buying price between the company and the Account Holder. Managers see both; a Stock Owner only sees their
+   * own items (and never a dropship one).
+   */
+  private visibleItems(items: OrderItem[], isManager: boolean, requester: JwtPayload) {
+    if (isManager) return items;
+    const isStockOwnerOnly = requester.roles.includes(Role.STOCK_OWNER) && !requester.roles.includes(Role.ACCOUNT_HOLDER);
+    const seesBuy = requester.roles.includes(Role.THREE_PL);
+    const seesClient = requester.roles.includes(Role.ACCOUNT_HOLDER);
+    return items
+      .filter((i) => !isStockOwnerOnly || i.stockOwnerId === requester.sub)
+      .map((i) => ({
+        ...i,
+        ...(seesBuy ? {} : { buyTotalSnapshot: null, buyTotalOriginal: null }),
+        ...(seesClient ? {} : { clientTotalSnapshot: null, clientTotalOriginal: null }),
+      }));
   }
 
   async get(companyId: string, id: string) {
@@ -150,11 +175,10 @@ export class OrdersService {
 
   private withStaleness(order: Order, staleOrderDays: number, now: Date, isManager: boolean, requester: JwtPayload) {
     const json = order.toJSON() as Order;
-    // A Stock Owner only sees their own items on an order that mixes Stock Owners.
-    const isStockOwnerOnly = !isManager && requester.roles.includes(Role.STOCK_OWNER) && !requester.roles.includes(Role.ACCOUNT_HOLDER);
     return {
       ...json,
-      items: isStockOwnerOnly ? json.items.filter((i) => i.stockOwnerId === requester.sub) : json.items,
+      // A Stock Owner only sees their own items on an order that mixes Stock Owners.
+      items: this.visibleItems(json.items, isManager, requester),
       daysInStatus: daysInStatus(order.statusChangedAt, now),
       stale: isOrderStale(order.status, order.statusChangedAt, staleOrderDays, now),
       comments: this.canSeeComments(isManager, requester) ? json.comments : null,
@@ -207,7 +231,10 @@ export class OrdersService {
     const itemRows = await Promise.all(lines.map((line, position) => this.snapshotItem(line, position)));
     if (fulfillmentType === ProductFulfillmentType.DROPSHIP) {
       assertDropshipTotalsAllowed(lines, threePlId);
-      itemRows.forEach((row, i) => (row.buyTotalOriginal = lines[i].buyTotal ?? null));
+      itemRows.forEach((row, i) => {
+        row.buyTotalOriginal = lines[i].buyTotal ?? null;
+        row.clientTotalOriginal = lines[i].clientTotal ?? null;
+      });
     }
 
     // Amounts are entered in each party's currency and converted to PKR with rates locked on the order.
@@ -270,9 +297,11 @@ export class OrdersService {
     const legacy = !order.exchangeRates;
     if (legacy) await this.adoptLegacy(order, []);
 
+    // An order's type (all-Stock or all-Dropship) is fixed once it's created — see changeItems.
+    const dropship = await this.isDropshipOrder(order);
     if (dto.orderDate !== undefined) order.orderDate = dto.orderDate;
     if (dto.accountHolderId !== undefined && dto.accountHolderId !== order.accountHolderId) {
-      await this.changeAccountHolder(order, dto.accountHolderId);
+      await this.changeAccountHolder(order, dto.accountHolderId, dropship);
     }
     if (dto.ebayOrderRef !== undefined) {
       const ebayOrderRef = dto.ebayOrderRef.trim();
@@ -288,8 +317,6 @@ export class OrdersService {
     if (dto.supplierUrl !== undefined) order.supplierUrl = dto.supplierUrl;
     if (dto.comments !== undefined) order.comments = dto.comments.trim() || null;
 
-    // An order's type (all-Stock or all-Dropship) is fixed once it's created — see changeItems.
-    const dropship = await this.isDropshipOrder(order);
     const sequelize = this.orderModel.sequelize!;
     await this.saveWithUniqueRef(order.ebayOrderRef, () =>
       sequelize.transaction(async (transaction) => {
@@ -364,7 +391,7 @@ export class OrdersService {
    * Like changeItems: swapping the Account Holder re-snapshots their share % and the 3PL price
    * they're charged from the new holder's current profile, at any status. Issued invoices aren't adjusted.
    */
-  private async changeAccountHolder(order: Order, accountHolderId: string) {
+  private async changeAccountHolder(order: Order, accountHolderId: string, dropship: boolean) {
     if (await this.subscriptions.isUserDisabled(accountHolderId)) {
       throw new ForbiddenException("This Account Holder's account is deactivated");
     }
@@ -375,7 +402,8 @@ export class OrdersService {
     order.accountHolderSharePercentSnapshot = profile.sharePercent;
     // The order's Account Holder amounts (eBay proceeds, shipping, 3PL price) are now in the new holder's currency.
     order.accountHolderCurrency = await this.currencyOf(accountHolderId);
-    if (order.threePlId) order.threePlPriceChargedOriginal = profile.threePlPriceCharged ?? 0;
+    // Dropship orders carry no 3PL service charge.
+    if (order.threePlId) order.threePlPriceChargedOriginal = dropship ? 0 : (profile.threePlPriceCharged ?? 0);
   }
 
   /**
@@ -424,6 +452,10 @@ export class OrdersService {
       item.buyTotalOriginal = total;
       if (!order.exchangeRates) item.buyTotalSnapshot = total;
     };
+    const setClientTotal = (item: { clientTotalOriginal: number | null; clientTotalSnapshot: number | null }, total: number | null) => {
+      item.clientTotalOriginal = total;
+      if (!order.exchangeRates) item.clientTotalSnapshot = total;
+    };
 
     const existingByProduct = new Map(existing.map((i) => [i.productId, i]));
     const keptIds = new Set<string>();
@@ -437,10 +469,14 @@ export class OrdersService {
         current.quantity = line.quantity;
         current.position = position;
         if (wasDropship && line.buyTotal !== undefined) setBuyTotal(current, line.buyTotal);
+        if (wasDropship && line.clientTotal !== undefined) setClientTotal(current, line.clientTotal);
         await current.save({ transaction });
       } else {
         const row = await this.snapshotItem(line, position);
-        if (wasDropship) setBuyTotal(row, line.buyTotal ?? null);
+        if (wasDropship) {
+          setBuyTotal(row, line.buyTotal ?? null);
+          setClientTotal(row, line.clientTotal ?? null);
+        }
         await this.orderItemModel.create({ ...row, orderId: order.id }, { transaction });
       }
     }
@@ -463,30 +499,31 @@ export class OrdersService {
     alreadyOnOrder: Set<string> = new Set(),
   ): Promise<OrderLine[]> {
     if (!inputs.length) throw new BadRequestException("An order needs at least one product");
-    const merged = new Map<string, { quantity: number; buyTotal?: number | null }>();
+    const merged = new Map<string, { quantity: number; buyTotal?: number | null; clientTotal?: number | null }>();
     for (const input of inputs) {
       const prev = merged.get(input.productId);
       if (!prev) {
-        merged.set(input.productId, { quantity: input.quantity, buyTotal: input.buyTotal });
+        merged.set(input.productId, { quantity: input.quantity, buyTotal: input.buyTotal, clientTotal: input.clientTotal });
         continue;
       }
       prev.quantity += input.quantity;
       if (input.buyTotal != null) prev.buyTotal = round2((prev.buyTotal ?? 0) + input.buyTotal);
+      if (input.clientTotal != null) prev.clientTotal = round2((prev.clientTotal ?? 0) + input.clientTotal);
     }
 
     const products = await this.productModel.findAll({ where: { id: [...merged.keys()], companyId } });
     const productById = new Map(products.map((p) => [p.id, p]));
-    const lines = [...merged.entries()].map(([productId, { quantity, buyTotal }]) => {
+    const lines = [...merged.entries()].map(([productId, { quantity, buyTotal, clientTotal }]) => {
       const product = productById.get(productId);
       if (!product) throw new NotFoundException("Product not found");
-      return { product, quantity, buyTotal };
+      return { product, quantity, buyTotal, clientTotal };
     });
 
     if (new Set(lines.map((l) => l.product.fulfillmentType)).size > 1) {
       throw new BadRequestException("An order can't mix Stock and Dropship products");
     }
-    if (lines.some((l) => l.product.fulfillmentType === ProductFulfillmentType.STOCK && l.buyTotal != null)) {
-      throw new BadRequestException("Only dropship products take a buy price on the order");
+    if (lines.some((l) => l.product.fulfillmentType === ProductFulfillmentType.STOCK && (l.buyTotal != null || l.clientTotal != null))) {
+      throw new BadRequestException("Only dropship products take a buy price or client buying price on the order");
     }
     const addedStockOwners = lines.filter((l) => !alreadyOnOrder.has(l.product.id)).map((l) => l.product.stockOwnerId);
     for (const stockOwnerId of new Set(addedStockOwners.filter((id): id is string => !!id))) {
@@ -525,7 +562,10 @@ export class OrdersService {
     return threePlProfile;
   }
 
-  /** The once-per-order 3PL fee: what the Account Holder is charged and what the 3PL is paid. */
+  /**
+   * The once-per-order 3PL fee: what the Account Holder is charged and what the 3PL is paid. DROPSHIP: no charge,
+   * and the payout is replaced by the sum of the buy prices (syncDropshipPayout).
+   */
   private async snapshotThreePl(
     threePlId: string | null,
     fulfillmentType: ProductFulfillmentType,
@@ -541,7 +581,9 @@ export class OrdersService {
     // Originals only (Account Holder's / 3PL's currency) — the PKR snapshots are derived by convertOrderAmounts().
     return {
       threePlCurrency: await this.currencyOf(threePlId),
-      threePlPriceChargedOriginal: accountHolderProfile?.threePlPriceCharged ?? 0,
+      // Dropship orders carry no 3PL service charge (the 3PL is only reimbursed the buy prices).
+      threePlPriceChargedOriginal:
+        fulfillmentType === ProductFulfillmentType.DROPSHIP ? 0 : (accountHolderProfile?.threePlPriceCharged ?? 0),
       threePlPayoutOriginal: threePlProfile.payoutPerOrder,
       threePlPriceChargedSnapshot: null as number | null,
       threePlPayoutSnapshot: null as number | null,
@@ -576,6 +618,8 @@ export class OrdersService {
       stockOwnerSharePercentSnapshot: stockOwnerProfile?.sharePercent ?? null,
       buyTotalOriginal: null as number | null,
       buyTotalSnapshot: null as number | null,
+      clientTotalOriginal: null as number | null,
+      clientTotalSnapshot: null as number | null,
     };
   }
 
@@ -589,7 +633,7 @@ export class OrdersService {
     await this.applyDropshipBuyTotals(order, requester, [{ itemId, buyTotal }]);
     for (const i of order.items) if (i.changed()) await i.save();
     await order.save();
-    return order;
+    return this.getForRequester(companyId, requester, id);
   }
 
   /**
@@ -606,7 +650,7 @@ export class OrdersService {
       throw new BadRequestException("Only DROPSHIP orders can be edited by their 3PL");
     }
 
-    return this.orderModel.sequelize!.transaction(async (transaction) => {
+    await this.orderModel.sequelize!.transaction(async (transaction) => {
       if (dto.buyTotals?.length) await this.applyDropshipBuyTotals(order, requester, dto.buyTotals);
       if (dto.supplierUrl !== undefined) order.supplierUrl = dto.supplierUrl.trim() || null;
       if (dto.trackingNumber !== undefined) order.trackingNumber = dto.trackingNumber.trim() || null;
@@ -617,8 +661,8 @@ export class OrdersService {
       } else {
         await order.save({ transaction });
       }
-      return order;
     });
+    return this.getForRequester(companyId, requester, id);
   }
 
   private assertAssignedThreePl(order: Order, requester: JwtPayload) {
@@ -669,7 +713,7 @@ export class OrdersService {
     const order = await this.get(companyId, id);
     this.assertStatusTransitionAllowed(order, requester, dto.status);
     await this.applyStatus(order, dto.status);
-    return order;
+    return this.getForRequester(companyId, requester, id);
   }
 
   /**
@@ -710,6 +754,7 @@ export class OrdersService {
   }
 
   private async applyStatus(order: Order, status: OrderStatus, transaction?: Transaction) {
+    await this.assertCanShip(order, status);
     order.status = status;
     order.statusChangedAt = new Date();
     if (status === OrderStatus.DELIVERED) {
@@ -725,6 +770,19 @@ export class OrdersService {
     }
 
     await order.save({ transaction });
+  }
+
+  /**
+   * A DROPSHIP order can't be marked SHIPPED (or DELIVERED) until every line has its buy price — for everyone,
+   * Admin/Staff included (decided 2026-10-08): the 3PL's payout is those prices.
+   */
+  private async assertCanShip(order: Order, status: OrderStatus) {
+    if (status !== OrderStatus.SHIPPED && status !== OrderStatus.DELIVERED) return;
+    if (order.status === OrderStatus.SHIPPED || order.status === OrderStatus.DELIVERED) return;
+    if (!(await this.isDropshipOrder(order))) return;
+    if (order.items.some((i) => i.buyTotalSnapshot == null)) {
+      throw new BadRequestException(`Order ${order.ebayOrderRef}: enter the buy price of every product before marking it shipped`);
+    }
   }
 
   private assertStatusTransitionAllowed(order: Order, requester: JwtPayload, next: OrderStatus) {

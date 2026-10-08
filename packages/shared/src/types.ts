@@ -197,6 +197,13 @@ export interface OrderItemDto {
    */
   buyTotalSnapshot: number | null;
   buyTotalOriginal: number | null;
+  /**
+   * DROPSHIP only: the "client buying price" — what the company charges the Account Holder for this line,
+   * all units together (PKR / as entered in the order's Account Holder currency). Null until entered.
+   * Never sent to 3PLs; the buy totals above are never sent to Account Holders.
+   */
+  clientTotalSnapshot: number | null;
+  clientTotalOriginal: number | null;
   /** Invoice that paid this item out to its Stock Owner (null = open). */
   stockOwnerInvoiceId: string | null;
   stockOwnerRefundInvoiceId: string | null;
@@ -211,6 +218,11 @@ export interface OrderItemInput {
    * 3PL). On edit, omitted = keep the current one, null = clear it.
    */
   buyTotal?: number | null;
+  /**
+   * DROPSHIP only, optional: the client buying price for all units, in the order's Account Holder's
+   * currency. On edit, omitted = keep the current one, null = clear it.
+   */
+  clientTotal?: number | null;
 }
 
 export interface OrderDto {

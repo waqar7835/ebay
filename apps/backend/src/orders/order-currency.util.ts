@@ -29,6 +29,9 @@ export interface ItemAmounts {
   stockOwnerCostOriginal: number | null;
   buyTotalSnapshot: number | null;
   buyTotalOriginal: number | null;
+  /** DROPSHIP client buying price: in the order's Account Holder currency, not the item's. */
+  clientTotalSnapshot: number | null;
+  clientTotalOriginal: number | null;
 }
 
 /** Every currency the order's amounts are entered in (each needs a rate). */
@@ -52,6 +55,9 @@ export function convertOrderAmounts(order: OrderAmounts, items: ItemAmounts[], r
     order.threePlPayoutSnapshot = toPkr(order.threePlPayoutOriginal, order.threePlCurrency, rates);
   }
   for (const item of items) {
+    if (order.accountHolderCurrency) {
+      item.clientTotalSnapshot = toPkr(item.clientTotalOriginal, order.accountHolderCurrency, rates);
+    }
     if (!item.currency) continue;
     item.sellPriceSnapshot = toPkr(item.sellPriceOriginal, item.currency, rates);
     item.buyPriceSnapshot = toPkr(item.buyPriceOriginal, item.currency, rates);
@@ -80,6 +86,7 @@ export function adoptLegacyAmounts(
     order.threePlPayoutOriginal = order.threePlPayoutSnapshot;
   }
   for (const item of items) {
+    item.clientTotalOriginal ??= item.clientTotalSnapshot;
     if (item.currency) continue;
     // A DROPSHIP item's only price is its buy total, in the 3PL's currency.
     item.currency = item.stockOwnerId
@@ -111,6 +118,8 @@ export function keepLegacyAmounts(order: OrderAmounts, items: ItemAmounts[]) {
     item.buyPriceSnapshot = item.buyPriceOriginal;
     item.stockOwnerCostSnapshot = item.stockOwnerCostOriginal;
     item.buyTotalSnapshot = item.buyTotalOriginal;
+    item.clientTotalSnapshot = item.clientTotalOriginal;
+    item.clientTotalOriginal = null;
     item.currency = null;
     item.sellPriceOriginal = null;
     item.buyPriceOriginal = null;

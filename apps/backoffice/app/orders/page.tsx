@@ -69,7 +69,8 @@ interface OrderFormValues {
   accountHolderId?: string;
   // All STOCK (at the same 3PL, which comes from the products) or all DROPSHIP (3PL picked below, optional).
   // buyTotal: dropship only — what the 3PL pays for the line (all units), in the 3PL's currency; optional.
-  items: { productId?: string; quantity: number; buyTotal?: number | null }[];
+  // clientTotal: dropship only — what the Account Holder is charged for the line (all units), in their currency; optional.
+  items: { productId?: string; quantity: number; buyTotal?: number | null; clientTotal?: number | null }[];
   threePlId?: string;
   orderDate: string;
   ebayOrderRef: string;
@@ -231,6 +232,8 @@ export default function OrdersPage() {
           quantity: i.quantity,
           // As entered, in the 3PL's currency (plain PKR on orders from before currencies).
           buyTotal: i.buyTotalOriginal ?? i.buyTotalSnapshot,
+          // As entered, in the Account Holder's currency.
+          clientTotal: i.clientTotalOriginal ?? i.clientTotalSnapshot,
         })),
         threePlId: order.threePlId ?? undefined,
         orderDate: order.orderDate,
@@ -267,7 +270,12 @@ export default function OrdersPage() {
       productId: r.productId as string,
       quantity: Number(r.quantity),
       // Buy totals are in the 3PL's currency, so they only go with a 3PL.
-      ...(isDropship ? { buyTotal: dropshipThreePlId && r.buyTotal != null ? Number(r.buyTotal) : null } : {}),
+      ...(isDropship
+        ? {
+            buyTotal: dropshipThreePlId && r.buyTotal != null ? Number(r.buyTotal) : null,
+            clientTotal: r.clientTotal != null ? Number(r.clientTotal) : null,
+          }
+        : {}),
     }));
     // On edit, only send items when they changed — re-sending re-validates products already on the order.
     // A dropship order's new 3PL also re-sends the items, since their buy totals are in that 3PL's currency.
@@ -281,7 +289,10 @@ export default function OrdersPage() {
           r.productId !== editingOrder.items[i]?.productId ||
           r.quantity !== editingOrder.items[i]?.quantity ||
           (isDropship &&
-            (r.buyTotal ?? null) !== (editingOrder.items[i]?.buyTotalOriginal ?? editingOrder.items[i]?.buyTotalSnapshot ?? null)),
+            (r.buyTotal ?? null) !== (editingOrder.items[i]?.buyTotalOriginal ?? editingOrder.items[i]?.buyTotalSnapshot ?? null)) ||
+          (isDropship &&
+            (r.clientTotal ?? null) !==
+              (editingOrder.items[i]?.clientTotalOriginal ?? editingOrder.items[i]?.clientTotalSnapshot ?? null)),
       );
     const common = {
       accountHolderId: values.accountHolderId as string,
@@ -478,22 +489,44 @@ export default function OrdersPage() {
                                   {product.sellPrice != null && ` · Sell ${money(product.sellPrice, product.currency)} / unit`}
                                 </div>
                               )}
+                              {isDropship && (
+                                <div className="mt-2 grid gap-x-3 sm:grid-cols-2">
+                                  <Form.Item
+                                    name={[field.name, "buyTotal"]}
+                                    label="Buy price"
+                                    tooltip="What the 3PL pays for all units, in the 3PL's currency. Needed before the order can be marked shipped."
+                                    className="mb-0"
+                                  >
+                                    <InputNumber
+                                      min={0}
+                                      step={0.01}
+                                      prefix={threePlCurrency !== undefined ? currencySymbol(threePlCurrency) : undefined}
+                                      placeholder={threePlId ? "All units (optional)" : "Pick a 3PL first"}
+                                      disabled={!threePlId}
+                                      className="w-full"
+                                    />
+                                  </Form.Item>
+                                  <Form.Item
+                                    name={[field.name, "clientTotal"]}
+                                    label="Client buying price"
+                                    tooltip="What the client (Account Holder) is charged for all units, in the client's currency. Needed before the client can be invoiced."
+                                    className="mb-0"
+                                  >
+                                    <InputNumber
+                                      min={0}
+                                      step={0.01}
+                                      prefix={ahCurrency !== undefined ? currencySymbol(ahCurrency) : undefined}
+                                      placeholder={formAccountHolderId ? "All units (optional)" : "Pick a client first"}
+                                      disabled={!formAccountHolderId}
+                                      className="w-full"
+                                    />
+                                  </Form.Item>
+                                </div>
+                              )}
                             </div>
                             <Form.Item name={[field.name, "quantity"]} rules={[{ required: true, message: "Qty" }]} className="mb-0 w-24">
                               <InputNumber min={1} precision={0} prefix="×" className="w-full" />
                             </Form.Item>
-                            {isDropship && (
-                              <Form.Item name={[field.name, "buyTotal"]} tooltip="Buy price for all units of this product" className="mb-0 w-36">
-                                <InputNumber
-                                  min={0}
-                                  step={0.01}
-                                  prefix={threePlCurrency !== undefined ? currencySymbol(threePlCurrency) : undefined}
-                                  placeholder={threePlId ? "Price (optional)" : "Pick a 3PL"}
-                                  disabled={!threePlId}
-                                  className="w-full"
-                                />
-                              </Form.Item>
-                            )}
                             {fields.length > 1 && (
                               <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(field.name)} title="Remove product" />
                             )}

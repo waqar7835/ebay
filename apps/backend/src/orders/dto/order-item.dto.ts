@@ -13,4 +13,10 @@ export class OrderItemInputDto {
   @IsNumber()
   @Min(0)
   buyTotal?: number | null;
+
+  /** DROPSHIP only: the client buying price for all units, in the order's Account Holder's currency. Null clears it. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  clientTotal?: number | null;
 }
