@@ -468,22 +468,26 @@ export default function OrdersPage() {
           },
         ]
       : []),
-    // Everyone else (Account Holder, Stock Owner, Staff without canManageOrders) keeps the inline dropdown.
+    // Account Holders and Stock Owners can't change status (the API refuses), so they get a read-only tag; Staff without
+    // canManageOrders keep the inline dropdown.
     ...(bulkMode
       ? []
       : [
           {
             title: "Status",
             key: "status",
-            render: (_: unknown, order: OrderDto) => (
-              <Select
-                size="small"
-                value={order.status}
-                onChange={(v) => handleStatusChange(order.id, v)}
-                options={STATUSES.map((s) => ({ value: s, label: s }))}
-                className="w-32"
-              />
-            ),
+            render: (_: unknown, order: OrderDto) =>
+              isAccountHolderView || isStockOwnerView ? (
+                statusTag(order.status)
+              ) : (
+                <Select
+                  size="small"
+                  value={order.status}
+                  onChange={(v) => handleStatusChange(order.id, v)}
+                  options={STATUSES.map((s) => ({ value: s, label: s }))}
+                  className="w-32"
+                />
+              ),
           },
         ]),
     ...(isThreePl
