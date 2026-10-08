@@ -22,6 +22,8 @@ interface ProductRow {
   buyPrice: number | null;
   sellPrice: number | null;
   stockQuantity: number;
+  /** Stock Owner view only: units sold on their orders (excl. cancelled/refunded). */
+  unitsSold?: number;
   imageUrl: string | null;
   imageUrls: string[];
 }
@@ -82,6 +84,7 @@ export default function ProductsPage() {
       sorter: (a, b) => a.stockQuantity - b.stockQuantity,
       render: (_, p) => (p.fulfillmentType === "DROPSHIP" ? "—" : <StockLevel qty={p.stockQuantity} />),
     },
+    { title: "Sold", dataIndex: "unitsSold", sorter: (a, b) => (a.unitsSold ?? 0) - (b.unitsSold ?? 0), render: (v?: number) => v ?? 0 },
   ];
 
   const columns: TableColumnsType<ProductRow> = [

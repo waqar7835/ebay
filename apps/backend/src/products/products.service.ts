@@ -1,8 +1,10 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { Op } from "sequelize";
 import { InjectModel } from "@nestjs/sequelize";
-import { PRODUCT_MAX_IMAGES, ProductFulfillmentType, Role } from "@ebay-order-management/shared";
+import { OrderStatus, PRODUCT_MAX_IMAGES, ProductFulfillmentType, Role } from "@ebay-order-management/shared";
 import { Product } from "../database/models/product.model";
+import { Order } from "../database/models/order.model";
+import { OrderItem } from "../database/models/order-item.model";
 import { User } from "../database/models/user.model";
 
 // Prices are in the Stock Owner's currency, so every product response carries it.
@@ -35,7 +37,10 @@ function forStockOwner<T extends { sellPrice?: unknown }>(product: T) {
 
 @Injectable()
 export class ProductsService {
-  constructor(@InjectModel(Product) private readonly productModel: typeof Product) {}
+  constructor(
+    @InjectModel(Product) private readonly productModel: typeof Product,
+    @InjectModel(OrderItem) private readonly orderItemModel: typeof OrderItem,
+  ) {}
 
   async list(companyId: string, requester: JwtPayload, stockOwnerId?: string) {
     // A Stock Owner only ever sees their own products, whatever filter is passed.
@@ -46,7 +51,30 @@ export class ProductsService {
       order: [["createdAt", "DESC"]],
       ...WITH_CURRENCY,
     });
-    return products.map((p) => (ownerOnly ? forStockOwner(withCurrency(p)) : withCurrency(p)));
+    if (!ownerOnly) return products.map(withCurrency);
+    const sold = await this.unitsSold(companyId, requester.sub);
+    return products.map((p) => ({ ...forStockOwner(withCurrency(p)), unitsSold: sold.get(p.id) ?? 0 }));
+  }
+
+  /**
+   * Units of each product sold on this Stock Owner's own order lines, leaving out CANCELLED / REFUNDED orders (same
+   * rule as the dashboard's "items sold").
+   */
+  private async unitsSold(companyId: string, stockOwnerId: string): Promise<Map<string, number>> {
+    const items = await this.orderItemModel.findAll({
+      attributes: ["productId", "quantity"],
+      where: { stockOwnerId },
+      include: [
+        {
+          model: Order,
+          attributes: [],
+          where: { companyId, status: { [Op.notIn]: [OrderStatus.CANCELLED, OrderStatus.REFUNDED] } },
+        },
+      ],
+    });
+    const sold = new Map<string, number>();
+    for (const i of items) sold.set(i.productId, (sold.get(i.productId) ?? 0) + i.quantity);
+    return sold;
   }
 
   async get(companyId: string, id: string) {
