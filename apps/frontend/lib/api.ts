@@ -592,14 +592,14 @@ export function updateOrder(orderId: string, payload: UpdateOrderPayload) {
   return request<OrderDto>(`/orders/${orderId}`, { method: "PATCH", body: JSON.stringify(payload) });
 }
 
-// Assigned 3PL entering/correcting one line's buy total on a DROPSHIP order once it's visible to them (status past PENDING).
 /**
- * A DROPSHIP 3PL's Edit popup: line buy totals (their currency, until invoiced), supplier URL, tracking number and
- * PROCESSING -> SHIPPED. Omitted fields stay as they are; "" clears the URL / tracking number.
+ * A 3PL's own edits on its order: a DROPSHIP 3PL's line buy totals (their currency, until invoiced) and supplier URL on
+ * PROCESSING orders; a STOCK 3PL's tracking number on PROCESSING/SHIPPED orders. Omitted fields stay as they are;
+ * "" clears the URL / tracking number. Shipping is a status change (bulkUpdateOrderStatus).
  */
 export function updateThreePlOrder(
   orderId: string,
-  input: { buyTotals?: { itemId: string; buyTotal: number }[]; supplierUrl?: string; trackingNumber?: string; markShipped?: boolean },
+  input: { buyTotals?: { itemId: string; buyTotal: number }[]; supplierUrl?: string; trackingNumber?: string },
 ) {
   return request<OrderDto>(`/orders/${orderId}/three-pl`, { method: "PATCH", body: JSON.stringify(input) });
 }

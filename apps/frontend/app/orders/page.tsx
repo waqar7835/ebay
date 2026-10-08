@@ -1,7 +1,7 @@
 "use client";
 
 import { ProductFulfillmentType, Role, type Currency, type OrderDto, type OrderStatus, type ProductDto } from "@ebay-order-management/shared";
-import { InfoCircleOutlined, PrinterOutlined } from "@ant-design/icons";
+import { EditOutlined, InfoCircleOutlined, PrinterOutlined, SendOutlined } from "@ant-design/icons";
 import {
   Alert,
   Button,
@@ -9,8 +9,8 @@ import {
   Input,
   Modal,
   Select,
-  Space,
   Table,
+  Tabs,
   Tag,
   Tooltip,
   type TableColumnsType,
@@ -38,6 +38,7 @@ import {
   listUsers,
   mediaUrl,
   updateOrderStatus,
+  updateThreePlOrder,
 } from "@/lib/api";
 import { searchable, userLabel, userNameOptions } from "@/lib/selectOptions";
 import { formatDate } from "@/lib/date";
@@ -90,13 +91,20 @@ export default function OrdersPage() {
   const [filterInit, setFilterInit] = useState(false);
   // Typed order number; copied into filter.orderRef after a short pause so each keystroke isn't a request.
   const [orderRefInput, setOrderRefInput] = useState("");
-  // A DROPSHIP 3PL edits its orders (buy prices, supplier URL, tracking, mark shipped) in a popup.
+  // A DROPSHIP 3PL edits its PROCESSING orders (buy prices, supplier URL) in a popup.
   const [threePlEditing, setThreePlEditing] = useState<OrderDto | null>(null);
   // Order whose full comment is open in a popup.
   const [commentOrder, setCommentOrder] = useState<OrderDto | null>(null);
   // A 3PL enters dropship buy prices in their own currency; a STOCK 3PL has no buy prices at all.
   const [myCurrency, setMyCurrency] = useState<Currency | null>(null);
   const [myThreePlType, setMyThreePlType] = useState<ProductFulfillmentType | null>(null);
+  // 3PL list (decided 2026-10-08): a STOCK 3PL switches between its Processing and Shipped orders (adding tracking
+  // numbers on the Shipped tab); a DROPSHIP 3PL only ever lists its Processing orders.
+  const [threePlTab, setThreePlTab] = useState<"PROCESSING" | "SHIPPED">("PROCESSING");
+  // STOCK 3PL: order whose tracking number is being added/edited.
+  const [trackingOrder, setTrackingOrder] = useState<OrderDto | null>(null);
+  const [trackingInput, setTrackingInput] = useState("");
+  const [trackingSaving, setTrackingSaving] = useState(false);
 
   const currentUser = getStoredUser();
   const isThreePl = currentUser?.roles.includes(Role.THREE_PL) ?? false;
@@ -116,13 +124,11 @@ export default function OrdersPage() {
     (!!currentUser?.roles.includes(Role.STAFF) && !!currentUser?.staffPermissions?.canManageOrders);
   // Creating needs canManageOrders (the API refuses everyone else), same test as the Orders nav link used to be.
   const canCreate = (currentUser?.roles.includes(Role.ADMIN) ?? false) || !!currentUser?.staffPermissions?.canManageOrders;
-  // A 3PL gets the same, limited to what it may do anyway: mark its own PROCESSING orders SHIPPED.
+  // A 3PL gets the same, limited to what it may do anyway: mark its own PROCESSING orders SHIPPED (a single "Mark as
+  // shipped" button instead of a status picker).
   const threePlBulk = isThreePl && !canBulkEdit;
   const bulkMode = canBulkEdit || threePlBulk;
   const bulkStatuses = threePlBulk ? ["SHIPPED" as OrderStatus] : STATUSES;
-  // 3PLs never see PENDING orders, so that count card is left out for them.
-  // ...and get an extra "No tracking #" card.
-  const countStatuses: string[] = threePlBulk ? [...STATUSES.filter((st) => st !== "PENDING"), NO_TRACKING] : STATUSES;
   const defaultBulkStatus = threePlBulk ? ("SHIPPED" as OrderStatus) : undefined;
 
   const [selectedIds, setSelectedIds] = useState<Key[]>([]);
@@ -199,10 +205,47 @@ export default function OrdersPage() {
   const accountHolders = users.filter((u) => u.roles.includes("ACCOUNT_HOLDER"));
   const threePls = users.filter((u) => u.roles.includes("THREE_PL"));
 
+  const isDropshipThreePl = threePlBulk && myThreePlType === ProductFulfillmentType.DROPSHIP;
+  const isStockThreePl = threePlBulk && myThreePlType === ProductFulfillmentType.STOCK;
+  // 3PLs: display-only count cards over all their orders; "No tracking #" only for a STOCK 3PL (dropship 3PLs don't
+  // enter tracking numbers).
+  const countStatuses: string[] = threePlBulk
+    ? ["PROCESSING", "SHIPPED", "DELIVERED", "REFUNDED", ...(isStockThreePl ? [NO_TRACKING] : [])]
+    : STATUSES;
+  const threePlListStatus = isStockThreePl ? threePlTab : "PROCESSING";
   const matchesStatus = (o: OrderDto) => (filter.status === NO_TRACKING ? needsTracking(o) : o.status === filter.status);
-  const visibleOrders = bulkMode && filter.status && !searchingRef ? orders.filter(matchesStatus) : orders;
+  const visibleOrders = threePlBulk
+    ? orders.filter((o) => o.status === threePlListStatus)
+    : bulkMode && filter.status && !searchingRef
+      ? orders.filter(matchesStatus)
+      : orders;
   const statusCounts = new Map<string, number>(STATUSES.map((s) => [s, orders.filter((o) => o.status === s).length]));
-  if (isThreePl) statusCounts.set(NO_TRACKING, orders.filter(needsTracking).length);
+  if (isStockThreePl) statusCounts.set(NO_TRACKING, orders.filter(needsTracking).length);
+  // A dropship order can't ship until the 3PL has entered every line's buy price.
+  const missingBuyPrice = (o: OrderDto) => isDropshipThreePl && o.items.some((i) => i.buyTotalSnapshot == null);
+  const canMarkShipped = (o: OrderDto) => o.status === "PROCESSING" && !missingBuyPrice(o);
+  const threePlSelectable = threePlBulk && threePlListStatus === "PROCESSING";
+
+  function openMarkShipped(order: OrderDto) {
+    setSelectedIds([order.id]);
+    setBulkStatus("SHIPPED" as OrderStatus);
+    setConfirmOpen(true);
+  }
+
+  async function handleTrackingSave() {
+    if (!trackingOrder) return;
+    setTrackingSaving(true);
+    try {
+      await updateThreePlOrder(trackingOrder.id, { trackingNumber: trackingInput.trim() });
+      setTrackingOrder(null);
+      refresh();
+    } catch (err) {
+      setTrackingOrder(null);
+      setError(err instanceof Error ? err.message : "Failed to save the tracking number");
+    } finally {
+      setTrackingSaving(false);
+    }
+  }
   const selectedOrders = orders.filter((o) => selectedIds.includes(o.id));
   // A partial refund is one order at a time; refunding several orders at once refunds each in full.
   const singleRefund = bulkStatus === "REFUNDED" && selectedOrders.length === 1 && selectedOrders[0].status !== "REFUNDED";
@@ -368,8 +411,6 @@ export default function OrdersPage() {
     },
   });
 
-  const isDropshipThreePl = threePlBulk && myThreePlType === ProductFulfillmentType.DROPSHIP;
-
   const columns: TableColumnsType<OrderDto> = [
     ...(isDropshipThreePl
       ? [
@@ -379,8 +420,8 @@ export default function OrdersPage() {
             render: (_: unknown, order: OrderDto) => (
               <EditAction
                 onClick={() => setThreePlEditing(order)}
-                disabled={order.status !== "PROCESSING" && order.status !== "SHIPPED"}
-                disabledReason="Only PROCESSING or SHIPPED orders can be edited"
+                disabled={order.status !== "PROCESSING"}
+                disabledReason="Only PROCESSING orders can be edited"
               />
             ),
           },
@@ -401,24 +442,8 @@ export default function OrdersPage() {
           },
         ]
       : []),
-    ...(bulkMode
-      ? [
-          {
-            title: "Status",
-            key: "status",
-            render: (_: unknown, order: OrderDto) => (
-              <Space size="small">
-                {statusTag(order.status)}
-                {isThreePl && order.stale && (
-                  <Tooltip title={`In this status for ${order.daysInStatus} days`}>
-                    <Tag color="red">⚠ {order.daysInStatus}d</Tag>
-                  </Tooltip>
-                )}
-              </Space>
-            ),
-          },
-        ]
-      : []),
+    // 3PLs only list one status at a time (their Processing / Shipped orders), so they get no Status column.
+    ...(canBulkEdit ? [{ title: "Status", key: "status", render: (_: unknown, order: OrderDto) => statusTag(order.status) }] : []),
     {
       title: "Products",
       key: "products",
@@ -435,6 +460,11 @@ export default function OrdersPage() {
                   <div className="text-xs text-slate-500">
                     {product?.sku ?? "—"} · ×{item.quantity}
                   </div>
+                  {isStockThreePl && product && (
+                    <div className={`text-xs ${product.stockQuantity <= 0 ? "text-red-600" : product.stockQuantity <= 5 ? "text-orange-500" : "text-slate-500"}`}>
+                      {product.stockQuantity} left in stock
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -442,14 +472,18 @@ export default function OrdersPage() {
         </div>
       ),
     },
-    {
-      title: "Source",
-      key: "source",
-      render: (_, o) => {
-        const product = productById.get(o.items[0]?.productId ?? "");
-        return product ? (SOURCE_LABEL[product.fulfillmentType] ?? product.fulfillmentType) : "—";
-      },
-    },
+    ...(isThreePl
+      ? []
+      : [
+          {
+            title: "Source",
+            key: "source",
+            render: (_: unknown, o: OrderDto) => {
+              const product = productById.get(o.items[0]?.productId ?? "");
+              return product ? (SOURCE_LABEL[product.fulfillmentType] ?? product.fulfillmentType) : "—";
+            },
+          },
+        ]),
     ...(isManager
       ? [{ title: "Account Holder", key: "accountHolder", render: (_: unknown, o: OrderDto) => userLabel(userById.get(o.accountHolderId)) }]
       : []),
@@ -477,7 +511,33 @@ export default function OrdersPage() {
         </span>
       ),
     },
-    { title: "Tracking #", dataIndex: "trackingNumber", render: (v) => v ?? "—" },
+    // Dropship 3PLs don't handle tracking numbers; a STOCK 3PL adds/edits them on its Shipped tab.
+    ...(isDropshipThreePl || (isStockThreePl && threePlTab === "PROCESSING")
+      ? []
+      : [
+          {
+            title: "Tracking #",
+            key: "trackingNumber",
+            render: (_: unknown, o: OrderDto) =>
+              isStockThreePl ? (
+                <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                  {o.trackingNumber ?? <span className="text-orange-500">Not added</span>}
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<EditOutlined />}
+                    aria-label="Edit tracking number"
+                    onClick={() => {
+                      setTrackingInput(o.trackingNumber ?? "");
+                      setTrackingOrder(o);
+                    }}
+                  />
+                </span>
+              ) : (
+                (o.trackingNumber ?? "—")
+              ),
+          },
+        ]),
     { title: "Qty", key: "qty", render: (_, o) => o.items.reduce((sum, i) => sum + i.quantity, 0) },
     ...(isStockOwnerView
       ? [
@@ -565,7 +625,7 @@ export default function OrdersPage() {
               ),
           },
         ]),
-    ...(isThreePl
+    ...(isThreePl && !isDropshipThreePl && threePlListStatus === "PROCESSING"
       ? [
           {
             title: "Label",
@@ -583,6 +643,20 @@ export default function OrdersPage() {
               ) : (
                 "—"
               ),
+          },
+        ]
+      : []),
+    ...(threePlSelectable
+      ? [
+          {
+            key: "ship",
+            render: (_: unknown, order: OrderDto) => (
+              <Tooltip title={missingBuyPrice(order) ? "Enter the buy price of every product first (Edit)" : undefined}>
+                <Button size="small" icon={<SendOutlined />} disabled={!canMarkShipped(order)} onClick={() => openMarkShipped(order)}>
+                  Mark as shipped
+                </Button>
+              </Tooltip>
+            ),
           },
         ]
       : []),
@@ -659,21 +733,20 @@ export default function OrdersPage() {
                 </label>
               </>
             )}
-            <label>
-              Status
-              <Select
-                allowClear
-                disabled={searchingRef}
-                placeholder="All"
-                value={filter.status || undefined}
-                onChange={(v) => setFilter((f) => ({ ...f, status: v ?? "" }))}
-                options={[
-                  ...STATUSES.map((s) => ({ value: s, label: s })),
-                  ...(threePlBulk ? [{ value: NO_TRACKING, label: "No tracking #" }] : []),
-                ]}
-                className="mt-1 flex w-36"
-              />
-            </label>
+            {!threePlBulk && (
+              <label>
+                Status
+                <Select
+                  allowClear
+                  disabled={searchingRef}
+                  placeholder="All"
+                  value={filter.status || undefined}
+                  onChange={(v) => setFilter((f) => ({ ...f, status: v ?? "" }))}
+                  options={STATUSES.map((s) => ({ value: s, label: s }))}
+                  className="mt-1 flex w-36"
+                />
+              </label>
+            )}
             <label>
               Start date
               <DateField disabled={searchingRef} value={filter.startDate} onChange={(v) => setFilter((f) => ({ ...f, startDate: v }))} className="mt-1 flex" />
@@ -692,32 +765,47 @@ export default function OrdersPage() {
               total={orders.length}
               statuses={countStatuses}
               counts={Object.fromEntries(statusCounts)}
-              active={searchingRef ? null : filter.status || null}
-              onSelect={(st) => setFilter((f) => ({ ...f, status: st ?? "" }))}
+              active={threePlBulk || searchingRef ? null : filter.status || null}
+              onSelect={threePlBulk ? undefined : (st) => setFilter((f) => ({ ...f, status: st ?? "" }))}
               labels={{ [NO_TRACKING]: "No tracking #" }}
               colors={{ [NO_TRACKING]: "#ea580c" }}
             />
           </div>
         )}
 
+        {isStockThreePl && (
+          <Tabs
+            className="mt-4"
+            activeKey={threePlTab}
+            onChange={(key) => {
+              setThreePlTab(key as "PROCESSING" | "SHIPPED");
+              setSelectedIds([]);
+            }}
+            items={[
+              { key: "PROCESSING", label: `Processing (${statusCounts.get("PROCESSING") ?? 0})` },
+              { key: "SHIPPED", label: `Shipped (${statusCounts.get("SHIPPED") ?? 0})` },
+            ]}
+          />
+        )}
+
         <Table<OrderDto>
-          className={bulkMode && selectedIds.length > 0 ? "mt-6 mb-24" : "mt-6"}
+          className={`${isStockThreePl ? "mt-2" : "mt-6"} ${bulkMode && selectedIds.length > 0 ? "mb-24" : ""}`}
           rowKey="id"
           size="small"
           columns={columns}
           dataSource={visibleOrders}
           rowClassName={(o) => (o.comments ? "order-row-comment" : "")}
           rowSelection={
-            bulkMode
+            canBulkEdit || threePlSelectable
               ? {
                   selectedRowKeys: selectedIds,
                   onChange: setSelectedIds,
                   selections: [Table.SELECTION_ALL, Table.SELECTION_NONE],
                   fixed: true,
-                  getCheckboxProps: (o: OrderDto) => ({ disabled: threePlBulk && o.status !== "PROCESSING" }),
+                  getCheckboxProps: (o: OrderDto) => ({ disabled: threePlBulk && !canMarkShipped(o) }),
                   renderCell: (_checked, o, _index, node) =>
-                    threePlBulk && o.status !== "PROCESSING" ? (
-                      <Tooltip title="Only PROCESSING orders can be marked as shipped">{node}</Tooltip>
+                    threePlBulk && missingBuyPrice(o) ? (
+                      <Tooltip title="Enter the buy price of every product first (Edit)">{node}</Tooltip>
                     ) : (
                       node
                     ),
@@ -739,26 +827,39 @@ export default function OrdersPage() {
                 Clear
               </Button>
             </div>
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-slate-500">Change status to</span>
-              <Select
-                placeholder="Select status"
-                value={bulkStatus}
-                onChange={setBulkStatus}
-                options={bulkStatuses.map((s) => ({ value: s, label: s }))}
-                className="w-40"
-              />
+            {threePlBulk ? (
               <Button
                 type="primary"
-                disabled={!bulkStatus}
+                icon={<SendOutlined />}
                 onClick={() => {
-                  setRefundChoice(FULL_REFUND);
+                  setBulkStatus("SHIPPED" as OrderStatus);
                   setConfirmOpen(true);
                 }}
               >
-                Save
+                Mark as shipped
               </Button>
-            </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-slate-500">Change status to</span>
+                <Select
+                  placeholder="Select status"
+                  value={bulkStatus}
+                  onChange={setBulkStatus}
+                  options={bulkStatuses.map((s) => ({ value: s, label: s }))}
+                  className="w-40"
+                />
+                <Button
+                  type="primary"
+                  disabled={!bulkStatus}
+                  onClick={() => {
+                    setRefundChoice(FULL_REFUND);
+                    setConfirmOpen(true);
+                  }}
+                >
+                  Save
+                </Button>
+              </div>
+            )}
           </div>
         )}
 
@@ -783,6 +884,25 @@ export default function OrdersPage() {
           {refundOrder && <RefundChoice order={refundOrder} value={refundChoice} onChange={setRefundChoice} />}
         </Modal>
 
+        <Modal
+          open={!!trackingOrder}
+          title={`Tracking number · Order ${trackingOrder?.ebayOrderRef ?? ""}`}
+          okText="Save"
+          onOk={handleTrackingSave}
+          confirmLoading={trackingSaving}
+          onCancel={() => !trackingSaving && setTrackingOrder(null)}
+          maskClosable={!trackingSaving}
+        >
+          <Input
+            autoFocus
+            allowClear
+            placeholder="Tracking number"
+            value={trackingInput}
+            onChange={(e) => setTrackingInput(e.target.value)}
+            onPressEnter={handleTrackingSave}
+          />
+        </Modal>
+
         <ThreePlOrderModal
           order={threePlEditing}
           productById={productById}
@@ -797,7 +917,7 @@ export default function OrdersPage() {
 
         <Modal
           open={confirmOpen}
-          title="Confirm status change"
+          title={threePlBulk ? "Mark as shipped" : "Confirm status change"}
           width={560}
           onCancel={() => !bulkSaving && setConfirmOpen(false)}
           maskClosable={!bulkSaving}

@@ -1,7 +1,7 @@
 "use client";
 
 import type { Currency, OrderDto, ProductDto } from "@ebay-order-management/shared";
-import { Alert, Descriptions, Form, Input, InputNumber, Modal, Switch, Tag } from "antd";
+import { Alert, Descriptions, Form, Input, InputNumber, Modal } from "antd";
 import { useEffect, useState } from "react";
 import ProductThumb from "@/components/ProductThumb";
 import { isInvoiced } from "@/components/InvoiceStatusTags";
@@ -12,14 +12,13 @@ import { formatDate } from "@/lib/date";
 interface FormValues {
   buyTotals: Record<string, number | null>;
   supplierUrl: string;
-  trackingNumber: string;
-  markShipped: boolean;
 }
 
 /**
- * Edit popup for a DROPSHIP 3PL on the orders list. Shows the order as it appears in their row (read-only) plus the only
- * fields they may change: each line's buy total (in their currency, locked once invoiced), the supplier URL, the
- * tracking number (optional — they can come back and add it after shipping) and PROCESSING -> SHIPPED.
+ * Edit popup for a DROPSHIP 3PL on the orders list (PROCESSING orders). Shows the order as it appears in their row
+ * (read-only) plus the only fields they may change: each line's buy total (in their currency, locked once invoiced)
+ * and the supplier URL. They don't enter tracking numbers, and shipping is the row's "Mark as shipped" button — which
+ * needs every buy price first.
  */
 export default function ThreePlOrderModal({
   order,
@@ -46,14 +45,11 @@ export default function ThreePlOrderModal({
     form.setFieldsValue({
       buyTotals: Object.fromEntries(order.items.map((i) => [i.id, i.buyTotalOriginal ?? i.buyTotalSnapshot])),
       supplierUrl: order.supplierUrl ?? "",
-      trackingNumber: order.trackingNumber ?? "",
-      markShipped: false,
     });
   }, [order, form]);
 
   if (!order) return null;
   const buyLocked = isInvoiced(order);
-  const canShip = order.status === "PROCESSING";
 
   async function handleSave(values: FormValues) {
     if (!order) return;
@@ -72,8 +68,6 @@ export default function ThreePlOrderModal({
       await updateThreePlOrder(order.id, {
         ...(buyTotals.length ? { buyTotals } : {}),
         supplierUrl: values.supplierUrl ?? "",
-        trackingNumber: values.trackingNumber ?? "",
-        markShipped: canShip && values.markShipped,
       });
       onSaved();
     } catch (err) {
@@ -144,21 +138,14 @@ export default function ThreePlOrderModal({
           })}
         </div>
 
-        <Form.Item name="supplierUrl" label="Supplier/product listing URL" rules={[{ type: "url", message: "Enter a valid URL" }]}>
+        <Form.Item
+          name="supplierUrl"
+          label="Supplier/product listing URL"
+          rules={[{ type: "url", message: "Enter a valid URL" }]}
+          className="mb-0"
+        >
           <Input placeholder="https://…" allowClear />
         </Form.Item>
-        <Form.Item name="trackingNumber" label="Tracking number" extra="Optional — you can add it later.">
-          <Input placeholder="Tracking number" allowClear />
-        </Form.Item>
-        {canShip ? (
-          <Form.Item name="markShipped" label="Mark as shipped" valuePropName="checked" className="mb-0">
-            <Switch checkedChildren="SHIPPED" unCheckedChildren="PROCESSING" />
-          </Form.Item>
-        ) : (
-          <div className="text-sm text-slate-500">
-            Status: <Tag>{order.status}</Tag>
-          </div>
-        )}
       </Form>
     </Modal>
   );

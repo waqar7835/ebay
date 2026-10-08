@@ -627,17 +627,24 @@ export class OrdersService {
   }
 
   /**
-   * A DROPSHIP 3PL's Edit popup on the orders list: line buy totals (until the order is invoiced), the supplier URL,
-   * the tracking number and PROCESSING -> SHIPPED. Only while the order is PROCESSING or SHIPPED; all in one save.
+   * A 3PL's own edits from the orders list (decided 2026-10-08). DROPSHIP 3PL (Edit popup, PROCESSING orders only — the
+   * only ones it sees): line buy totals (until the order is invoiced) and the supplier URL; it doesn't enter tracking
+   * numbers. STOCK 3PL (Shipped tab): the tracking number, on PROCESSING or SHIPPED orders. One save, no status change.
    */
   async updateThreePlFulfillment(companyId: string, requester: JwtPayload, id: string, dto: ThreePlFulfillmentDto) {
     const order = await this.get(companyId, id);
     this.assertAssignedThreePl(order, requester);
-    if (order.status !== OrderStatus.PROCESSING && order.status !== OrderStatus.SHIPPED) {
-      throw new BadRequestException("Only PROCESSING or SHIPPED orders can be edited");
-    }
-    if (!(await this.isDropshipOrder(order))) {
-      throw new BadRequestException("Only DROPSHIP orders can be edited by their 3PL");
+    const dropship = await this.isDropshipOrder(order);
+    if (dropship) {
+      if (order.status !== OrderStatus.PROCESSING) throw new BadRequestException("Only PROCESSING orders can be edited");
+      if (dto.trackingNumber !== undefined) throw new BadRequestException("Tracking numbers on dropship orders are entered by the admin");
+    } else {
+      if (order.status !== OrderStatus.PROCESSING && order.status !== OrderStatus.SHIPPED) {
+        throw new BadRequestException("Only PROCESSING or SHIPPED orders can be edited");
+      }
+      if (dto.buyTotals?.length || dto.supplierUrl !== undefined) {
+        throw new BadRequestException("A Stock order's 3PL can only change its tracking number");
+      }
     }
 
     await this.orderModel.sequelize!.transaction(async (transaction) => {
@@ -645,12 +652,7 @@ export class OrdersService {
       if (dto.supplierUrl !== undefined) order.supplierUrl = dto.supplierUrl.trim() || null;
       if (dto.trackingNumber !== undefined) order.trackingNumber = dto.trackingNumber.trim() || null;
       for (const i of order.items) if (i.changed()) await i.save({ transaction });
-      if (dto.markShipped && order.status === OrderStatus.PROCESSING) {
-        this.assertStatusTransitionAllowed(order, requester, OrderStatus.SHIPPED);
-        await this.applyStatus(order, OrderStatus.SHIPPED, transaction);
-      } else {
-        await order.save({ transaction });
-      }
+      await order.save({ transaction });
     });
     return this.getForRequester(companyId, requester, id);
   }

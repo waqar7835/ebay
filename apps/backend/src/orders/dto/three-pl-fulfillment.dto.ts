@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsArray, IsBoolean, IsNumber, IsOptional, IsString, MaxLength, Min, ValidateNested } from "class-validator";
+import { IsArray, IsNumber, IsOptional, IsString, MaxLength, Min, ValidateNested } from "class-validator";
 
 export class ThreePlBuyTotalDto {
   @IsString()
@@ -12,8 +12,10 @@ export class ThreePlBuyTotalDto {
 }
 
 /**
- * What a DROPSHIP 3PL may change on its own order from the orders list's Edit popup. Omitted fields are left as they
- * are; an empty string clears the supplier URL / tracking number.
+ * What a 3PL may change on its own order from the orders list (decided 2026-10-08). A DROPSHIP 3PL: the line buy
+ * totals and the supplier URL, while the order is PROCESSING. A STOCK 3PL: the tracking number, while the order is
+ * PROCESSING or SHIPPED. Omitted fields are left as they are; an empty string clears the supplier URL / tracking number.
+ * Shipping is a status change (PATCH /orders/status or /orders/:id/status), not part of this.
  */
 export class ThreePlFulfillmentDto {
   @IsOptional()
@@ -32,8 +34,4 @@ export class ThreePlFulfillmentDto {
   @MaxLength(200)
   trackingNumber?: string;
 
-  /** PROCESSING -> SHIPPED, the only status move a 3PL makes. */
-  @IsOptional()
-  @IsBoolean()
-  markShipped?: boolean;
 }

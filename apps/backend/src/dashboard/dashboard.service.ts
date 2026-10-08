@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { InjectModel } from "@nestjs/sequelize";
 import { Op } from "sequelize";
-import { OrderStatus, Role, UserStatus } from "@ebay-order-management/shared";
+import { OrderStatus, ProductFulfillmentType, Role, UserStatus } from "@ebay-order-management/shared";
 import { Company } from "../database/models/company.model";
 import { Order } from "../database/models/order.model";
 import { OrderItem } from "../database/models/order-item.model";
@@ -428,7 +428,10 @@ export class DashboardService {
     for (const r of rows) byStatus[r.status] = Number(r.count);
     const total = Object.values(byStatus).reduce((sum, n) => sum + n, 0);
     if (who.role !== "3PL") return { total, byStatus };
-    // 3PLs also get a "No tracking #" card: shipped/delivered with no tracking number entered yet.
+    // STOCK 3PLs also get a "No tracking #" card: shipped/delivered with no tracking number entered yet. A DROPSHIP 3PL
+    // doesn't enter tracking numbers (decided 2026-10-08), so it doesn't.
+    const profile = await this.threePlProfileModel.findByPk(who.userId);
+    if (profile?.fulfillmentType === ProductFulfillmentType.DROPSHIP) return { total, byStatus };
     const noTracking = await this.orderModel.unscoped().count({
       where: {
         ...where,
