@@ -13,7 +13,7 @@ export const STATUS_COLORS: Record<string, string> = {
 /**
  * A row of count cards: a gradient Total card, then one card per status in its status color. With `onSelect` the
  * cards are buttons that pick a status (null = Total) and `active` highlights the current one; without it they're
- * display-only.
+ * display-only. `labels` / `colors` name and color extra, non-status cards (e.g. the 3PL "No tracking #" card).
  */
 export default function StatusCounts({
   totalLabel,
@@ -22,11 +22,15 @@ export default function StatusCounts({
   counts,
   active,
   onSelect,
+  labels,
+  colors,
 }: {
   totalLabel: string;
   total: number;
   statuses: string[];
   counts: Record<string, number>;
+  labels?: Record<string, string>;
+  colors?: Record<string, string>;
   active?: string | null;
   onSelect?: (status: string | null) => void;
 }) {
@@ -36,9 +40,9 @@ export default function StatusCounts({
       {statuses.map((s) => (
         <StatusCount
           key={s}
-          label={s}
+          label={labels?.[s] ?? s}
           count={counts[s] ?? 0}
-          color={STATUS_COLORS[s]}
+          color={colors?.[s] ?? STATUS_COLORS[s]}
           active={!!onSelect && active === s}
           onClick={onSelect && (() => onSelect(active === s ? null : s))}
         />

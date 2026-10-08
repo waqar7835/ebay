@@ -224,6 +224,8 @@ export interface DashboardOrderItem {
 export interface UninvoicedCounts {
   total: number;
   byStatus: Record<string, number>;
+  /** 3PL only: SHIPPED/DELIVERED orders with no tracking number. */
+  noTracking?: number;
 }
 
 export interface AccountHolderDashboard {

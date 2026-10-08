@@ -49,6 +49,10 @@ interface UserOption {
 
 const STATUSES: OrderStatus[] = ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "REFUNDED"] as OrderStatus[];
 
+// Pseudo-status for the 3PL "No tracking #" card / filter: shipped or delivered but no tracking number entered yet.
+const NO_TRACKING = "NO_TRACKING";
+const needsTracking = (o: OrderDto) => (o.status === "SHIPPED" || o.status === "DELIVERED") && !o.trackingNumber?.trim();
+
 const statusTag = (status: string) => <Tag color={STATUS_COLORS[status]}>{status}</Tag>;
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -98,12 +102,15 @@ export default function OrdersPage() {
   const canBulkEdit =
     (currentUser?.roles.includes(Role.ADMIN) ?? false) ||
     (!!currentUser?.roles.includes(Role.STAFF) && !!currentUser?.staffPermissions?.canManageOrders);
+  // Creating needs canManageOrders (the API refuses everyone else), same test as the Orders nav link used to be.
+  const canCreate = (currentUser?.roles.includes(Role.ADMIN) ?? false) || !!currentUser?.staffPermissions?.canManageOrders;
   // A 3PL gets the same, limited to what it may do anyway: mark its own PROCESSING orders SHIPPED.
   const threePlBulk = isThreePl && !canBulkEdit;
   const bulkMode = canBulkEdit || threePlBulk;
   const bulkStatuses = threePlBulk ? ["SHIPPED" as OrderStatus] : STATUSES;
   // 3PLs never see PENDING orders, so that count card is left out for them.
-  const countStatuses = threePlBulk ? STATUSES.filter((st) => st !== "PENDING") : STATUSES;
+  // ...and get an extra "No tracking #" card.
+  const countStatuses: string[] = threePlBulk ? [...STATUSES.filter((st) => st !== "PENDING"), NO_TRACKING] : STATUSES;
   const defaultBulkStatus = threePlBulk ? ("SHIPPED" as OrderStatus) : undefined;
 
   const [selectedIds, setSelectedIds] = useState<Key[]>([]);
@@ -165,8 +172,10 @@ export default function OrdersPage() {
   const accountHolders = users.filter((u) => u.roles.includes("ACCOUNT_HOLDER"));
   const threePls = users.filter((u) => u.roles.includes("THREE_PL"));
 
-  const visibleOrders = bulkMode && filter.status ? orders.filter((o) => o.status === filter.status) : orders;
-  const statusCounts = new Map(STATUSES.map((s) => [s, orders.filter((o) => o.status === s).length]));
+  const matchesStatus = (o: OrderDto) => (filter.status === NO_TRACKING ? needsTracking(o) : o.status === filter.status);
+  const visibleOrders = bulkMode && filter.status ? orders.filter(matchesStatus) : orders;
+  const statusCounts = new Map<string, number>(STATUSES.map((s) => [s, orders.filter((o) => o.status === s).length]));
+  if (isThreePl) statusCounts.set(NO_TRACKING, orders.filter(needsTracking).length);
   const selectedOrders = orders.filter((o) => selectedIds.includes(o.id));
 
   async function handleBulkSave() {
@@ -533,9 +542,11 @@ export default function OrdersPage() {
       <main className="ml-56 p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Orders</h1>
-          <Button type="primary" onClick={() => router.push("/orders/new")}>
-            New order
-          </Button>
+          {canCreate && (
+            <Button type="primary" onClick={() => router.push("/orders/new")}>
+              New order
+            </Button>
+          )}
         </div>
 
         {error && <Alert type="error" title={error} className="mt-4" showIcon />}
@@ -577,7 +588,10 @@ export default function OrdersPage() {
                 placeholder="All"
                 value={filter.status || undefined}
                 onChange={(v) => setFilter((f) => ({ ...f, status: v ?? "" }))}
-                options={STATUSES.map((s) => ({ value: s, label: s }))}
+                options={[
+                  ...STATUSES.map((s) => ({ value: s, label: s })),
+                  ...(threePlBulk ? [{ value: NO_TRACKING, label: "No tracking #" }] : []),
+                ]}
                 className="mt-1 flex w-36"
               />
             </label>
@@ -601,6 +615,8 @@ export default function OrdersPage() {
               counts={Object.fromEntries(statusCounts)}
               active={filter.status || null}
               onSelect={(st) => setFilter((f) => ({ ...f, status: st ?? "" }))}
+              labels={{ [NO_TRACKING]: "No tracking #" }}
+              colors={{ [NO_TRACKING]: "#ea580c" }}
             />
           </div>
         )}

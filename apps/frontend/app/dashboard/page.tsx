@@ -1,8 +1,7 @@
 "use client";
 
-import type { OrderStatus, ProductDto } from "@ebay-order-management/shared";
-import { PrinterOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Result, Select, Statistic, Table, Tag, Tooltip as AntTooltip } from "antd";
+import type { ProductDto } from "@ebay-order-management/shared";
+import { Alert, Card, Result, Statistic, Tag } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -21,33 +20,26 @@ import {
   YAxis,
 } from "recharts";
 import Nav from "@/components/Nav";
-import DateField from "@/components/DateField";
-import ProductThumb from "@/components/ProductThumb";
 import {
   AccountHolderDashboard,
   DailyPoint,
-  DashboardOrderFilters,
-  DashboardOrderItem,
   StaffDashboard,
   StockOwnerDashboard,
   ThreePlDashboard,
-  ThreePlOrderRow,
   accountHolderDashboard,
   getStoredUser,
   getToken,
   listProducts,
-  mediaUrl,
   accountStatus,
   staffDashboard,
   stockOwnerDashboard,
   threePlDashboard,
-  updateOrderStatus,
   type UninvoicedCounts as UninvoicedCountsDto,
 } from "@/lib/api";
 import { pkr } from "@/lib/currency";
 import StatusCounts from "@/components/StatusCounts";
 
-const STATUS_OPTIONS: OrderStatus[] = ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "REFUNDED"] as OrderStatus[];
+const STATUS_OPTIONS = ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "REFUNDED"];
 const STATUS_COLORS: Record<string, string> = {
   PENDING: "#f59e0b",
   PROCESSING: "#3b82f6",
@@ -56,68 +48,6 @@ const STATUS_COLORS: Record<string, string> = {
   CANCELLED: "#ef4444",
   REFUNDED: "#6b7280",
 };
-
-interface FilterState {
-  status: string;
-  startDate: string;
-  endDate: string;
-}
-
-const emptyFilter: FilterState = { status: "", startDate: "", endDate: "" };
-
-function toQuery(f: FilterState): DashboardOrderFilters {
-  return {
-    status: (f.status || undefined) as OrderStatus | undefined,
-    startDate: f.startDate || undefined,
-    endDate: f.endDate || undefined,
-  };
-}
-
-function FilterBar({ value, onChange }: { value: FilterState; onChange: (next: FilterState) => void }) {
-  return (
-    <div className="mt-3 flex flex-wrap items-end gap-3 text-xs">
-      <label>
-        Status
-        <Select
-          allowClear
-          placeholder="All"
-          value={value.status || undefined}
-          onChange={(v) => onChange({ ...value, status: v ?? "" })}
-          options={STATUS_OPTIONS.map((s) => ({ value: s, label: s }))}
-          className="mt-1 flex w-36"
-        />
-      </label>
-      <label>
-        Start date
-        <DateField value={value.startDate} onChange={(v) => onChange({ ...value, startDate: v })} className="mt-1 flex" />
-      </label>
-      <label>
-        End date
-        <DateField value={value.endDate} onChange={(v) => onChange({ ...value, endDate: v })} className="mt-1 flex" />
-      </label>
-    </div>
-  );
-}
-
-/** Every product on an order, each with a readable thumbnail (click to preview) and its quantity when there are several. */
-function ProductsCell({ items, productById }: { items: DashboardOrderItem[]; productById: Map<string, ProductDto> }) {
-  return (
-    <div className="flex flex-col gap-2">
-      {items.map((item) => {
-        const product = productById.get(item.productId);
-        return (
-          <div key={item.productId} className="flex items-center gap-3">
-            <ProductThumb product={product} size={44} />
-            <span>
-              {product?.title ?? "—"}
-              {items.length > 1 && <span className="text-slate-500"> ×{item.quantity}</span>}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -177,26 +107,25 @@ function StatusPieChart({ data }: { data: Record<string, number> }) {
   );
 }
 
+
 /** Not-yet-invoiced orders for this viewer (all time, unaffected by the filters below), per status. */
 function UninvoicedCounts({ data, statuses = STATUS_OPTIONS }: { data: UninvoicedCountsDto; statuses?: string[] }) {
   return (
     <div className="mt-3">
       <div className="mb-2 text-sm font-medium text-slate-600">Not invoiced yet</div>
-      <StatusCounts totalLabel="Total orders" total={data.total} statuses={statuses} counts={data.byStatus} />
+      <StatusCounts
+        totalLabel="Total orders"
+        total={data.total}
+        statuses={data.noTracking === undefined ? statuses : [...statuses, "NO_TRACKING"]}
+        counts={{ ...data.byStatus, NO_TRACKING: data.noTracking ?? 0 }}
+        labels={{ NO_TRACKING: "No tracking #" }}
+        colors={{ NO_TRACKING: "#ea580c" }}
+      />
     </div>
   );
 }
 
-function StaleBadge({ daysInStatus }: { daysInStatus: number }) {
-  return (
-    <AntTooltip title={`In this status for ${daysInStatus} days`}>
-      <Tag color="red" className="ml-2">
-        ⚠ {daysInStatus}d
-      </Tag>
-    </AntTooltip>
-  );
-}
-
+// Order lists live on the Orders page; the dashboard only shows totals, charts and the not-invoiced counts.
 export default function DashboardPage() {
   const router = useRouter();
   const user = getStoredUser();
@@ -208,13 +137,6 @@ export default function DashboardPage() {
   const [staff, setStaff] = useState<StaffDashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [ahFilter, setAhFilter] = useState<FilterState>(emptyFilter);
-  const [soFilter, setSoFilter] = useState<FilterState>(emptyFilter);
-  const [tpFilter, setTpFilter] = useState<FilterState>(emptyFilter);
-  const [ahInit, setAhInit] = useState(false);
-  const [soInit, setSoInit] = useState(false);
-  const [tpInit, setTpInit] = useState(false);
-
   const productById = new Map(products.map((p) => [p.id, p]));
   const isStaffViewer =
     user?.roles.includes("ADMIN" as never) ||
@@ -222,100 +144,20 @@ export default function DashboardPage() {
     user?.roles.includes("SUPER_ADMIN" as never) ||
     user?.roles.includes("PLATFORM_STAFF" as never);
 
-  function refreshAh(filter: FilterState) {
-    if (!user?.roles.includes("ACCOUNT_HOLDER" as never)) return;
-    accountHolderDashboard(toQuery(filter))
-      .then((data) => {
-        setAh(data);
-        if (!ahInit) {
-          setAhFilter({ status: filter.status, startDate: data.listStart, endDate: data.listEnd });
-          setAhInit(true);
-        }
-      })
-      .catch((err) => setError(err.message));
-  }
-
-  function refreshSo(filter: FilterState) {
-    if (!user?.roles.includes("STOCK_OWNER" as never)) return;
-    stockOwnerDashboard(toQuery(filter))
-      .then((data) => {
-        setSo(data);
-        if (!soInit) {
-          setSoFilter({ status: filter.status, startDate: data.listStart, endDate: data.listEnd });
-          setSoInit(true);
-        }
-      })
-      .catch((err) => setError(err.message));
-  }
-
-  function refreshTp(filter: FilterState) {
-    if (!user?.roles.includes("THREE_PL" as never)) return;
-    threePlDashboard(toQuery(filter))
-      .then((data) => {
-        setTp(data);
-        if (!tpInit) {
-          setTpFilter({ status: filter.status, startDate: data.listStart, endDate: data.listEnd });
-          setTpInit(true);
-        }
-      })
-      .catch((err) => setError(err.message));
-  }
-
-  function refreshStaff() {
-    if (!isStaffViewer) return;
-    staffDashboard()
-      .then(setStaff)
-      .catch((err) => setError(err.message));
-  }
-
   useEffect(() => {
     if (!getToken()) {
       router.push("/login");
       return;
     }
+    const onError = (err: Error) => setError(err.message);
     accountStatus().then((s) => setBlocked(s.disabled)).catch(() => undefined);
     listProducts().then(setProducts).catch(() => undefined);
-    refreshAh(emptyFilter);
-    refreshSo(emptyFilter);
-    refreshTp(emptyFilter);
-    refreshStaff();
+    if (user?.roles.includes("ACCOUNT_HOLDER" as never)) accountHolderDashboard().then(setAh).catch(onError);
+    if (user?.roles.includes("STOCK_OWNER" as never)) stockOwnerDashboard().then(setSo).catch(onError);
+    if (user?.roles.includes("THREE_PL" as never)) threePlDashboard().then(setTp).catch(onError);
+    if (isStaffViewer) staffDashboard().then(setStaff).catch(onError);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
-
-  useEffect(() => {
-    if (ahInit) refreshAh(ahFilter);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ahFilter.status, ahFilter.startDate, ahFilter.endDate]);
-
-  useEffect(() => {
-    if (soInit) refreshSo(soFilter);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [soFilter.status, soFilter.startDate, soFilter.endDate]);
-
-  useEffect(() => {
-    if (tpInit) refreshTp(tpFilter);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tpFilter.status, tpFilter.startDate, tpFilter.endDate]);
-
-  async function advanceThreePl(orderId: string, next: OrderStatus) {
-    await updateOrderStatus(orderId, next);
-    refreshTp(tpFilter);
-  }
-
-  function printLabel(shippingLabelUrl: string) {
-    const win = window.open(mediaUrl(shippingLabelUrl), "_blank");
-    if (win) {
-      setTimeout(() => win.print(), 500);
-    }
-  }
-
-  const productColumn = {
-    title: "Product",
-    key: "product",
-    render: (_: unknown, o: { items: DashboardOrderItem[] }) => <ProductsCell items={o.items} productById={productById} />,
-  };
-  // All dashboard figures are PKR.
-  const money = (v: number) => pkr(v);
 
   if (blocked) {
     return (
@@ -400,28 +242,6 @@ export default function DashboardPage() {
               </ChartCard>
             </div>
 
-            {staff.agingOrders.length > 0 && (
-              <Card
-                size="small"
-                className="mt-3 border-red-200 bg-red-50"
-                title={<span className="text-xs font-medium text-red-700">Orders stuck in status for {staff.staleOrderDays}+ days</span>}
-              >
-                <Table
-                  rowKey="orderId"
-                  size="small"
-                  pagination={false}
-                  dataSource={staff.agingOrders}
-                  columns={[
-                    { title: "Order", dataIndex: "ebayOrderRef" },
-                    { title: "Status", dataIndex: "status" },
-                    { title: "Days", dataIndex: "daysInStatus", render: (v: number) => <span className="font-medium text-red-700">{v}</span> },
-                    { title: "Account Holder", dataIndex: "accountHolderName" },
-                    { title: "Stock Owner", dataIndex: "stockOwnerName", render: (v: string | null) => v ?? "—" },
-                    { title: "3PL", dataIndex: "threePlName", render: (v: string | null) => v ?? "—" },
-                  ]}
-                />
-              </Card>
-            )}
           </section>
         )}
 
@@ -440,23 +260,6 @@ export default function DashboardPage() {
                 <DailyLineChart data={ah.ordersByDay} color="#3b82f6" valueLabel="orders" />
               </ChartCard>
             </div>
-            <FilterBar value={ahFilter} onChange={setAhFilter} />
-            <Table
-              className="mt-2"
-              rowKey="orderId"
-              size="small"
-              pagination={false}
-              dataSource={ah.orders}
-              locale={{ emptyText: "No orders in this range." }}
-              columns={[
-                { title: "Order", dataIndex: "ebayOrderRef" },
-                productColumn,
-                { title: "Qty", dataIndex: "quantity" },
-                { title: "Status", dataIndex: "status" },
-                { title: "Profit", dataIndex: "profit", render: money },
-                { title: "Your payout", dataIndex: "payout", render: money },
-              ]}
-            />
           </section>
         )}
 
@@ -479,22 +282,6 @@ export default function DashboardPage() {
                 />
               </ChartCard>
             </div>
-            <FilterBar value={soFilter} onChange={setSoFilter} />
-            <Table
-              className="mt-2"
-              rowKey="orderId"
-              size="small"
-              pagination={false}
-              dataSource={so.orders}
-              locale={{ emptyText: "No orders in this range." }}
-              columns={[
-                { title: "Order", dataIndex: "ebayOrderRef" },
-                productColumn,
-                { title: "Status", dataIndex: "status" },
-                { title: "Qty", dataIndex: "quantity" },
-                { title: "Your net", dataIndex: "net", render: money },
-              ]}
-            />
           </section>
         )}
 
@@ -509,77 +296,6 @@ export default function DashboardPage() {
                 <DailyLineChart data={tp.fulfilledByDay} color="#8b5cf6" valueLabel="orders" />
               </ChartCard>
             </div>
-            <FilterBar value={tpFilter} onChange={setTpFilter} />
-
-            <h3 className="mt-4 font-medium">Needs processing</h3>
-            <Table<ThreePlOrderRow>
-              className="mt-2"
-              rowKey="orderId"
-              size="small"
-              pagination={false}
-              dataSource={tp.toProcess}
-              locale={{ emptyText: "Nothing to process." }}
-              columns={[
-                { title: "Order", dataIndex: "ebayOrderRef" },
-                productColumn,
-                { title: "Qty", dataIndex: "quantity" },
-                {
-                  title: "Status",
-                  key: "status",
-                  render: (_, o) => (
-                    <>
-                      {o.status}
-                      {o.stale && <StaleBadge daysInStatus={o.daysInStatus} />}
-                    </>
-                  ),
-                },
-                {
-                  key: "advance",
-                  render: (_, o) =>
-                    o.status === "PENDING" ? (
-                      <Button size="small" onClick={() => advanceThreePl(o.orderId, "PROCESSING" as OrderStatus)}>
-                        Start processing
-                      </Button>
-                    ) : o.status === "PROCESSING" ? (
-                      <Button size="small" onClick={() => advanceThreePl(o.orderId, "SHIPPED" as OrderStatus)}>
-                        Mark shipped
-                      </Button>
-                    ) : null,
-                },
-                {
-                  key: "label",
-                  render: (_, o) =>
-                    o.status === "PROCESSING" &&
-                    o.shippingLabelUrl && (
-                      <Button
-                        size="small"
-                        icon={<PrinterOutlined />}
-                        onClick={() => printLabel(o.shippingLabelUrl as string)}
-                        title="Print shipping label"
-                      >
-                        Print
-                      </Button>
-                    ),
-                },
-              ]}
-            />
-
-            <h3 className="mt-4 font-medium">Fulfilled this cycle</h3>
-            <Table<ThreePlOrderRow>
-              className="mt-2"
-              rowKey="orderId"
-              size="small"
-              pagination={false}
-              showHeader={false}
-              dataSource={tp.fulfilled}
-              locale={{ emptyText: "Nothing fulfilled in this range." }}
-              columns={[
-                { title: "Order", dataIndex: "ebayOrderRef" },
-                productColumn,
-                { title: "Qty", dataIndex: "quantity" },
-                { title: "Status", dataIndex: "status" },
-              ]}
-            />
           </section>
         )}
       </main>

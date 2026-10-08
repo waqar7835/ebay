@@ -426,7 +426,17 @@ export class DashboardService {
     }[];
     const byStatus = Object.fromEntries(Object.values(OrderStatus).map((st) => [st, 0])) as Record<OrderStatus, number>;
     for (const r of rows) byStatus[r.status] = Number(r.count);
-    return { total: Object.values(byStatus).reduce((sum, n) => sum + n, 0), byStatus };
+    const total = Object.values(byStatus).reduce((sum, n) => sum + n, 0);
+    if (who.role !== "3PL") return { total, byStatus };
+    // 3PLs also get a "No tracking #" card: shipped/delivered with no tracking number entered yet.
+    const noTracking = await this.orderModel.unscoped().count({
+      where: {
+        ...where,
+        status: [OrderStatus.SHIPPED, OrderStatus.DELIVERED],
+        [Op.or]: [{ trackingNumber: null }, { trackingNumber: "" }],
+      },
+    });
+    return { total, byStatus, noTracking };
   }
 
   private async orderIdsForStockOwner(stockOwnerId: string): Promise<string[]> {
