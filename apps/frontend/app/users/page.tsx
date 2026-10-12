@@ -1,6 +1,6 @@
 "use client";
 
-import type { Role } from "@ebay-order-management/shared";
+import { DEFAULT_LIST_PAGE_SIZE, LIST_PAGE_SIZES, type Role } from "@ebay-order-management/shared";
 import type { CompanySubscriptionDto } from "@ebay-order-management/shared";
 import { Alert, Avatar, Button, Space, Table, Tag, Tooltip, type TableColumnsType } from "antd";
 import Link from "next/link";
@@ -9,7 +9,7 @@ import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import RoleTag, { roleLabel } from "@/components/RoleTag";
 import { DeleteAction, EditAction, ToggleStatusAction } from "@/components/RowActions";
-import { deleteUser, getSubscription, getToken, listUsers, mediaUrl, setUserStatus } from "@/lib/api";
+import { deleteUser, getSubscription, getToken, listUsersPage, mediaUrl, setUserStatus } from "@/lib/api";
 
 interface UserRow {
   id: string;
@@ -24,16 +24,31 @@ interface UserRow {
 export default function UsersPage() {
   const router = useRouter();
   const [users, setUsers] = useState<UserRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_LIST_PAGE_SIZE);
+  const [subscriptionDisabledCount, setSubscriptionDisabledCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [subscription, setSubscription] = useState<CompanySubscriptionDto | null>(null);
 
-  function refresh() {
+  // Server-side page, plus the plan usage (both change when a user is enabled, disabled or deleted).
+  function refresh(p = page, size = pageSize) {
     getSubscription()
       .then(setSubscription)
       .catch(() => undefined);
-    listUsers()
-      .then(setUsers)
+    setLoading(true);
+    listUsersPage(p, size)
+      .then((res) => {
+        // Deleting the last row of the last page: step back a page.
+        if (res.data.length === 0 && res.total > 0 && p > 1) {
+          setPage(Math.ceil(res.total / size));
+          return;
+        }
+        setUsers(res.data as UserRow[]);
+        setTotal(res.total);
+        setSubscriptionDisabledCount(res.subscriptionDisabled);
+      })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"))
       .finally(() => setLoading(false));
   }
@@ -43,13 +58,14 @@ export default function UsersPage() {
       router.push("/login");
       return;
     }
-    refresh();
-  }, [router]);
+    refresh(page, pageSize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router, page, pageSize]);
 
-  async function toggleStatus(user: UserRow) {
+  async function setStatus(user: UserRow, enable: boolean) {
     setError(null);
     try {
-      await setUserStatus(user.id, user.status === "DISABLED");
+      await setUserStatus(user.id, enable);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update user");
     }
@@ -66,8 +82,6 @@ export default function UsersPage() {
     refresh();
   }
 
-  const subscriptionDisabledCount = users.filter((u) => u.disabledBySubscription && u.status === "DISABLED").length;
-
   const columns: TableColumnsType<UserRow> = [
     {
       title: "Name",
@@ -80,9 +94,8 @@ export default function UsersPage() {
           {v ?? "—"}
         </span>
       ),
-      sorter: (a, b) => (a.name ?? "").localeCompare(b.name ?? ""),
     },
-    { title: "Email", dataIndex: "email", sorter: (a, b) => a.email.localeCompare(b.email) },
+    { title: "Email", dataIndex: "email" },
     { title: "Roles", dataIndex: "roles", render: (roles: Role[]) => roles.map((r) => <RoleTag key={r} role={r} />) },
     {
       title: "Status",
@@ -99,13 +112,28 @@ export default function UsersPage() {
       ),
     },
     {
+      title: "Actions",
       key: "actions",
+      align: "right",
       render: (_, u) => (
         <Space size={2}>
           <EditAction onClick={() => router.push(`/users/${u.id}/edit`)} />
           {!u.roles.includes("ADMIN" as Role) && (
             <>
-              <ToggleStatusAction active={u.status !== "DISABLED"} name={u.name ?? u.email} onConfirm={() => toggleStatus(u)} />
+              {u.status !== "ACTIVE" && (
+                <ToggleStatusAction
+                  active={false}
+                  title="Activate"
+                  name={u.name ?? u.email}
+                  description={
+                    u.status === "INVITED" ? 'They haven\'t accepted the invite yet — they can sign in with the password "changeme".' : undefined
+                  }
+                  onConfirm={() => setStatus(u, true)}
+                />
+              )}
+              {u.status !== "DISABLED" && (
+                <ToggleStatusAction active name={u.name ?? u.email} onConfirm={() => setStatus(u, false)} />
+              )}
               <DeleteAction confirmTitle={`Delete ${u.name ?? u.email}? This can't be undone.`} onConfirm={() => remove(u)} />
             </>
           )}
@@ -160,7 +188,18 @@ export default function UsersPage() {
           loading={loading}
           columns={columns}
           dataSource={users}
-          pagination={false}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            pageSizeOptions: LIST_PAGE_SIZES.map(String),
+            showTotal: (n, [from, to]) => `${from}–${to} of ${n} users`,
+            onChange: (p, size) => {
+              setPage(size !== pageSize ? 1 : p);
+              setPageSize(size);
+            },
+          }}
           locale={{ emptyText: "No users yet." }}
         />
       </main>

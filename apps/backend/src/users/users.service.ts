@@ -18,6 +18,7 @@ import { Invoice } from "../database/models/invoice.model";
 import { MailerService } from "../mailer/mailer.service";
 import { TokensService } from "../tokens/tokens.service";
 import { SubscriptionsService } from "../subscriptions/subscriptions.service";
+import type { Paging } from "../common/pagination.util";
 import {
   AccountHolderProfileInput,
   InviteUserDto,
@@ -54,9 +55,28 @@ export class UsersService {
     private readonly subscriptions: SubscriptionsService,
   ) {}
 
-  async list(companyId: string) {
-    const users = await this.userModel.findAll({ where: { companyId }, include: PROFILE_INCLUDES });
-    return users.map((u) => this.toDto(u));
+  /** Whole list (pickers) when `paging` is null, otherwise one page (newest first) with the total. */
+  async list(companyId: string, paging: Paging | null = null) {
+    if (!paging) {
+      const users = await this.userModel.findAll({ where: { companyId }, include: PROFILE_INCLUDES });
+      return users.map((u) => this.toDto(u));
+    }
+    // distinct: the hasMany role rows would otherwise inflate the count; id breaks createdAt ties so pages never overlap.
+    const { rows, count } = await this.userModel.findAndCountAll({
+      where: { companyId },
+      include: PROFILE_INCLUDES,
+      distinct: true,
+      order: [
+        ["createdAt", "DESC"],
+        ["id", "ASC"],
+      ],
+      limit: paging.pageSize,
+      offset: paging.offset,
+    });
+    const subscriptionDisabled = await this.userModel.count({
+      where: { companyId, status: UserStatus.DISABLED, disabledBySubscription: true },
+    });
+    return { data: rows.map((u) => this.toDto(u)), total: count, page: paging.page, pageSize: paging.pageSize, subscriptionDisabled };
   }
 
   async get(companyId: string, userId: string) {
@@ -189,8 +209,10 @@ export class UsersService {
   }
 
   /**
-   * Enabling needs a free seat on the company's plan. An account that never accepted its invite goes
-   * back to INVITED (not ACTIVE, which would let the placeholder invite password sign in).
+   * Enabling makes an INVITED or DISABLED account ACTIVE (decided 2026-10-12). Re-enabling a
+   * disabled account needs a free seat on the company's plan (an invited one already holds one).
+   * An account that never accepted its invite keeps the placeholder invite password, so it can sign
+   * in with it until it's changed; it's stamped as accepted so a subscription renewal keeps it ACTIVE.
    */
   async setEnabled(companyId: string, userId: string, enabled: boolean) {
     const user = await this.userModel.findOne({ where: { id: userId, companyId }, include: [UserRoleAssignment] });
@@ -198,9 +220,10 @@ export class UsersService {
     const roles = user.roleAssignments.map((r) => r.role);
     if (roles.includes(Role.ADMIN)) throw new BadRequestException("The company Admin can't be disabled");
     if (enabled) {
-      if (user.status !== UserStatus.DISABLED) return this.get(companyId, userId);
-      await this.subscriptions.assertSeatsAvailable(companyId, roles, user.id);
-      user.status = user.inviteAcceptedAt ? UserStatus.ACTIVE : UserStatus.INVITED;
+      if (user.status === UserStatus.ACTIVE) return this.get(companyId, userId);
+      if (user.status === UserStatus.DISABLED) await this.subscriptions.assertSeatsAvailable(companyId, roles, user.id);
+      user.status = UserStatus.ACTIVE;
+      user.inviteAcceptedAt ??= new Date();
     } else {
       user.status = UserStatus.DISABLED;
     }

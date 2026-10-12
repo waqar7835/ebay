@@ -613,7 +613,7 @@ export interface PaginatedResult<T> {
   pageSize: number;
 }
 
-/** Rows-per-page choices on the paged Products / Orders lists; the API caps pageSize at the largest. */
+/** Rows-per-page choices on the paged Products / Orders / Users lists; the API caps pageSize at the largest. */
 export const LIST_PAGE_SIZES = [50, 100, 150, 200, 250] as const;
 export const DEFAULT_LIST_PAGE_SIZE = 50;
 
@@ -623,6 +623,11 @@ export const DEFAULT_LIST_PAGE_SIZE = 50;
  */
 export interface OrderListPage extends PaginatedResult<OrderDto> {
   statusCounts: Record<string, number>;
+}
+
+/** A page of the company users list; `subscriptionDisabled` counts every account (not just this page) disabled by an expired subscription. */
+export interface UserListPage extends PaginatedResult<UserDto> {
+  subscriptionDisabled: number;
 }
 
 export interface CompanyDto {

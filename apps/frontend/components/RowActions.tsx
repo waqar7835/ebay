@@ -51,11 +51,23 @@ export function ResetAction({ onConfirm, confirmTitle, title = "Reset" }: { onCo
 }
 
 /** Disable (red stop icon) when active, Enable (green check) otherwise; both confirm first. */
-export function ToggleStatusAction({ active, name, onConfirm }: { active: boolean; name: string; onConfirm: () => void }) {
-  const title = active ? "Disable" : "Enable";
+export function ToggleStatusAction({
+  active,
+  name,
+  onConfirm,
+  title = active ? "Disable" : "Enable",
+  description,
+}: {
+  active: boolean;
+  name: string;
+  onConfirm: () => void;
+  title?: string;
+  description?: string;
+}) {
   return (
     <Popconfirm
       title={`${title} ${name}?`}
+      description={description}
       okText={title}
       okButtonProps={{ danger: active }}
       onConfirm={onConfirm}

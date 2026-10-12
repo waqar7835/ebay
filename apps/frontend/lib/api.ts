@@ -29,6 +29,7 @@ import type {
   SubscriptionPlanDto,
   OrderListPage,
   PaginatedResult,
+  UserListPage,
   ThreePlProfileDto,
   UserDto,
 } from "@ebay-order-management/shared";
@@ -415,6 +416,11 @@ export function changeMyPassword(currentPassword: string, newPassword: string, c
 // --- Users (company self-management: ADMIN/STAFF-with-canManageUsers) ---
 export function listUsers() {
   return request<UserDto[]>("/users");
+}
+
+export function listUsersPage(page: number, pageSize: number) {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  return request<UserListPage>(`/users?${params}`);
 }
 
 export interface InviteUserPayload {

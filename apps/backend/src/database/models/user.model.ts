@@ -46,7 +46,7 @@ export class User extends Model {
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false, field: "disabled_by_subscription" })
   declare disabledBySubscription: boolean;
 
-  /** When the user set their password. Null = never accepted the invite, so re-enabling returns them to INVITED. */
+  /** When the user set their password, or the Admin activated the account. Null = never activated, so a renewal restores them to INVITED. */
   @Column({ type: DataType.DATE, allowNull: true, field: "invite_accepted_at" })
   declare inviteAcceptedAt: Date | null;
 

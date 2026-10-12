@@ -20,6 +20,7 @@ import { PermissionsGuard } from "../common/guards/permissions.guard";
 import { RequirePermission } from "../common/decorators/permission.decorator";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { resolveCompanyId } from "../common/company-scope.util";
+import { parsePaging } from "../common/pagination.util";
 import { multerUploadOptions, publicUploadUrl } from "../uploads/uploads.util";
 import type { JwtPayload } from "../auth/jwt.strategy";
 import { UsersService } from "./users.service";
@@ -50,8 +51,14 @@ export class UsersController {
 
   @Get()
   @RequirePermission("canManageUsers")
-  list(@CurrentUser() user: JwtPayload, @Query("companyId") companyId?: string) {
-    return this.usersService.list(resolveCompanyId(user, companyId));
+  list(
+    @CurrentUser() user: JwtPayload,
+    @Query("companyId") companyId?: string,
+    // Sending either returns { data, total, page, pageSize, subscriptionDisabled } instead of the whole list.
+    @Query("page") page?: string,
+    @Query("pageSize") pageSize?: string,
+  ) {
+    return this.usersService.list(resolveCompanyId(user, companyId), parsePaging(page, pageSize));
   }
 
   @Get("me")
