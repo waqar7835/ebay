@@ -167,6 +167,8 @@ export interface ProductDto {
   imageUrls: string[];
   /** Prices below are in this currency — the Stock Owner's. Null for DROPSHIP products. */
   currency: Currency | null;
+  /** The Stock Owner's name (their email when unnamed); null for DROPSHIP products. */
+  stockOwnerName?: string | null;
   stockOwnerCost: number | null;
   buyPrice: number | null;
   sellPrice: number | null;
@@ -609,6 +611,18 @@ export interface PaginatedResult<T> {
   total: number;
   page: number;
   pageSize: number;
+}
+
+/** Rows-per-page choices on the paged Products / Orders lists; the API caps pageSize at the largest. */
+export const LIST_PAGE_SIZES = [50, 100, 150, 200, 250] as const;
+export const DEFAULT_LIST_PAGE_SIZE = 50;
+
+/**
+ * A page of the orders list. `statusCounts` counts the orders matching every filter except status (one entry per
+ * status, plus NO_TRACKING = SHIPPED/DELIVERED without a tracking number), for the status cards above the list.
+ */
+export interface OrderListPage extends PaginatedResult<OrderDto> {
+  statusCounts: Record<string, number>;
 }
 
 export interface CompanyDto {

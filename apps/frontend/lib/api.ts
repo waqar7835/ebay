@@ -27,6 +27,8 @@ import type {
   StockOwnerProfileDto,
   SubscriptionPaymentDto,
   SubscriptionPlanDto,
+  OrderListPage,
+  PaginatedResult,
   ThreePlProfileDto,
   UserDto,
 } from "@ebay-order-management/shared";
@@ -478,6 +480,23 @@ export function listProducts() {
   return request<ProductDto[]>("/products");
 }
 
+export interface ProductListFilters {
+  stockOwnerId?: string;
+  fulfillmentType?: ProductFulfillmentType;
+  title?: string;
+  sku?: string;
+}
+
+/** One page of the Products list (page is 1-based), filtered on the server. */
+export function listProductsPage(filters: ProductListFilters, page: number, pageSize: number) {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (filters.stockOwnerId) params.set("stockOwnerId", filters.stockOwnerId);
+  if (filters.fulfillmentType) params.set("fulfillmentType", filters.fulfillmentType);
+  if (filters.title?.trim()) params.set("title", filters.title.trim());
+  if (filters.sku?.trim()) params.set("sku", filters.sku.trim());
+  return request<PaginatedResult<ProductDto>>(`/products?${params}`);
+}
+
 export function getProduct(productId: string) {
   return request<ProductDto>(`/products/${productId}`);
 }
@@ -545,7 +564,7 @@ export interface OrderListFilters {
   orderRef?: string;
 }
 
-export function listOrders(filters: OrderListFilters = {}) {
+function orderListParams(filters: OrderListFilters) {
   const params = new URLSearchParams();
   if (filters.accountHolderId) params.set("accountHolderId", filters.accountHolderId);
   if (filters.threePlId) params.set("threePlId", filters.threePlId);
@@ -553,8 +572,20 @@ export function listOrders(filters: OrderListFilters = {}) {
   if (filters.startDate) params.set("startDate", filters.startDate);
   if (filters.endDate) params.set("endDate", filters.endDate);
   if (filters.orderRef) params.set("orderRef", filters.orderRef);
-  const qs = params.toString();
+  return params;
+}
+
+export function listOrders(filters: OrderListFilters = {}) {
+  const qs = orderListParams(filters).toString();
   return request<OrderDto[]>(`/orders${qs ? `?${qs}` : ""}`);
+}
+
+/** One page of the Orders list (page is 1-based), with status counts over every filter except status. */
+export function listOrdersPage(filters: OrderListFilters, page: number, pageSize: number) {
+  const params = orderListParams(filters);
+  params.set("page", String(page));
+  params.set("pageSize", String(pageSize));
+  return request<OrderListPage>(`/orders?${params}`);
 }
 
 export interface CreateOrderPayload {

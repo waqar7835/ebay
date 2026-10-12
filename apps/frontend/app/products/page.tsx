@@ -1,13 +1,21 @@
 "use client";
 
-import { Role, type Currency, type ProductFulfillmentType } from "@ebay-order-management/shared";
-import { Alert, Badge, Button, Image, Table, Tag, type TableColumnsType } from "antd";
+import {
+  DEFAULT_LIST_PAGE_SIZE,
+  LIST_PAGE_SIZES,
+  Role,
+  type Currency,
+  type ProductFulfillmentType,
+  type UserDto,
+} from "@ebay-order-management/shared";
+import { Alert, Badge, Button, Card, Image, Input, Select, Table, Tag, type TableColumnsType } from "antd";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import { EditAction } from "@/components/RowActions";
-import { getStoredUser, getToken, listProducts, mediaUrl } from "@/lib/api";
+import { getStoredUser, getToken, listProductsPage, listUsers, mediaUrl } from "@/lib/api";
 import { money } from "@/lib/currency";
+import { searchable, userNameOptions } from "@/lib/selectOptions";
 
 interface ProductRow {
   id: string;
@@ -16,6 +24,7 @@ interface ProductRow {
   size: string | null;
   fulfillmentType: ProductFulfillmentType;
   stockOwnerId: string | null;
+  stockOwnerName?: string | null;
   threePlId: string | null;
   currency: Currency | null;
   stockOwnerCost: number | null;
@@ -28,31 +37,88 @@ interface ProductRow {
   imageUrls: string[];
 }
 
+interface ProductFilter {
+  stockOwnerId: string;
+  fulfillmentType: string;
+  title: string;
+  sku: string;
+}
+
 export default function ProductsPage() {
   const router = useRouter();
   const [products, setProducts] = useState<ProductRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_LIST_PAGE_SIZE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [stockOwners, setStockOwners] = useState<UserDto[]>([]);
+  // Applied filters; the title / SKU boxes are copied in after a short pause so each keystroke isn't a request.
+  const [filter, setFilter] = useState<ProductFilter>({ stockOwnerId: "", fulfillmentType: "", title: "", sku: "" });
+  const [titleInput, setTitleInput] = useState("");
+  const [skuInput, setSkuInput] = useState("");
 
   // A Stock Owner gets a read-only list of their own products (the API only returns those) — same test as the backend.
   const roles = getStoredUser()?.roles ?? [];
   const isStockOwnerView =
     roles.includes(Role.STOCK_OWNER) && !roles.some((r) => r === Role.ADMIN || r === Role.STAFF || r === Role.ACCOUNT_HOLDER);
 
-  function refresh() {
-    listProducts()
-      .then(setProducts)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"))
-      .finally(() => setLoading(false));
-  }
-
   useEffect(() => {
     if (!getToken()) {
       router.push("/login");
       return;
     }
-    refresh();
+    if (!isStockOwnerView)
+      listUsers()
+        .then((users) => setStockOwners(users.filter((u) => u.roles.includes(Role.STOCK_OWNER))))
+        .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
+
+  // Server-side page: refetched whenever a filter, the page or the page size changes.
+  useEffect(() => {
+    if (!getToken()) return;
+    let cancelled = false;
+    setLoading(true);
+    listProductsPage(
+      {
+        stockOwnerId: filter.stockOwnerId || undefined,
+        fulfillmentType: (filter.fulfillmentType || undefined) as ProductFulfillmentType | undefined,
+        title: filter.title || undefined,
+        sku: filter.sku || undefined,
+      },
+      page,
+      pageSize,
+    )
+      .then((res) => {
+        if (cancelled) return;
+        setProducts(res.data as ProductRow[]);
+        setTotal(res.total);
+        setError(null);
+      })
+      .catch((err) => !cancelled && setError(err instanceof Error ? err.message : "Failed to load"))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [filter, page, pageSize]);
+
+  // Any filter change starts again from the first page.
+  function updateFilter(patch: Partial<ProductFilter>) {
+    setFilter((f) => ({ ...f, ...patch }));
+    setPage(1);
+  }
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (filter.title !== titleInput.trim() || filter.sku !== skuInput.trim())
+        updateFilter({ title: titleInput.trim(), sku: skuInput.trim() });
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [titleInput, skuInput]);
+
+  const filtered = Object.values(filter).some(Boolean);
 
 
   const adminColumns: TableColumnsType<ProductRow> = [
@@ -81,10 +147,9 @@ export default function ProductsPage() {
     {
       title: "Stock",
       key: "stock",
-      sorter: (a, b) => a.stockQuantity - b.stockQuantity,
       render: (_, p) => (p.fulfillmentType === "DROPSHIP" ? "—" : <StockLevel qty={p.stockQuantity} />),
     },
-    { title: "Sold", dataIndex: "unitsSold", sorter: (a, b) => (a.unitsSold ?? 0) - (b.unitsSold ?? 0), render: (v?: number) => v ?? 0 },
+    { title: "Sold", dataIndex: "unitsSold", render: (v?: number) => v ?? 0 },
   ];
 
   const columns: TableColumnsType<ProductRow> = [
@@ -103,8 +168,12 @@ export default function ProductsPage() {
           "—"
         ),
     },
-    { title: "SKU", dataIndex: "sku", sorter: (a, b) => a.sku.localeCompare(b.sku) },
-    { title: "Title", dataIndex: "title", sorter: (a, b) => a.title.localeCompare(b.title) },
+    { title: "SKU", dataIndex: "sku" },
+    // A Stock Owner only ever sees their own products, so the owner column is for everyone else.
+    ...(isStockOwnerView
+      ? []
+      : [{ title: "Product owner", key: "owner", render: (_: unknown, p: ProductRow) => p.stockOwnerName || "—" }]),
+    { title: "Title", dataIndex: "title" },
     { title: "Size", dataIndex: "size", render: (v) => v || "—" },
     ...(isStockOwnerView ? stockOwnerColumns : adminColumns),
   ];
@@ -124,15 +193,79 @@ export default function ProductsPage() {
 
         {error && <Alert type="error" title={error} className="mt-4" showIcon />}
 
+        <Card size="small" className="mt-4">
+          <div className="flex flex-wrap items-end gap-3 text-xs">
+            <label>
+              Title
+              <Input
+                allowClear
+                placeholder="Search title"
+                value={titleInput}
+                onChange={(e) => setTitleInput(e.target.value)}
+                className="mt-1 flex w-56"
+              />
+            </label>
+            <label>
+              SKU
+              <Input
+                allowClear
+                placeholder="Search SKU"
+                value={skuInput}
+                onChange={(e) => setSkuInput(e.target.value)}
+                className="mt-1 flex w-44"
+              />
+            </label>
+            {!isStockOwnerView && (
+              <label>
+                Product owner
+                <Select
+                  showSearch={searchable}
+                  allowClear
+                  placeholder="All"
+                  value={filter.stockOwnerId || undefined}
+                  onChange={(v) => updateFilter({ stockOwnerId: v ?? "" })}
+                  options={userNameOptions(stockOwners)}
+                  className="mt-1 flex w-56"
+                />
+              </label>
+            )}
+            <label>
+              Product type
+              <Select
+                allowClear
+                placeholder="All"
+                value={filter.fulfillmentType || undefined}
+                onChange={(v) => updateFilter({ fulfillmentType: v ?? "" })}
+                options={[
+                  { value: "STOCK", label: "Stock" },
+                  { value: "DROPSHIP", label: "Dropship" },
+                ]}
+                className="mt-1 flex w-36"
+              />
+            </label>
+          </div>
+        </Card>
+
         <Table<ProductRow>
-          className="mt-6"
+          className="mt-4"
           rowKey="id"
           size="small"
           loading={loading}
           columns={columns}
           dataSource={products}
-          pagination={false}
-          locale={{ emptyText: "No products yet." }}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            pageSizeOptions: LIST_PAGE_SIZES.map(String),
+            showTotal: (n, [from, to]) => `${from}–${to} of ${n} products`,
+            onChange: (p, size) => {
+              setPage(size !== pageSize ? 1 : p);
+              setPageSize(size);
+            },
+          }}
+          locale={{ emptyText: filtered ? "No products match these filters." : "No products yet." }}
         />
       </main>
     </>

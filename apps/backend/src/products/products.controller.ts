@@ -13,13 +13,14 @@ import {
 } from "@nestjs/common";
 import { FilesInterceptor } from "@nestjs/platform-express";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
-import { PRODUCT_MAX_IMAGES } from "@ebay-order-management/shared";
+import { PRODUCT_MAX_IMAGES, type ProductFulfillmentType } from "@ebay-order-management/shared";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { RolesGuard } from "../common/guards/roles.guard";
 import { PermissionsGuard } from "../common/guards/permissions.guard";
 import { RequirePermission } from "../common/decorators/permission.decorator";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { resolveCompanyId } from "../common/company-scope.util";
+import { parsePaging } from "../common/pagination.util";
 import { multerUploadOptions, publicUploadUrl } from "../uploads/uploads.util";
 import type { JwtPayload } from "../auth/jwt.strategy";
 import { ProductsService } from "./products.service";
@@ -33,8 +34,23 @@ export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   @Get()
-  list(@CurrentUser() user: JwtPayload, @Query("companyId") companyId?: string, @Query("stockOwnerId") stockOwnerId?: string) {
-    return this.productsService.list(resolveCompanyId(user, companyId), user, stockOwnerId);
+  list(
+    @CurrentUser() user: JwtPayload,
+    @Query("companyId") companyId?: string,
+    @Query("stockOwnerId") stockOwnerId?: string,
+    @Query("fulfillmentType") fulfillmentType?: ProductFulfillmentType,
+    @Query("title") title?: string,
+    @Query("sku") sku?: string,
+    // Sending either returns { data, total, page, pageSize } instead of the whole list.
+    @Query("page") page?: string,
+    @Query("pageSize") pageSize?: string,
+  ) {
+    return this.productsService.list(
+      resolveCompanyId(user, companyId),
+      user,
+      { stockOwnerId, fulfillmentType, title, sku },
+      parsePaging(page, pageSize),
+    );
   }
 
   @Get(":id")

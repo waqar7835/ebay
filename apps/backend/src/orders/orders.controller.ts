@@ -20,6 +20,7 @@ import { PermissionsGuard } from "../common/guards/permissions.guard";
 import { RequirePermission } from "../common/decorators/permission.decorator";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { resolveCompanyId } from "../common/company-scope.util";
+import { parsePaging } from "../common/pagination.util";
 import { multerUploadOptions, publicUploadUrl } from "../uploads/uploads.util";
 import type { JwtPayload } from "../auth/jwt.strategy";
 import { OrdersService } from "./orders.service";
@@ -47,15 +48,16 @@ export class OrdersController {
     @Query("startDate") startDate?: string,
     @Query("endDate") endDate?: string,
     @Query("orderRef") orderRef?: string,
+    // Sending either returns one page ({ data, total, page, pageSize, statusCounts }) instead of the whole list.
+    @Query("page") page?: string,
+    @Query("pageSize") pageSize?: string,
   ) {
-    return this.ordersService.list(resolveCompanyId(user, companyId), user, {
-      orderRef,
-      accountHolderId,
-      threePlId,
-      status,
-      startDate,
-      endDate,
-    });
+    return this.ordersService.list(
+      resolveCompanyId(user, companyId),
+      user,
+      { orderRef, accountHolderId, threePlId, status, startDate, endDate },
+      parsePaging(page, pageSize),
+    );
   }
 
   /**

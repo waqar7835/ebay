@@ -6,16 +6,25 @@ import { Product } from "../database/models/product.model";
 import { Order } from "../database/models/order.model";
 import { OrderItem } from "../database/models/order-item.model";
 import { User } from "../database/models/user.model";
+import type { JwtPayload } from "../auth/jwt.strategy";
+import { likeContains, type Paging } from "../common/pagination.util";
+import { CreateProductDto, UpdateProductDto, UpdateStockDto } from "./dto/product.dto";
 
-// Prices are in the Stock Owner's currency, so every product response carries it.
-const WITH_CURRENCY = { include: [{ model: User, as: "stockOwner", attributes: ["id", "currency"] }] };
+// Prices are in the Stock Owner's currency, so every product response carries it (and the owner's name, for lists).
+const WITH_CURRENCY = { include: [{ model: User, as: "stockOwner", attributes: ["id", "currency", "name", "email"] }] };
 
 function withCurrency(product: Product) {
   const { stockOwner, ...json } = product.toJSON() as Product & { stockOwner?: User | null };
-  return { ...json, currency: stockOwner?.currency ?? null };
+  return { ...json, currency: stockOwner?.currency ?? null, stockOwnerName: stockOwner ? stockOwner.name || stockOwner.email : null };
 }
-import type { JwtPayload } from "../auth/jwt.strategy";
-import { CreateProductDto, UpdateProductDto, UpdateStockDto } from "./dto/product.dto";
+
+export interface ProductListFilters {
+  stockOwnerId?: string;
+  fulfillmentType?: ProductFulfillmentType;
+  /** Case-insensitive partial matches. */
+  title?: string;
+  sku?: string;
+}
 
 /**
  * Same test OrdersService uses to show a Stock Owner only their own order items: a portal Stock Owner account that
@@ -42,18 +51,35 @@ export class ProductsService {
     @InjectModel(OrderItem) private readonly orderItemModel: typeof OrderItem,
   ) {}
 
-  async list(companyId: string, requester: JwtPayload, stockOwnerId?: string) {
+  /** Whole list (pickers) when `paging` is null, otherwise one page with the total. */
+  async list(companyId: string, requester: JwtPayload, filters: ProductListFilters = {}, paging: Paging | null = null) {
     // A Stock Owner only ever sees their own products, whatever filter is passed.
     const ownerOnly = isStockOwnerOnly(requester);
-    const owner = ownerOnly ? requester.sub : stockOwnerId;
-    const products = await this.productModel.findAll({
-      where: { companyId, ...(owner ? { stockOwnerId: owner } : {}) },
-      order: [["createdAt", "DESC"]],
+    const owner = ownerOnly ? requester.sub : filters.stockOwnerId;
+    const where: Record<string | symbol, unknown> = { companyId, ...(owner ? { stockOwnerId: owner } : {}) };
+    if (filters.fulfillmentType && Object.values(ProductFulfillmentType).includes(filters.fulfillmentType))
+      where.fulfillmentType = filters.fulfillmentType;
+    if (filters.title?.trim()) where.title = { [Op.iLike]: likeContains(filters.title.trim()) };
+    if (filters.sku?.trim()) where.sku = { [Op.iLike]: likeContains(filters.sku.trim()) };
+
+    // id breaks createdAt ties so pages never overlap.
+    const query = {
+      where,
+      order: [
+        ["createdAt", "DESC"],
+        ["id", "ASC"],
+      ] as [string, string][],
       ...WITH_CURRENCY,
-    });
-    if (!ownerOnly) return products.map(withCurrency);
-    const sold = await this.unitsSold(companyId, requester.sub);
-    return products.map((p) => ({ ...forStockOwner(withCurrency(p)), unitsSold: sold.get(p.id) ?? 0 }));
+    };
+    const { rows: products, count } = paging
+      ? await this.productModel.findAndCountAll({ ...query, limit: paging.pageSize, offset: paging.offset })
+      : { rows: await this.productModel.findAll(query), count: 0 };
+    let data: Array<ReturnType<typeof withCurrency> & { unitsSold?: number }> = products.map(withCurrency);
+    if (ownerOnly) {
+      const sold = await this.unitsSold(companyId, requester.sub);
+      data = data.map((p) => ({ ...forStockOwner(p), unitsSold: sold.get(p.id) ?? 0 }));
+    }
+    return paging ? { data, total: count, page: paging.page, pageSize: paging.pageSize } : data;
   }
 
   /**

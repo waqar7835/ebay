@@ -10,6 +10,8 @@ import type {
   InvoiceDto,
   InvoiceTemplatesDto,
   OrderDto,
+  OrderListPage,
+  PaginatedResult,
   OrderItemInput,
   OrderStatus,
   PlatformSettingsDto,
@@ -195,6 +197,23 @@ export function listProducts() {
   return request<ProductDto[]>("/products");
 }
 
+export interface ProductListFilters {
+  stockOwnerId?: string;
+  fulfillmentType?: ProductFulfillmentType;
+  title?: string;
+  sku?: string;
+}
+
+/** One page of the Products list (page is 1-based), filtered on the server. */
+export function listProductsPage(filters: ProductListFilters, page: number, pageSize: number) {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (filters.stockOwnerId) params.set("stockOwnerId", filters.stockOwnerId);
+  if (filters.fulfillmentType) params.set("fulfillmentType", filters.fulfillmentType);
+  if (filters.title?.trim()) params.set("title", filters.title.trim());
+  if (filters.sku?.trim()) params.set("sku", filters.sku.trim());
+  return request<PaginatedResult<ProductDto>>(`/products?${params}`);
+}
+
 export interface CreateProductPayload {
   stockOwnerId?: string;
   fulfillmentType: ProductFulfillmentType;
@@ -249,6 +268,11 @@ export async function setProductImages(productId: string, images: Array<string |
 // --- Orders ---
 export function listOrders() {
   return request<OrderDto[]>("/orders");
+}
+
+/** One page of the Orders list (page is 1-based). */
+export function listOrdersPage(page: number, pageSize: number) {
+  return request<OrderListPage>(`/orders?page=${page}&pageSize=${pageSize}`);
 }
 
 export interface CreateOrderPayload {

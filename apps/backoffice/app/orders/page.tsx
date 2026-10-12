@@ -1,13 +1,15 @@
 "use client";
 
-import type {
-  Currency,
-  ExchangeRateDto,
-  ExchangeRates,
-  OrderDto,
-  OrderStatus,
-  ProductDto,
-  ProductFulfillmentType,
+import {
+  DEFAULT_LIST_PAGE_SIZE,
+  LIST_PAGE_SIZES,
+  type Currency,
+  type ExchangeRateDto,
+  type ExchangeRates,
+  type OrderDto,
+  type OrderStatus,
+  type ProductDto,
+  type ProductFulfillmentType,
 } from "@ebay-order-management/shared";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import {
@@ -24,7 +26,7 @@ import {
   type TableColumnsType,
 } from "antd";
 import RefundChoice, { FULL_REFUND, refundAmountFor, type RefundChoiceValue } from "@/components/RefundChoice";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import { EditAction } from "@/components/RowActions";
@@ -34,7 +36,7 @@ import {
   createOrder,
   getToken,
   listExchangeRates,
-  listOrders,
+  listOrdersPage,
   listProducts,
   listUsers,
   updateOrder,
@@ -115,20 +117,36 @@ export default function OrdersPage() {
   const [refundOrder, setRefundOrder] = useState<OrderDto | null>(null);
   const [refundChoice, setRefundChoice] = useState<RefundChoiceValue>(FULL_REFUND);
   const [refundSaving, setRefundSaving] = useState(false);
+  // Server-side paging: only the current page of orders is loaded.
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_LIST_PAGE_SIZE);
+  const [total, setTotal] = useState(0);
+  const requestSeq = useRef(0);
 
+  /** Loads the current page; a response to an older request (page changed meanwhile) is dropped. */
   function refresh() {
-    listOrders()
-      .then(setOrders)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"))
-      .finally(() => setLoading(false));
+    const seq = ++requestSeq.current;
+    setLoading(true);
+    listOrdersPage(page, pageSize)
+      .then((res) => {
+        if (seq !== requestSeq.current) return;
+        setOrders(res.data);
+        setTotal(res.total);
+      })
+      .catch((err) => seq === requestSeq.current && setError(err instanceof Error ? err.message : "Failed to load"))
+      .finally(() => seq === requestSeq.current && setLoading(false));
   }
+
+  useEffect(() => {
+    if (getToken()) refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, pageSize]);
 
   useEffect(() => {
     if (!getToken()) {
       router.push("/");
       return;
     }
-    refresh();
     listProducts().then(setProducts).catch(() => undefined);
     listUsers().then(setUsers as never).catch(() => undefined);
     loadRates();
@@ -382,7 +400,7 @@ export default function OrdersPage() {
         return product ? (SOURCE_LABEL[product.fulfillmentType] ?? product.fulfillmentType) : "—";
       },
     },
-    { title: "Date", dataIndex: "orderDate", render: (v: string) => formatDate(v), sorter: (a, b) => a.orderDate.localeCompare(b.orderDate) },
+    { title: "Date", dataIndex: "orderDate", render: (v: string) => formatDate(v) },
     { title: "Order #", dataIndex: "ebayOrderRef" },
     { title: "Tracking #", dataIndex: "trackingNumber", render: (v) => v ?? "—" },
     { title: "Qty", key: "qty", render: (_, o) => o.items.reduce((sum, i) => sum + i.quantity, 0) },
@@ -648,7 +666,18 @@ export default function OrdersPage() {
           loading={loading}
           columns={columns}
           dataSource={orders}
-          pagination={{ pageSize: 50, hideOnSinglePage: true }}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            pageSizeOptions: LIST_PAGE_SIZES.map(String),
+            showTotal: (n, [from, to]) => `${from}–${to} of ${n} orders`,
+            onChange: (p, size) => {
+              setPage(size !== pageSize ? 1 : p);
+              setPageSize(size);
+            },
+          }}
           scroll={{ x: "max-content" }}
           locale={{ emptyText: "No orders yet." }}
         />

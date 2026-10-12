@@ -1,13 +1,13 @@
 "use client";
 
-import type { Currency, ProductFulfillmentType } from "@ebay-order-management/shared";
+import { DEFAULT_LIST_PAGE_SIZE, LIST_PAGE_SIZES, type Currency, type ProductFulfillmentType } from "@ebay-order-management/shared";
 import { Alert, Badge, Button, Card, Form, Image, Input, InputNumber, Select, Table, Tag, type TableColumnsType } from "antd";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import { EditAction } from "@/components/RowActions";
 import ProductImagesUpload, { productImageItems, type ProductImageItem } from "@/components/ProductImagesUpload";
-import { createProduct, getToken, listProducts, listUsers, mediaUrl, setProductImages, updateProduct } from "@/lib/api";
+import { createProduct, getToken, listProductsPage, listUsers, mediaUrl, setProductImages, updateProduct } from "@/lib/api";
 import { currencySymbol, money } from "@/lib/currency";
 import { searchable, userNameOptions } from "@/lib/selectOptions";
 
@@ -18,6 +18,7 @@ interface ProductRow {
   size: string | null;
   fulfillmentType: ProductFulfillmentType;
   stockOwnerId: string | null;
+  stockOwnerName?: string | null;
   threePlId: string | null;
   /** The Stock Owner's currency — prices are in it. */
   currency: Currency | null;
@@ -50,6 +51,13 @@ interface ProductFormValues {
   stockQuantity?: number;
 }
 
+interface ProductFilter {
+  stockOwnerId: string;
+  fulfillmentType: string;
+  title: string;
+  sku: string;
+}
+
 export default function ProductsPage() {
   const router = useRouter();
   const [form] = Form.useForm<ProductFormValues>();
@@ -62,12 +70,36 @@ export default function ProductsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [images, setImages] = useState<ProductImageItem[]>([]);
+  // Server-side paging and filters; the title / SKU boxes are applied after a short pause, not on every keystroke.
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_LIST_PAGE_SIZE);
+  const [filter, setFilter] = useState<ProductFilter>({ stockOwnerId: "", fulfillmentType: "", title: "", sku: "" });
+  const [titleInput, setTitleInput] = useState("");
+  const [skuInput, setSkuInput] = useState("");
+  const requestSeq = useRef(0);
 
+  /** Loads the current page; responses to older requests (filters changed meanwhile) are dropped. */
   function refresh() {
-    listProducts()
-      .then(setProducts)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"))
-      .finally(() => setLoading(false));
+    const seq = ++requestSeq.current;
+    setLoading(true);
+    listProductsPage(
+      {
+        stockOwnerId: filter.stockOwnerId || undefined,
+        fulfillmentType: (filter.fulfillmentType || undefined) as ProductFulfillmentType | undefined,
+        title: filter.title || undefined,
+        sku: filter.sku || undefined,
+      },
+      page,
+      pageSize,
+    )
+      .then((res) => {
+        if (seq !== requestSeq.current) return;
+        setProducts(res.data as ProductRow[]);
+        setTotal(res.total);
+      })
+      .catch((err) => seq === requestSeq.current && setError(err instanceof Error ? err.message : "Failed to load"))
+      .finally(() => seq === requestSeq.current && setLoading(false));
   }
 
   useEffect(() => {
@@ -75,9 +107,30 @@ export default function ProductsPage() {
       router.push("/");
       return;
     }
-    refresh();
     listUsers().then(setUsers as never).catch(() => undefined);
   }, [router]);
+
+  useEffect(() => {
+    if (getToken()) refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter, page, pageSize]);
+
+  // Any filter change starts again from the first page.
+  function updateFilter(patch: Partial<ProductFilter>) {
+    setFilter((f) => ({ ...f, ...patch }));
+    setPage(1);
+  }
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (filter.title !== titleInput.trim() || filter.sku !== skuInput.trim())
+        updateFilter({ title: titleInput.trim(), sku: skuInput.trim() });
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [titleInput, skuInput]);
+
+  const filtered = Object.values(filter).some(Boolean);
 
   const stockOwners = users.filter((u) => u.roles.includes("STOCK_OWNER"));
   const threePls = users.filter((u) => u.roles.includes("THREE_PL"));
@@ -168,8 +221,9 @@ export default function ProductsPage() {
           "—"
         ),
     },
-    { title: "SKU", dataIndex: "sku", sorter: (a, b) => a.sku.localeCompare(b.sku) },
-    { title: "Title", dataIndex: "title", sorter: (a, b) => a.title.localeCompare(b.title) },
+    { title: "SKU", dataIndex: "sku" },
+    { title: "Product owner", key: "owner", render: (_, p) => p.stockOwnerName || "—" },
+    { title: "Title", dataIndex: "title" },
     { title: "Size", dataIndex: "size", render: (v) => v || "—" },
     {
       title: "Type",
@@ -283,15 +337,77 @@ export default function ProductsPage() {
           </Card>
         )}
 
+        <Card size="small" className="mt-6">
+          <div className="flex flex-wrap items-end gap-3 text-xs">
+            <label>
+              Title
+              <Input
+                allowClear
+                placeholder="Search title"
+                value={titleInput}
+                onChange={(e) => setTitleInput(e.target.value)}
+                className="mt-1 flex w-56"
+              />
+            </label>
+            <label>
+              SKU
+              <Input
+                allowClear
+                placeholder="Search SKU"
+                value={skuInput}
+                onChange={(e) => setSkuInput(e.target.value)}
+                className="mt-1 flex w-44"
+              />
+            </label>
+            <label>
+              Product owner
+              <Select
+                showSearch={searchable}
+                allowClear
+                placeholder="All"
+                value={filter.stockOwnerId || undefined}
+                onChange={(v) => updateFilter({ stockOwnerId: v ?? "" })}
+                options={userNameOptions(stockOwners)}
+                className="mt-1 flex w-56"
+              />
+            </label>
+            <label>
+              Product type
+              <Select
+                allowClear
+                placeholder="All"
+                value={filter.fulfillmentType || undefined}
+                onChange={(v) => updateFilter({ fulfillmentType: v ?? "" })}
+                options={[
+                  { value: "STOCK", label: "Stock" },
+                  { value: "DROPSHIP", label: "Dropship" },
+                ]}
+                className="mt-1 flex w-36"
+              />
+            </label>
+          </div>
+        </Card>
+
         <Table<ProductRow>
-          className="mt-6"
+          className="mt-4"
           rowKey="id"
           size="small"
           loading={loading}
           columns={columns}
           dataSource={products}
-          pagination={false}
-          locale={{ emptyText: "No products yet." }}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            pageSizeOptions: LIST_PAGE_SIZES.map(String),
+            showTotal: (n, [from, to]) => `${from}–${to} of ${n} products`,
+            onChange: (p, size) => {
+              setPage(size !== pageSize ? 1 : p);
+              setPageSize(size);
+            },
+          }}
+          locale={{ emptyText: filtered ? "No products match these filters." : "No products yet." }}
         />
       </main>
     </>

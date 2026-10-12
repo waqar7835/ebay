@@ -1,6 +1,15 @@
 "use client";
 
-import { ProductFulfillmentType, Role, type Currency, type OrderDto, type OrderStatus, type ProductDto } from "@ebay-order-management/shared";
+import {
+  DEFAULT_LIST_PAGE_SIZE,
+  LIST_PAGE_SIZES,
+  ProductFulfillmentType,
+  Role,
+  type Currency,
+  type OrderDto,
+  type OrderStatus,
+  type ProductDto,
+} from "@ebay-order-management/shared";
 import { EditOutlined, InfoCircleOutlined, PrinterOutlined, SendOutlined } from "@ant-design/icons";
 import {
   Alert,
@@ -15,7 +24,7 @@ import {
   Tooltip,
   type TableColumnsType,
 } from "antd";
-import { useEffect, useState, type Key } from "react";
+import { useEffect, useRef, useState, type Key } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import InvoiceStatusTags, { isInvoiced } from "@/components/InvoiceStatusTags";
@@ -33,7 +42,7 @@ import {
   getMyProfile,
   getStoredUser,
   getToken,
-  listOrders,
+  listOrdersPage,
   listProducts,
   listUsers,
   mediaUrl,
@@ -52,9 +61,9 @@ interface UserOption {
 
 const STATUSES: OrderStatus[] = ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "REFUNDED"] as OrderStatus[];
 
-// Pseudo-status for the 3PL "No tracking #" card / filter: shipped or delivered but no tracking number entered yet.
+// Pseudo-status for the 3PL "No tracking #" card: shipped or delivered but no tracking number entered yet (counted by
+// the API in statusCounts).
 const NO_TRACKING = "NO_TRACKING";
-const needsTracking = (o: OrderDto) => (o.status === "SHIPPED" || o.status === "DELIVERED") && !o.trackingNumber?.trim();
 
 const statusTag = (status: string) => <Tag color={STATUS_COLORS[status]}>{status}</Tag>;
 
@@ -70,6 +79,14 @@ function round2(value: number) {
 export default function OrdersPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<OrderDto[]>([]);
+  // Server-side paging: one page of orders, the total matching the filters, and per-status counts over every filter
+  // except status.
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_LIST_PAGE_SIZE);
+  const [total, setTotal] = useState(0);
+  const [serverCounts, setServerCounts] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
+  const requestSeq = useRef(0);
   const [products, setProducts] = useState<ProductDto[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -141,19 +158,37 @@ export default function OrdersPage() {
   const [refundOrder, setRefundOrder] = useState<OrderDto | null>(null);
   const [refundSaving, setRefundSaving] = useState(false);
 
-  function refresh(f = filter) {
-    listOrders({
-      // With an order number the API ignores every other filter and finds the order in any status or date.
-      orderRef: f.orderRef.trim() || undefined,
-      accountHolderId: f.accountHolderId || undefined,
-      threePlId: f.threePlId || undefined,
-      // Bulk mode filters status on the client so the counts above the table can cover every status.
-      status: (bulkMode ? undefined : f.status || undefined) as OrderStatus | undefined,
-      startDate: f.startDate || undefined,
-      endDate: f.endDate || undefined,
-    })
-      .then(setOrders)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
+  /** Loads the current page; responses to older requests (filters changed meanwhile) are dropped. */
+  function refresh() {
+    const seq = ++requestSeq.current;
+    setLoading(true);
+    listOrdersPage(
+      {
+        // With an order number the API ignores every other filter and finds the order in any status or date.
+        orderRef: filter.orderRef.trim() || undefined,
+        accountHolderId: filter.accountHolderId || undefined,
+        threePlId: filter.threePlId || undefined,
+        // A 3PL lists one status at a time (its tab); the status counts above the table come back for every status.
+        status: (threePlBulk ? threePlListStatus : filter.status || undefined) as OrderStatus | undefined,
+        startDate: filter.startDate || undefined,
+        endDate: filter.endDate || undefined,
+      },
+      page,
+      pageSize,
+    )
+      .then((res) => {
+        if (seq !== requestSeq.current) return;
+        // Orders moved out of the filter (e.g. a status change) can empty the last page: step back to the new last one.
+        if (res.data.length === 0 && page > 1 && res.total > 0) {
+          setPage(Math.ceil(res.total / pageSize));
+          return;
+        }
+        setOrders(res.data);
+        setTotal(res.total);
+        setServerCounts(res.statusCounts);
+      })
+      .catch((err) => seq === requestSeq.current && setError(err instanceof Error ? err.message : "Failed to load"))
+      .finally(() => seq === requestSeq.current && setLoading(false));
   }
 
   useEffect(() => {
@@ -163,7 +198,6 @@ export default function OrdersPage() {
     }
     listProducts().then(setProducts).catch(() => undefined);
     listUsers().then(setUsers as never).catch(() => undefined);
-    refresh(filter);
     if (isThreePl)
       getMyProfile()
         .then((me) => {
@@ -186,11 +220,33 @@ export default function OrdersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
+  const isDropshipThreePl = threePlBulk && myThreePlType === ProductFulfillmentType.DROPSHIP;
+  const isStockThreePl = threePlBulk && myThreePlType === ProductFulfillmentType.STOCK;
+  const threePlListStatus = isStockThreePl ? threePlTab : "PROCESSING";
+
+  // Changing a filter (or the 3PL tab) goes back to the first page; changing page or page size keeps the filters.
+  const filterKey = [
+    filter.accountHolderId,
+    filter.threePlId,
+    filter.status,
+    filter.startDate,
+    filter.endDate,
+    filter.orderRef,
+    threePlListStatus,
+  ].join("|");
+  const lastFilterKey = useRef(filterKey);
   useEffect(() => {
     setSelectedIds([]);
-    if (filterInit) refresh(filter);
+    if (lastFilterKey.current !== filterKey) {
+      lastFilterKey.current = filterKey;
+      if (page !== 1) {
+        setPage(1);
+        return;
+      }
+    }
+    if (filterInit) refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter.accountHolderId, filter.threePlId, filter.status, filter.startDate, filter.endDate, filter.orderRef]);
+  }, [filterKey, page, pageSize, filterInit]);
 
   useEffect(() => {
     const t = setTimeout(() => setFilter((f) => (f.orderRef === orderRefInput.trim() ? f : { ...f, orderRef: orderRefInput.trim() })), 400);
@@ -205,22 +261,17 @@ export default function OrdersPage() {
   const accountHolders = users.filter((u) => u.roles.includes("ACCOUNT_HOLDER"));
   const threePls = users.filter((u) => u.roles.includes("THREE_PL"));
 
-  const isDropshipThreePl = threePlBulk && myThreePlType === ProductFulfillmentType.DROPSHIP;
-  const isStockThreePl = threePlBulk && myThreePlType === ProductFulfillmentType.STOCK;
   // 3PLs: display-only count cards over all their orders; "No tracking #" only for a STOCK 3PL (dropship 3PLs don't
   // enter tracking numbers).
   const countStatuses: string[] = threePlBulk
     ? ["PROCESSING", "SHIPPED", "DELIVERED", "REFUNDED", ...(isStockThreePl ? [NO_TRACKING] : [])]
     : STATUSES;
-  const threePlListStatus = isStockThreePl ? threePlTab : "PROCESSING";
-  const matchesStatus = (o: OrderDto) => (filter.status === NO_TRACKING ? needsTracking(o) : o.status === filter.status);
-  const visibleOrders = threePlBulk
-    ? orders.filter((o) => o.status === threePlListStatus)
-    : bulkMode && filter.status && !searchingRef
-      ? orders.filter(matchesStatus)
-      : orders;
-  const statusCounts = new Map<string, number>(STATUSES.map((s) => [s, orders.filter((o) => o.status === s).length]));
-  if (isStockThreePl) statusCounts.set(NO_TRACKING, orders.filter(needsTracking).length);
+  // The API filters by status (a 3PL's tab included), except on an order number search, which finds the order in any
+  // status — a 3PL still only sees it on the tab of its own status.
+  const visibleOrders = threePlBulk && searchingRef ? orders.filter((o) => o.status === threePlListStatus) : orders;
+  const statusCounts = new Map<string, number>(STATUSES.map((s) => [s, serverCounts[s] ?? 0]));
+  if (isStockThreePl) statusCounts.set(NO_TRACKING, serverCounts[NO_TRACKING] ?? 0);
+  const countsTotal = STATUSES.reduce((sum, s) => sum + (statusCounts.get(s) ?? 0), 0);
   // A dropship order can't ship until the 3PL has entered every line's buy price.
   const missingBuyPrice = (o: OrderDto) => isDropshipThreePl && o.items.some((i) => i.buyTotalSnapshot == null);
   const canMarkShipped = (o: OrderDto) => o.status === "PROCESSING" && !missingBuyPrice(o);
@@ -487,7 +538,7 @@ export default function OrdersPage() {
     ...(isManager
       ? [{ title: "Account Holder", key: "accountHolder", render: (_: unknown, o: OrderDto) => userLabel(userById.get(o.accountHolderId)) }]
       : []),
-    { title: "Date", dataIndex: "orderDate", render: (v: string) => formatDate(v), sorter: (a, b) => a.orderDate.localeCompare(b.orderDate) },
+    { title: "Date", dataIndex: "orderDate", render: (v: string) => formatDate(v) },
     {
       title: "Order #",
       key: "ebayOrderRef",
@@ -762,7 +813,7 @@ export default function OrdersPage() {
           <div className="mt-4">
             <StatusCounts
               totalLabel="Total orders"
-              total={orders.length}
+              total={countsTotal}
               statuses={countStatuses}
               counts={Object.fromEntries(statusCounts)}
               active={threePlBulk || searchingRef ? null : filter.status || null}
@@ -812,7 +863,19 @@ export default function OrdersPage() {
                 }
               : undefined
           }
-          pagination={{ pageSize: 50, hideOnSinglePage: true }}
+          loading={loading}
+          pagination={{
+            current: page,
+            pageSize,
+            total: threePlBulk && searchingRef ? visibleOrders.length : total,
+            showSizeChanger: true,
+            pageSizeOptions: LIST_PAGE_SIZES.map(String),
+            showTotal: (n, [from, to]) => `${from}–${to} of ${n} orders`,
+            onChange: (p, size) => {
+              setPage(size !== pageSize ? 1 : p);
+              setPageSize(size);
+            },
+          }}
           scroll={{ x: "max-content" }}
           locale={{ emptyText: searchingRef ? `No order found for "${filter.orderRef}".` : "No orders match these filters." }}
         />

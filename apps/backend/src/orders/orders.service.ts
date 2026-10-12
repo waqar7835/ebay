@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { InjectModel } from "@nestjs/sequelize";
-import { Op, Transaction, UniqueConstraintError } from "sequelize";
+import { Op, Sequelize, Transaction, UniqueConstraintError } from "sequelize";
 import { Currency, ExchangeRates, OrderStatus, ProductFulfillmentType, Role } from "@ebay-order-management/shared";
 import { Order } from "../database/models/order.model";
 import { OrderItem } from "../database/models/order-item.model";
@@ -22,6 +22,7 @@ import { SubscriptionsService } from "../subscriptions/subscriptions.service";
 import { FinanceService } from "../finance/finance.service";
 import { ExchangeRatesService } from "../exchange-rates/exchange-rates.service";
 import type { JwtPayload } from "../auth/jwt.strategy";
+import { likeContains, type Paging } from "../common/pagination.util";
 import { CreateOrderDto } from "./dto/create-order.dto";
 import { UpdateOrderDto } from "./dto/update-order.dto";
 import { UpdateOrderStatusDto } from "./dto/update-status.dto";
@@ -83,7 +84,11 @@ export class OrdersService {
     private readonly exchangeRatesService: ExchangeRatesService,
   ) {}
 
-  async list(companyId: string, requester: JwtPayload, filters: OrderListFilters = {}) {
+  /**
+   * Whole list when `paging` is null; otherwise one page plus `statusCounts` over every filter except status (for the
+   * status cards above the portal list).
+   */
+  async list(companyId: string, requester: JwtPayload, filters: OrderListFilters = {}, paging: Paging | null = null) {
     // Searching by order number finds the order wherever it is: status, date and user filters are dropped (the
     // requester's own visibility scoping below still applies).
     const orderRef = filters.orderRef?.trim();
@@ -101,24 +106,50 @@ export class OrdersService {
       if (filters.threePlId) where.threePlId = filters.threePlId;
     }
 
-    if (filters.status) where.status = filters.status;
     // 3PLs only ever see an order once it's been assigned to them and has left PENDING — a manager
     // makes the initial PENDING -> PROCESSING move.
-    if (isThreePl && !isManager) {
-      where.status = filters.status && filters.status !== OrderStatus.PENDING ? filters.status : { [Op.ne]: OrderStatus.PENDING };
-    }
+    const threePlOnly = isThreePl && !isManager;
+    if (threePlOnly) where.status = { [Op.ne]: OrderStatus.PENDING };
     if (filters.startDate || filters.endDate) {
       const orderDate: Record<symbol, string> = {};
       if (filters.startDate) orderDate[Op.gte] = filters.startDate;
       if (filters.endDate) orderDate[Op.lte] = filters.endDate;
       where.orderDate = orderDate;
     }
-    if (orderRef) where.ebayOrderRef = { [Op.iLike]: `%${orderRef.replace(/[\\%_]/g, "\\$&")}%` };
+    if (orderRef) where.ebayOrderRef = { [Op.iLike]: likeContains(orderRef) };
+    // Everything but the status filter: what the status counts are taken over.
+    const countWhere = { ...where };
+    if (filters.status && !(threePlOnly && filters.status === OrderStatus.PENDING)) where.status = filters.status;
 
-    const orders = await this.orderModel.findAll({ where, order: [["createdAt", "DESC"]] });
     const staleOrderDays = await this.staleOrderDays(companyId);
     const now = new Date();
-    return orders.map((order) => this.withStaleness(order, staleOrderDays, now, isManager, requester));
+    const visible = (orders: Order[]) => orders.map((order) => this.withStaleness(order, staleOrderDays, now, isManager, requester));
+    // id breaks createdAt ties so pages never overlap.
+    const sort: [string, string][] = [
+      ["createdAt", "DESC"],
+      ["id", "ASC"],
+    ];
+    if (!paging) return visible(await this.orderModel.findAll({ where, order: sort }));
+
+    // The default scope joins items (hasMany), so count and group on the bare table.
+    const [rows, total, grouped, noTracking] = await Promise.all([
+      this.orderModel.findAll({ where, order: sort, limit: paging.pageSize, offset: paging.offset }),
+      this.orderModel.unscoped().count({ where }),
+      this.orderModel.unscoped().count({ where: countWhere, group: ["status"] }),
+      this.orderModel.unscoped().count({
+        where: {
+          ...countWhere,
+          [Op.and]: [
+            { status: { [Op.in]: [OrderStatus.SHIPPED, OrderStatus.DELIVERED] } },
+            { [Op.or]: [{ trackingNumber: null }, Sequelize.where(Sequelize.fn("btrim", Sequelize.col("tracking_number")), "")] },
+          ],
+        },
+      }),
+    ]);
+    const statusCounts: Record<string, number> = Object.fromEntries(Object.values(OrderStatus).map((st) => [st, 0]));
+    for (const g of grouped as unknown as { status: string; count: number }[]) statusCounts[g.status] = Number(g.count);
+    statusCounts.NO_TRACKING = noTracking;
+    return { data: visible(rows), total, page: paging.page, pageSize: paging.pageSize, statusCounts };
   }
 
   /** Orders with at least one item from this Stock Owner. */
