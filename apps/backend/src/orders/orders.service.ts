@@ -37,8 +37,8 @@ import {
   orderCurrencies,
 } from "./order-currency.util";
 
-// A cancelled order's stock goes back on the shelf. A refunded one doesn't (decided 2026-10-08): once shipped, the
-// product is the Account Holder's responsibility, and the Stock Owner is still paid for it.
+// A cancelled order's stock goes back on the shelf. A refunded one only when it's a full STOCK refund and the product
+// is coming back (decided 2026-10-12) — see applyStatus.
 const TERMINAL_RESTOCK_STATUSES = [OrderStatus.CANCELLED];
 // 3PLs no longer see PENDING orders at all (a manager must make that first move), so they only
 // ever self-advance PROCESSING -> SHIPPED.
@@ -482,7 +482,7 @@ export class OrdersService {
     const keptIds = new Set<string>();
     for (const [position, line] of lines.entries()) {
       const current = existingByProduct.get(line.product.id);
-      // Orders already restocked (cancelled/returned) hold no stock, so there's nothing to move.
+      // Orders already restocked (cancelled, or refunded with the product back) hold no stock, so there's nothing to move.
       const stockDelta = line.quantity - (current?.quantity ?? 0);
       if (!order.restocked) await adjustStock(line.product, -stockDelta, transaction);
       if (current) {
@@ -735,10 +735,13 @@ export class OrdersService {
   async updateStatus(companyId: string, requester: JwtPayload, id: string, dto: UpdateOrderStatusDto) {
     const order = await this.get(companyId, id);
     this.assertStatusTransitionAllowed(order, requester, dto.status);
-    if (dto.refundAmount !== undefined && dto.status !== OrderStatus.REFUNDED) {
-      throw new BadRequestException("A refund amount only goes with the REFUNDED status");
+    if ((dto.refundAmount !== undefined || dto.restock !== undefined) && dto.status !== OrderStatus.REFUNDED) {
+      throw new BadRequestException("A refund amount or restock choice only goes with the REFUNDED status");
     }
-    await this.applyStatus(order, dto.status, undefined, dto.refundAmount);
+    // One transaction, so stock moves and the order change land together.
+    await this.orderModel.sequelize!.transaction((transaction) =>
+      this.applyStatus(order, dto.status, transaction, { amount: dto.refundAmount, restock: dto.restock }),
+    );
     return this.getForRequester(companyId, requester, id);
   }
 
@@ -749,6 +752,10 @@ export class OrdersService {
    */
   async bulkUpdateStatus(companyId: string, requester: JwtPayload, dto: BulkUpdateOrderStatusDto) {
     await this.assertCanBulkUpdateStatus(requester);
+    // Each refund has its own choices (full/partial, amount, product coming back), so it's one order at a time.
+    if (dto.status === OrderStatus.REFUNDED) {
+      throw new BadRequestException("Refund orders one at a time — each refund needs its own amount and restock choice");
+    }
     const ids = [...new Set(dto.orderIds)];
     return this.orderModel.sequelize!.transaction(async (transaction) => {
       const orders = await this.orderModel.findAll({ where: { id: ids, companyId }, transaction });
@@ -779,12 +786,31 @@ export class OrdersService {
     throw new ForbiddenException("You do not have permission to perform this action");
   }
 
-  /** `refundAmount` (REFUNDED only): a partial refund in the Account Holder's currency; omitted = the full payout. */
-  private async applyStatus(order: Order, status: OrderStatus, transaction?: Transaction, refundAmount?: number) {
+  /**
+   * `refund` (REFUNDED only): `amount` = a partial refund in the Account Holder's currency (omitted = the full payout);
+   * `restock` = on a full STOCK refund, the product is coming back.
+   */
+  private async applyStatus(
+    order: Order,
+    status: OrderStatus,
+    transaction?: Transaction,
+    refund: { amount?: number; restock?: boolean } = {},
+  ) {
     await this.assertCanShip(order, status);
+    // Every check comes before any stock moves.
+    const refunding = status === OrderStatus.REFUNDED && order.status !== OrderStatus.REFUNDED;
+    if (refunding && refund.restock && (refund.amount !== undefined || (await this.isDropshipOrder(order)))) {
+      throw new BadRequestException(`Order ${order.ebayOrderRef}: only a full refund of a stock order can put the stock back`);
+    }
     if (order.status === OrderStatus.REFUNDED && status !== OrderStatus.REFUNDED) this.clearRefund(order);
-    if (status === OrderStatus.REFUNDED && order.status !== OrderStatus.REFUNDED) {
-      await this.recordRefund(order, refundAmount);
+    if (refunding) await this.recordRefund(order, refund.amount);
+    const restock = TERMINAL_RESTOCK_STATUSES.includes(status) || (refunding && !!refund.restock);
+
+    // Leaving CANCELLED / REFUNDED undoes its restock: the units are taken off stock again, so the order holds its
+    // stock like any other and a later cancel or refund can put it back.
+    if (order.restocked && status !== order.status) {
+      await this.moveStock(order, -1, transaction);
+      order.restocked = false;
     }
     if (status === OrderStatus.SHIPPED && order.status !== OrderStatus.SHIPPED) order.shippedAt = new Date();
     order.status = status;
@@ -793,15 +819,20 @@ export class OrdersService {
       order.deliveredAt = new Date();
     }
 
-    if (TERMINAL_RESTOCK_STATUSES.includes(status) && !order.restocked) {
-      for (const item of order.items) {
-        const product = await this.productModel.findByPk(item.productId, { transaction });
-        if (product) await adjustStock(product, item.quantity, transaction);
-      }
+    if (restock && !order.restocked) {
+      await this.moveStock(order, 1, transaction);
       order.restocked = true;
     }
 
     await order.save({ transaction });
+  }
+
+  /** Puts the order's units back on the shelf (`direction` 1) or takes them off again (-1). DROPSHIP holds no stock. */
+  private async moveStock(order: Order, direction: 1 | -1, transaction?: Transaction) {
+    for (const item of order.items) {
+      const product = await this.productModel.findByPk(item.productId, { transaction });
+      if (product) await adjustStock(product, direction * item.quantity, transaction);
+    }
   }
 
   /**

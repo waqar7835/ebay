@@ -25,7 +25,7 @@ import {
   Table,
   type TableColumnsType,
 } from "antd";
-import RefundChoice, { FULL_REFUND, refundAmountFor, type RefundChoiceValue } from "@/components/RefundChoice";
+import RefundChoice, { FULL_REFUND, refundAmountFor, restockFor, type RefundChoiceValue } from "@/components/RefundChoice";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
@@ -359,7 +359,7 @@ export default function OrdersPage() {
     if (amount === null) return;
     setRefundSaving(true);
     try {
-      await updateOrderStatus(refundOrder.id, "REFUNDED" as OrderStatus, amount);
+      await updateOrderStatus(refundOrder.id, "REFUNDED" as OrderStatus, amount, restockFor(refundOrder, refundChoice));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to refund the order");
     } finally {

@@ -32,7 +32,7 @@ import { EditAction } from "@/components/RowActions";
 import { money as ownMoney, pkr } from "@/lib/currency";
 import ProductThumb from "@/components/ProductThumb";
 import ThreePlOrderModal from "@/components/ThreePlOrderModal";
-import RefundChoice, { FULL_REFUND, refundAmountFor, type RefundChoiceValue } from "@/components/RefundChoice";
+import RefundChoice, { FULL_REFUND, refundAmountFor, restockFor, type RefundChoiceValue } from "@/components/RefundChoice";
 import StatusCounts, { STATUS_COLORS } from "@/components/StatusCounts";
 import DateField from "@/components/DateField";
 import {
@@ -298,16 +298,26 @@ export default function OrdersPage() {
     }
   }
   const selectedOrders = orders.filter((o) => selectedIds.includes(o.id));
-  // A partial refund is one order at a time; refunding several orders at once refunds each in full.
-  const singleRefund = bulkStatus === "REFUNDED" && selectedOrders.length === 1 && selectedOrders[0].status !== "REFUNDED";
+  // Refunds are one order at a time (each has its own full/partial, amount and restock choice), so REFUNDED is only
+  // offered with a single, not yet refunded order selected.
+  const canRefundSelection = selectedOrders.length === 1 && selectedOrders[0].status !== "REFUNDED";
+  const singleRefund = bulkStatus === "REFUNDED" && canRefundSelection;
+  // Ticking a second order after picking REFUNDED drops the choice rather than leaving a Save that can't work.
+  useEffect(() => {
+    if (bulkStatus === "REFUNDED" && !canRefundSelection) setBulkStatus(defaultBulkStatus);
+  }, [bulkStatus, canRefundSelection, defaultBulkStatus]);
   const bulkRefundAmount = singleRefund ? refundAmountFor(selectedOrders[0], refundChoice) : undefined;
 
   async function handleBulkSave() {
-    if (!bulkStatus || bulkRefundAmount === null) return;
+    if (!bulkStatus || bulkRefundAmount === null || (bulkStatus === "REFUNDED" && !singleRefund)) return;
     setBulkSaving(true);
     try {
-      if (singleRefund) await updateOrderStatus(selectedOrders[0].id, bulkStatus, bulkRefundAmount);
-      else await bulkUpdateOrderStatus(selectedOrders.map((o) => o.id), bulkStatus);
+      if (singleRefund) {
+        const order = selectedOrders[0];
+        await updateOrderStatus(order.id, bulkStatus, bulkRefundAmount, restockFor(order, refundChoice));
+      } else {
+        await bulkUpdateOrderStatus(selectedOrders.map((o) => o.id), bulkStatus);
+      }
       setConfirmOpen(false);
       setSelectedIds([]);
       setBulkStatus(defaultBulkStatus);
@@ -340,7 +350,7 @@ export default function OrdersPage() {
     if (amount === null) return;
     setRefundSaving(true);
     try {
-      await updateOrderStatus(refundOrder.id, "REFUNDED" as OrderStatus, amount);
+      await updateOrderStatus(refundOrder.id, "REFUNDED" as OrderStatus, amount, restockFor(refundOrder, refundChoice));
       setRefundOrder(null);
       refresh();
     } catch (err) {
@@ -908,7 +918,20 @@ export default function OrdersPage() {
                   placeholder="Select status"
                   value={bulkStatus}
                   onChange={setBulkStatus}
-                  options={bulkStatuses.map((s) => ({ value: s, label: s }))}
+                  options={bulkStatuses.map((s) =>
+                    s === "REFUNDED" && !canRefundSelection
+                      ? {
+                          value: s,
+                          disabled: true,
+                          label: (
+                            <span>
+                              {s} <span className="text-xs text-slate-400">· one order at a time</span>
+                            </span>
+                          ),
+                        }
+                      : { value: s, label: s },
+                  )}
+                  popupMatchSelectWidth={false}
                   className="w-40"
                 />
                 <Button
@@ -1006,14 +1029,6 @@ export default function OrdersPage() {
             <div className="mb-4">
               <RefundChoice order={selectedOrders[0]} value={refundChoice} onChange={setRefundChoice} />
             </div>
-          )}
-          {bulkStatus === "REFUNDED" && selectedOrders.length > 1 && (
-            <Alert
-              type="info"
-              showIcon
-              className="mb-4"
-              title="Each order is refunded in full (its whole eBay payout). For a partial refund, select one order at a time."
-            />
           )}
           <Table<OrderDto>
             rowKey="id"

@@ -36,11 +36,15 @@ import { INVOICE_ROLES, InvoiceDraftDto } from "./dto/invoice-draft.dto";
 import { InvoicePdfLine, renderInvoicePdf } from "./invoice-pdf";
 import { renderTemplatedInvoicePdf } from "./invoice-pdf-templated";
 import { InvoiceTemplatesService } from "./templates/invoice-templates.service";
+import { accountHolderFullCredit, isFullRefund, stockRefundSettlement } from "./refund-settlement.util";
 
 /** Stock Owner and 3PL invoices are in PKR; an Account Holder's in their own currency. */
 const PKR = "PKR";
-/** Orders can be invoiced once they've shipped. */
-const INVOICEABLE_STATUSES = [OrderStatus.SHIPPED, OrderStatus.DELIVERED];
+/**
+ * Orders can be invoiced once they've shipped — including a STOCK order refunded after it shipped, which is invoiced
+ * with its refund settled on the same invoice (decided 2026-10-12). See `isInvoiceable`.
+ */
+const INVOICEABLE_STATUSES = [OrderStatus.SHIPPED, OrderStatus.DELIVERED, OrderStatus.REFUNDED];
 
 /**
  * Columns on `orders` recording which invoice paid an order out to its Account Holder / 3PL
@@ -66,12 +70,17 @@ interface DraftLine {
   details: InvoiceLineDetails | null;
 }
 
-/** An order the chosen user+role can be invoiced for, plus the ids to mark once it's on an invoice. */
+/**
+ * An order the chosen user+role can be invoiced for, plus the ids to mark once it's on an invoice. A refunded order not
+ * invoiced yet carries its order line and its refund adjustment together, and marks both columns.
+ */
 interface Candidate {
   order: Order;
-  line: DraftLine;
-  /** Order ids (Account Holder / 3PL) or order item ids (Stock Owner). */
+  lines: DraftLine[];
+  /** Order ids (Account Holder / 3PL) or order item ids (Stock Owner) to mark as invoiced. */
   claimIds: string[];
+  /** The same, to mark as having had their refund settled. */
+  refundClaimIds: string[];
 }
 
 /** Everything a PDF needs besides the company and its style. */
@@ -141,18 +150,18 @@ export class InvoicesService {
     const partner = await this.findPartner(companyId, userId, role);
     const currency = invoiceCurrency(partner, role);
     const { open, refunds } = await this.candidates(companyId, userId, role, currency, editingInvoiceId);
-    return [...open.values(), ...refunds.values()].map(({ order, line }) => ({
+    return [...open.values(), ...refunds.values()].map(({ order, lines: [line, ...rest] }) => ({
       orderId: order.id,
       ebayOrderRef: order.ebayOrderRef,
       orderDate: order.orderDate,
       status: order.status,
       kind: line.kind as InvoiceLineKind.ORDER | InvoiceLineKind.REFUND,
-      description: line.description,
+      description: [line, ...rest].map((l) => l.description).join(" · "),
       currency,
       needsRecalculation: line.kind === InvoiceLineKind.ORDER && !order.exchangeRates,
       grossAmount: line.grossAmount,
-      deductionAmount: line.deductionAmount,
-      netAmount: line.netAmount,
+      deductionAmount: round2(line.deductionAmount + rest.reduce((sum, l) => sum + l.deductionAmount, 0)),
+      netAmount: round2(line.netAmount + rest.reduce((sum, l) => sum + l.netAmount, 0)),
     }));
   }
 
@@ -427,7 +436,7 @@ export class InvoicesService {
       details: null,
     }));
 
-    const lines = [...picked.map((c) => c.line), ...pickedRefunds.map((c) => c.line), ...miscLines];
+    const lines = [...picked.flatMap((c) => c.lines), ...pickedRefunds.flatMap((c) => c.lines), ...miscLines];
     if (!lines.length) throw new BadRequestException("Select at least one order or add a line");
     return {
       partner,
@@ -436,7 +445,7 @@ export class InvoicesService {
       lines,
       totalAmount: round2(lines.reduce((sum, line) => sum + line.netAmount, 0)),
       claimIds: picked.flatMap((c) => c.claimIds),
-      refundClaimIds: pickedRefunds.flatMap((c) => c.claimIds),
+      refundClaimIds: [...picked, ...pickedRefunds].flatMap((c) => c.refundClaimIds),
     };
   }
 
@@ -453,17 +462,20 @@ export class InvoicesService {
     const cols = ORDER_CLAIM_COLUMNS[role];
     // Not yet on an invoice — or on the one being edited.
     const unclaimed = editingInvoiceId ? { [Op.or]: [null, editingInvoiceId] } : null;
-    const openOrders = await this.orderModel.findAll({
-      where: {
-        companyId,
-        status: INVOICEABLE_STATUSES,
-        [cols.owner]: userId,
-        [cols.invoice]: unclaimed,
-        // A DROPSHIP order isn't owed to the 3PL until every line has its buy price.
-        ...(role === Role.THREE_PL ? { threePlPayoutSnapshot: { [Op.ne]: null } } : {}),
-      } as WhereOptions<Order>,
-      order: [["orderDate", "ASC"]],
-    });
+    const openOrders = (
+      await this.orderModel.findAll({
+        where: {
+          companyId,
+          status: INVOICEABLE_STATUSES,
+          [cols.owner]: userId,
+          [cols.invoice]: unclaimed,
+          [cols.refund]: unclaimed,
+          // A DROPSHIP order isn't owed to the 3PL until every line has its buy price.
+          ...(role === Role.THREE_PL ? { threePlPayoutSnapshot: { [Op.ne]: null } } : {}),
+        } as WhereOptions<Order>,
+        order: [["orderDate", "ASC"]],
+      })
+    ).filter(isInvoiceable);
     const open = new Map<string, Candidate>();
     if (role === Role.ACCOUNT_HOLDER) {
       // A DROPSHIP order isn't billable to the Account Holder until every line has its client buying price.
@@ -471,13 +483,23 @@ export class InvoicesService {
       const titles = await this.productTitles(billable.flatMap((o) => o.items));
       const rates = await this.accountHolderRates(billable, currency as Currency);
       for (const order of billable) {
-        const line = this.accountHolderLine(order, currency as Currency, rates.get(order.id)!, titles);
-        open.set(order.id, { order, line, claimIds: [order.id] });
+        const rate = rates.get(order.id)!;
+        const line = this.accountHolderLine(order, currency as Currency, rate, titles);
+        const refunded = order.status === OrderStatus.REFUNDED;
+        // Refunded before it was invoiced: settled on the same invoice.
+        const credit = refunded ? accountHolderRefundCredit(order, line.netAmount, currency as Currency, rate) : 0;
+        open.set(order.id, {
+          order,
+          lines: credit > 0 ? [line, refundLine(order, credit, refundNote(order))] : [line],
+          claimIds: [order.id],
+          refundClaimIds: refunded ? [order.id] : [],
+        });
       }
     } else {
+      // A STOCK 3PL is paid its fee for a shipped order even if it was refunded later — nothing to settle.
       const products = await this.productInfo(openOrders.flatMap((o) => o.items));
       for (const order of openOrders)
-        open.set(order.id, { order, line: this.threePlLine(order, products), claimIds: [order.id] });
+        open.set(order.id, { order, lines: [this.threePlLine(order, products)], claimIds: [order.id], refundClaimIds: [] });
     }
 
     const refundedOrders = (
@@ -492,26 +514,28 @@ export class InvoicesService {
         order: [["orderDate", "ASC"]],
       })
     )
-      // A refunded order on the invoice being edited just drops off it — no adjustment against itself.
+      // A refunded order on the invoice being edited is settled on it as an open order instead.
       .filter((order) => order[cols.invoice] !== editingInvoiceId)
       // Only a DROPSHIP 3PL pays back on a refund (the buy price it was reimbursed); a STOCK 3PL keeps its fee.
       .filter((order) => role === Role.ACCOUNT_HOLDER || isDropshipOrder(order));
-    const refundable = refundedOrders.map((order) => ({ order, invoiceId: order[cols.invoice]!, claimIds: [order.id] }));
+    const refundable = refundedOrders.map((order) => ({ order, invoiceId: order[cols.invoice]! }));
     let refunds: Map<string, Candidate>;
     if (role === Role.ACCOUNT_HOLDER) {
       const rates = await this.accountHolderRates(refundedOrders, currency as Currency);
       refunds = await this.refundCandidates(refundable, currency, (order, original) =>
-        accountHolderRefund(order, original, currency as Currency, rates.get(order.id)!),
+        accountHolderRefundCredit(order, original.netAmount, currency as Currency, rates.get(order.id)!),
       );
     } else {
-      refunds = await this.refundCandidates(refundable, currency, (_order, original) => ({
-        credit: original.netAmount,
-        note: "buy price paid back",
-      }));
+      refunds = await this.refundCandidates(refundable, currency, (_order, original) => original.netAmount);
     }
     return { open, refunds };
   }
 
+  /**
+   * A Stock Owner is invoiced per item. On a refunded STOCK order (decided 2026-10-12) it gives back what
+   * `stockRefundSettlement` says: on an invoice after the one that paid it, or — if it wasn't paid yet — netted on the
+   * same invoice. Its items on an order fully refunded before being invoiced are never offered: it gets nothing.
+   */
   private async stockOwnerCandidates(companyId: string, userId: string, editingInvoiceId?: string) {
     // Not yet on an invoice — or on the one being edited.
     const isOpen = (invoiceId: string | null) => !invoiceId || invoiceId === editingInvoiceId;
@@ -521,21 +545,54 @@ export class InvoicesService {
       order: [["orderDate", "ASC"]],
     });
     const titles = await this.productTitles(items);
+    const paidOn = await this.invoiceNumbers(items.map((i) => i.stockOwnerInvoiceId));
 
     const open = new Map<string, Candidate>();
+    const refunds = new Map<string, Candidate>();
     for (const order of orders) {
-      const openItems = order.items.filter((i) => i.stockOwnerId === userId && isOpen(i.stockOwnerInvoiceId));
-      if (openItems.length) {
-        open.set(order.id, {
-          order,
-          line: this.stockOwnerLine(order, openItems, titles),
-          claimIds: openItems.map((i) => i.id),
-        });
+      const mine = order.items.filter((i) => i.stockOwnerId === userId);
+      const refunded = order.status === OrderStatus.REFUNDED;
+      const settlement = refunded ? stockRefundSettlement(order) : null;
+      const giveBack = (list: OrderItem[]) => round2(list.reduce((sum, i) => sum + (settlement?.stockOwnerReturns.get(i.id) ?? 0), 0));
+
+      if (isInvoiceable(order) && !settlement?.full) {
+        const openItems = mine.filter((i) => isOpen(i.stockOwnerInvoiceId) && isOpen(i.stockOwnerRefundInvoiceId));
+        if (openItems.length) {
+          const line = this.stockOwnerLine(order, openItems, titles);
+          const back = giveBack(openItems);
+          open.set(order.id, {
+            order,
+            lines: back > 0 ? [line, refundLine(order, back, refundNote(order))] : [line],
+            claimIds: openItems.map((i) => i.id),
+            refundClaimIds: refunded ? openItems.map((i) => i.id) : [],
+          });
+        }
+      }
+
+      if (refunded) {
+        const paid = mine.filter(
+          (i) => i.stockOwnerInvoiceId && i.stockOwnerInvoiceId !== editingInvoiceId && isOpen(i.stockOwnerRefundInvoiceId),
+        );
+        const back = giveBack(paid);
+        if (back > 0) {
+          const numbers = [...new Set(paid.map((i) => paidOn.get(i.stockOwnerInvoiceId!) ?? "an earlier invoice"))];
+          refunds.set(order.id, {
+            order,
+            lines: [refundLine(order, back, refundNote(order), numbers.join(", "))],
+            claimIds: [],
+            refundClaimIds: paid.map((i) => i.id),
+          });
+        }
       }
     }
-    // A refund is never charged back to the Stock Owner (decided 2026-10-08): once shipped, the product is the
-    // Account Holder's responsibility.
-    return { open, refunds: new Map<string, Candidate>() };
+    return { open, refunds };
+  }
+
+  private async invoiceNumbers(ids: (string | null)[]) {
+    const unique = [...new Set(ids.filter((id): id is string => !!id))];
+    if (!unique.length) return new Map<string, string>();
+    const invoices = await this.invoiceModel.findAll({ attributes: ["id", "invoiceNumber"], where: { id: unique } });
+    return new Map(invoices.map((i) => [i.id, i.invoiceNumber]));
   }
 
   private async productTitles(items: OrderItem[]) {
@@ -566,11 +623,11 @@ export class InvoicesService {
     return rates;
   }
 
-  /** A negative adjustment per refunded order, worked out by `adjust` from the order's line on its original invoice. */
+  /** A negative adjustment per refunded order, worked out by `credit` from the order's line on its original invoice. */
   private async refundCandidates(
-    refundable: { order: Order; invoiceId: string; claimIds: string[] }[],
+    refundable: { order: Order; invoiceId: string }[],
     currency: string,
-    adjust: (order: Order, original: InvoiceLineItem) => { credit: number; note: string },
+    credit: (order: Order, original: InvoiceLineItem) => number,
   ) {
     const refunds = new Map<string, Candidate>();
     if (!refundable.length) return refunds;
@@ -586,23 +643,17 @@ export class InvoicesService {
       this.invoiceModel.findAll({ attributes: ["id", "invoiceNumber", "currency"], where: { id: invoiceIds } }),
     ]);
     const invoiceById = new Map(invoices.map((i) => [i.id, i]));
-    for (const { order, invoiceId, claimIds } of refundable) {
+    for (const { order, invoiceId } of refundable) {
       const original = originals.find((l) => l.invoiceId === invoiceId && l.orderId === order.id);
       // An adjustment can only reverse an amount in the same currency as this invoice.
       if (!original || invoiceById.get(invoiceId)?.currency !== currency) continue;
-      const { credit, note } = adjust(order, original);
+      const amount = credit(order, original);
+      if (amount <= 0) continue;
       refunds.set(order.id, {
         order,
-        claimIds,
-        line: {
-          orderId: order.id,
-          kind: InvoiceLineKind.REFUND,
-          description: `Refund adjustment: Order ${order.ebayOrderRef} — ${note} (invoiced on ${invoiceById.get(invoiceId)!.invoiceNumber})`,
-          grossAmount: 0,
-          deductionAmount: credit,
-          netAmount: round2(-credit),
-          details: null,
-        },
+        lines: [refundLine(order, amount, refundNote(order), invoiceById.get(invoiceId)!.invoiceNumber)],
+        claimIds: [],
+        refundClaimIds: [order.id],
       });
     }
     return refunds;
@@ -619,10 +670,7 @@ export class InvoicesService {
     const asEntered = !!order.exchangeRates && order.accountHolderCurrency === currency;
     const fromPkr = (pkr: number) => pkr / pkrRate;
     const selling = round2(asEntered ? (order.ebayNetProceedsOriginal ?? 0) : fromPkr(order.ebayNetProceeds));
-    const shipping = round2(asEntered ? (order.shippingCostOriginal ?? 0) : fromPkr(order.shippingCost));
-    const threePl = round2(
-      asEntered ? (order.threePlPriceChargedOriginal ?? 0) : fromPkr(order.threePlPriceChargedSnapshot ?? 0),
-    );
+    const { threePl, shipping } = accountHolderCharges(order, currency, pkrRate);
 
     // STOCK: product sell price × qty, in the Stock Owner's currency, so always converted from PKR. DROPSHIP: the
     // line's client buying price, entered in the Account Holder's currency (as entered when the invoice is in it).
@@ -833,28 +881,56 @@ export class InvoicesService {
 }
 
 /**
- * The Account Holder's refund adjustment (decided 2026-10-08). They hold the eBay money, so they pay the refund; the
- * company gives back only the part of its profit share the refund wiped out. The order is re-worked as if the payout
- * were lower by the refund, with the company's share never going below 0: while there's profit left the two sides
- * split the refund by their share %, after that the Account Holder carries the rest. The products, 3PL charge and
- * shipping stay owed. A full refund therefore credits the company's whole share (e.g. payout 25, costs 17, 50/50 →
- * share 4, credit 4).
+ * A shipped order can be invoiced; a refunded one only if it had shipped and is STOCK — a DROPSHIP order refunded
+ * before it was invoiced is never invoiced (decided 2026-10-12). Orders that shipped before `shipped_at` existed only
+ * have `delivered_at`.
  */
-function accountHolderRefund(order: Order, original: InvoiceLineItem, currency: Currency, pkrRate: number) {
-  const asEntered = !!order.exchangeRates && order.accountHolderCurrency === currency;
-  const refundPkr = order.refundAmount ?? order.ebayNetProceeds;
-  const refundOriginal = order.refundAmountOriginal ?? order.ebayNetProceedsOriginal;
-  const refund = round2(asEntered && refundOriginal != null ? refundOriginal : refundPkr / pkrRate);
-  const payout = round2(asEntered && order.ebayNetProceedsOriginal != null ? order.ebayNetProceedsOriginal : order.ebayNetProceeds / pkrRate);
+function isInvoiceable(order: Order): boolean {
+  if (order.status !== OrderStatus.REFUNDED) return true;
+  return (!!order.shippedAt || !!order.deliveredAt) && !isDropshipOrder(order);
+}
 
-  const profit = original.grossAmount;
-  const companyShare = round2(original.grossAmount - original.deductionAmount);
-  const details = original.details as { companySharePercent?: number } | null;
-  const companyPercent = details?.companySharePercent ?? round2(100 - order.accountHolderSharePercentSnapshot);
-  const shareAfter = Math.max(0, round2((profit - refund) * (companyPercent / 100)));
-  const credit = Math.max(0, round2(companyShare - shareAfter));
-  const kind = refund >= payout ? "full refund" : "partial refund";
-  return { credit, note: `${kind} of ${refund.toFixed(2)} ${currency}` };
+/** The 3PL charge and outside-eBay shipping on an Account Holder's line, in their currency (see accountHolderLine). */
+function accountHolderCharges(order: Order, currency: Currency, pkrRate: number) {
+  const asEntered = !!order.exchangeRates && order.accountHolderCurrency === currency;
+  const fromPkr = (pkr: number) => pkr / pkrRate;
+  return {
+    shipping: round2(asEntered ? (order.shippingCostOriginal ?? 0) : fromPkr(order.shippingCost)),
+    threePl: round2(asEntered ? (order.threePlPriceChargedOriginal ?? 0) : fromPkr(order.threePlPriceChargedSnapshot ?? 0)),
+  };
+}
+
+/**
+ * What the company gives the Account Holder back on a refunded order (decided 2026-10-12), in their currency, given
+ * the net of the order's line (what they pay for it). DROPSHIP, or a full STOCK refund: everything but the 3PL charge
+ * and shipping. A partial STOCK refund: the `stockRefundSettlement` credit.
+ */
+function accountHolderRefundCredit(order: Order, lineNet: number, currency: Currency, pkrRate: number): number {
+  if (isDropshipOrder(order) || isFullRefund(order)) {
+    const { threePl, shipping } = accountHolderCharges(order, currency, pkrRate);
+    return accountHolderFullCredit(lineNet, threePl, shipping);
+  }
+  return Math.min(lineNet, round2(stockRefundSettlement(order).accountHolderCredit / pkrRate));
+}
+
+/** e.g. "partial refund of 5.00 GBP" — the amount as entered, in the Account Holder's currency. */
+function refundNote(order: Order): string {
+  const asEntered = order.refundAmountOriginal != null && !!order.accountHolderCurrency;
+  const amount = asEntered ? order.refundAmountOriginal! : (order.refundAmount ?? order.ebayNetProceeds);
+  return `${isFullRefund(order) ? "full" : "partial"} refund of ${amount.toFixed(2)} ${asEntered ? order.accountHolderCurrency : PKR}`;
+}
+
+/** A negative adjustment for a refund; `invoicedOn` = the invoice that paid the order out, when it's an earlier one. */
+function refundLine(order: Order, credit: number, note: string, invoicedOn?: string): DraftLine {
+  return {
+    orderId: order.id,
+    kind: InvoiceLineKind.REFUND,
+    description: `Refund adjustment: Order ${order.ebayOrderRef} — ${note}${invoicedOn ? ` (invoiced on ${invoicedOn})` : ""}`,
+    grossAmount: 0,
+    deductionAmount: round2(credit),
+    netAmount: round2(-credit),
+    details: null,
+  };
 }
 
 const STATUS_LABELS: Record<InvoiceStatus, string> = {

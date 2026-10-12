@@ -1,16 +1,20 @@
 "use client";
 
 import type { OrderDto } from "@ebay-order-management/shared";
-import { InputNumber, Radio } from "antd";
+import { Checkbox, InputNumber, Radio } from "antd";
 import { currencySymbol, money } from "@/lib/currency";
 
-/** Full refund (the whole eBay payout) or a partial one, in the order's Account Holder currency. */
+/**
+ * Full refund (the whole eBay payout) or a partial one, in the order's Account Holder currency. `restock`: on a full
+ * refund of a stock order, the product is coming back and goes back into stock.
+ */
 export interface RefundChoiceValue {
   partial: boolean;
   amount?: number;
+  restock?: boolean;
 }
 
-export const FULL_REFUND: RefundChoiceValue = { partial: false };
+export const FULL_REFUND: RefundChoiceValue = { partial: false, restock: false };
 
 /** Dropship orders are always refunded in full (Stock items always have a Stock Owner, dropship items never do). */
 export const isDropshipOrder = (o: OrderDto) => o.items.length > 0 && o.items.every((i) => !i.stockOwnerId);
@@ -23,6 +27,11 @@ export function refundAmountFor(order: OrderDto, choice: RefundChoiceValue): num
   if (!choice.partial) return undefined;
   if (choice.amount == null || choice.amount <= 0 || choice.amount > payoutOf(order)) return null;
   return choice.amount;
+}
+
+/** What to send as `restock`: only full refunds of stock orders can put the stock back. */
+export function restockFor(order: OrderDto, choice: RefundChoiceValue): boolean | undefined {
+  return !choice.partial && !isDropshipOrder(order) ? !!choice.restock : undefined;
 }
 
 export default function RefundChoice({
@@ -44,13 +53,21 @@ export default function RefundChoice({
       </div>
       <Radio.Group
         value={value.partial ? "partial" : "full"}
-        onChange={(e) => onChange({ partial: e.target.value === "partial", amount: value.amount })}
+        onChange={(e) => onChange({ ...value, partial: e.target.value === "partial" })}
         options={[
           { value: "full", label: "Full refund" },
           { value: "partial", label: "Partial refund", disabled: dropship },
         ]}
       />
       {dropship && <div className="text-xs text-slate-500">Dropship orders are always refunded in full.</div>}
+      {!dropship && !value.partial && (
+        <div>
+          <Checkbox checked={!!value.restock} onChange={(e) => onChange({ ...value, restock: e.target.checked })}>
+            The product is coming back — put it back into stock
+          </Checkbox>
+          <div className="text-xs text-slate-500">Leave unticked if the buyer keeps it; stock stays as it is.</div>
+        </div>
+      )}
       {value.partial && (
         <InputNumber
           autoFocus
@@ -60,7 +77,7 @@ export default function RefundChoice({
           step={0.01}
           placeholder="Amount refunded to the buyer"
           value={value.amount ?? null}
-          onChange={(v) => onChange({ partial: true, amount: v == null ? undefined : Number(v) })}
+          onChange={(v) => onChange({ ...value, partial: true, amount: v == null ? undefined : Number(v) })}
           status={refundAmountFor(order, value) === null ? "error" : undefined}
           className="w-64"
         />

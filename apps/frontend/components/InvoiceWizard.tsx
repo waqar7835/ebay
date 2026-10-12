@@ -28,6 +28,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import BackLink from "@/components/BackLink";
 import Nav from "@/components/Nav";
+import { STATUS_COLORS } from "@/components/StatusCounts";
 import { roleLabel } from "@/components/RoleTag";
 import InvoiceTemplateSwatches, { LAYOUT_LABELS } from "@/components/InvoiceTemplateSwatches";
 import {
@@ -252,7 +253,7 @@ export default function InvoiceWizard({ invoiceId }: { invoiceId?: string }) {
           {r.kind === "REFUND" ? (
             <Tag color="red">Refund adjustment</Tag>
           ) : (
-            <Tag color={r.status === "DELIVERED" ? "green" : "blue"}>{r.status}</Tag>
+            <Tag color={STATUS_COLORS[r.status]}>{r.status}</Tag>
           )}
           {r.needsRecalculation && (
             <Tooltip

@@ -84,7 +84,7 @@ export function isDropshipOrder(order: Order): boolean {
 }
 
 /** Stock Owner PROFIT_SHARE: the company keeps sharePercent% of (buyPrice − stockOwnerCost) × qty. */
-function itemShareCut(item: OrderItem): number {
+export function itemShareCut(item: OrderItem): number {
   if (item.stockOwnerPayoutModeSnapshot !== StockOwnerPayoutMode.PROFIT_SHARE) return 0;
   const buy = item.buyPriceSnapshot ?? 0;
   const cost = item.stockOwnerCostSnapshot ?? 0;

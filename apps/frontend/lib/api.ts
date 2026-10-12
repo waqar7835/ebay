@@ -323,14 +323,20 @@ export function staffDashboard() {
   return request<StaffDashboard>("/dashboard/staff");
 }
 
-/** `refundAmount` (REFUNDED only): a partial refund in the order's Account Holder currency; omitted = full refund. */
-export function updateOrderStatus(orderId: string, status: OrderStatus, refundAmount?: number) {
-  return request<OrderDto>(`/orders/${orderId}/status`, { method: "PATCH", body: JSON.stringify({ status, refundAmount }) });
+/**
+ * REFUNDED only: `refundAmount` = a partial refund in the order's Account Holder currency (omitted = full refund);
+ * `restock` = on a full refund of a stock order, the product is coming back.
+ */
+export function updateOrderStatus(orderId: string, status: OrderStatus, refundAmount?: number, restock?: boolean) {
+  return request<OrderDto>(`/orders/${orderId}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ status, refundAmount, restock }),
+  });
 }
 
 /**
  * Manager bulk action: one status for many orders, all-or-nothing. Orders already in that status are skipped.
- * REFUNDED through here is always a full refund.
+ * REFUNDED isn't allowed here: refunds go one order at a time (updateOrderStatus).
  */
 export function bulkUpdateOrderStatus(orderIds: string[], status: OrderStatus) {
   return request<{ updated: number; unchanged: number }>("/orders/status", {

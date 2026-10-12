@@ -1,4 +1,4 @@
-import { IsEnum, IsNumber, IsOptional, Min } from "class-validator";
+import { IsBoolean, IsEnum, IsNumber, IsOptional, Min } from "class-validator";
 import { OrderStatus } from "@ebay-order-management/shared";
 
 export class UpdateOrderStatusDto {
@@ -13,4 +13,12 @@ export class UpdateOrderStatusDto {
   @IsNumber()
   @Min(0.01)
   refundAmount?: number;
+
+  /**
+   * REFUNDED only, full refunds of STOCK orders: the product is coming back, so its stock goes back on the shelf
+   * (decided 2026-10-12). Partial refunds and dropship orders never restock.
+   */
+  @IsOptional()
+  @IsBoolean()
+  restock?: boolean;
 }

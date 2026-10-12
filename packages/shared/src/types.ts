@@ -425,9 +425,9 @@ export interface InvoiceableOrderDto {
   orderDate: string;
   status: OrderStatus;
   /**
-   * REFUND = already invoiced for this user and since refunded — adds a negative adjustment: for an Account Holder the
-   * company's lost profit share, for a DROPSHIP 3PL the buy price paid back. Stock Owners and STOCK 3PLs are never
-   * charged back.
+   * REFUND = already invoiced for this user and since refunded — adds a negative adjustment (what they give back, or
+   * for an Account Holder what the company gives back; decided 2026-10-12). A STOCK 3PL is never charged back. An
+   * ORDER row of a refunded order not invoiced yet has its refund netted in (both lines go on the invoice).
    */
   kind: InvoiceLineKind.ORDER | InvoiceLineKind.REFUND;
   description: string;
