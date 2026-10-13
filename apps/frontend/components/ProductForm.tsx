@@ -4,6 +4,7 @@ import type { ProductDto, ProductFulfillmentType, UserDto } from "@ebay-order-ma
 import { Alert, Button, Card, Form, Input, InputNumber, Select, Tag } from "antd";
 import { useEffect, useState } from "react";
 import ProductImagesUpload, { productImageItems, type ProductImageItem } from "@/components/ProductImagesUpload";
+import ProductVariations, { variationFormValues, variationPayloads, type VariationFormValues } from "@/components/ProductVariations";
 import { listUsers, type CreateProductPayload } from "@/lib/api";
 import { currencySymbol } from "@/lib/currency";
 import { searchable, userNameOptions } from "@/lib/selectOptions";
@@ -14,12 +15,18 @@ interface ProductFormProps {
   submitLabel: string;
   submittingLabel: string;
   // `images` is the full gallery in display order (first = cover): saved URLs to keep, or new Files.
-  onSubmit: (payload: CreateProductPayload, images: Array<string | File>) => Promise<void>;
+  // `variationImages` holds each variation's gallery, in the same order as `payload.variations`.
+  onSubmit: (
+    payload: CreateProductPayload,
+    images: Array<string | File>,
+    variationImages: Array<Array<string | File>>,
+  ) => Promise<void>;
 }
 
 interface ProductFormValues {
   sku: string;
   title: string;
+  color?: string;
   size?: string;
   fulfillmentType: ProductFulfillmentType;
   stockOwnerId?: string;
@@ -28,6 +35,7 @@ interface ProductFormValues {
   buyPrice?: number;
   sellPrice?: number;
   stockQuantity?: number;
+  variations: VariationFormValues[];
 }
 
 /** Shared by /products/add and /products/[id]/edit so both stay field-for-field identical. */
@@ -58,6 +66,8 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
       setFormError("A dropship product needs at least one image");
       return;
     }
+    // Read from the store: it also holds each row's id / auto-SKU flag.
+    const variations: VariationFormValues[] = form.getFieldValue("variations") ?? [];
     setFormError(null);
     setSubmitting(true);
     try {
@@ -68,13 +78,16 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
           threePlId: isStock ? values.threePlId : undefined,
           sku: values.sku,
           title: values.title,
+          color: values.color?.trim() || undefined,
           size: values.size?.trim() || undefined,
           stockOwnerCost: isStock ? Number(values.stockOwnerCost ?? 0) : undefined,
           buyPrice: isStock ? Number(values.buyPrice ?? 0) : undefined,
           sellPrice: isStock ? Number(values.sellPrice ?? 0) : undefined,
           stockQuantity: isStock ? Number(values.stockQuantity ?? 0) : undefined,
+          variations: variationPayloads(variations, isStock),
         },
         images.map((i) => i.file ?? i.existingUrl!),
+        variations.map((v) => (v.images ?? []).map((i) => i.file ?? i.existingUrl!)),
       );
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to save product");
@@ -91,6 +104,7 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
       initialValues={{
         sku: initial?.sku ?? "",
         title: initial?.title ?? "",
+        color: initial?.color ?? "",
         size: initial?.size ?? "",
         fulfillmentType: initial?.fulfillmentType ?? ("STOCK" as ProductFulfillmentType),
         stockOwnerId: initial?.stockOwnerId ?? undefined,
@@ -99,6 +113,7 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
         buyPrice: initial?.buyPrice ?? 0,
         sellPrice: initial?.sellPrice ?? 0,
         stockQuantity: initial?.stockQuantity ?? 0,
+        variations: variationFormValues(initial?.variations),
       }}
     >
       <div className="grid gap-6 lg:grid-cols-3">
@@ -108,15 +123,32 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
               <Form.Item name="sku" label="SKU" rules={[{ required: true }]}>
                 <Input />
               </Form.Item>
-              <Form.Item name="title" label="Title" rules={[{ required: true }]} className="sm:col-span-2">
+              <Form.Item name="title" label="Title" rules={[{ required: true }]} className="sm:col-span-3">
                 <Input />
               </Form.Item>
-              <Form.Item name="size" label="Size">
+            </div>
+            {/* Each field is one column of the 4-column grid above (same width as SKU). */}
+            <div className="grid gap-x-4 sm:grid-cols-4">
+              <Form.Item
+                name="color"
+                label="Color"
+                dependencies={["size", "variations"]}
+                rules={[
+                  {
+                    // Once there are variations, every one (this product included) needs a color or size to tell them apart.
+                    validator: (_, color?: string) =>
+                      color?.trim() || form.getFieldValue("size")?.trim() || !(form.getFieldValue("variations") ?? []).length
+                        ? Promise.resolve()
+                        : Promise.reject(new Error("Enter a color or a size")),
+                  },
+                ]}
+                className="mb-6 sm:mb-0"
+              >
+                <Input placeholder="e.g. Red" />
+              </Form.Item>
+              <Form.Item name="size" label="Size" className="mb-6 sm:mb-0">
                 <Input placeholder="e.g. 8cm x 5cm" />
               </Form.Item>
-            </div>
-            {/* Same width as SKU: one column of the 4-column grid above. */}
-            <div className="grid gap-x-4 sm:grid-cols-4">
               <Form.Item name="fulfillmentType" label="Fulfillment type" className="mb-0">
                 <Select
                   options={[
@@ -159,6 +191,8 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
               </div>
             </Card>
           )}
+
+          <ProductVariations isStock={isStock} pricePrefix={pricePrefix} disabled={submitting} />
         </div>
 
         <div className="flex flex-col gap-6">

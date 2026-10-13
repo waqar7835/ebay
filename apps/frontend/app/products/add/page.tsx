@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import BackLink from "@/components/BackLink";
 import Nav from "@/components/Nav";
 import ProductForm from "@/components/ProductForm";
+import { saveVariationImages } from "@/components/ProductVariations";
 import { createProduct, getToken, setProductImages } from "@/lib/api";
 
 export default function AddProductPage() {
@@ -25,11 +26,12 @@ export default function AddProductPage() {
         <ProductForm
           submitLabel="Create"
           submittingLabel="Creating..."
-          onSubmit={async (payload, images) => {
+          onSubmit={async (payload, images, variationImages) => {
             const created = await createProduct(payload);
             if (images.length > 0) {
               await setProductImages(created.id, images);
             }
+            await saveVariationImages(created, variationImages, false);
             router.push("/products");
           }}
         />

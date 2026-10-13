@@ -220,6 +220,21 @@ export interface CreateProductPayload {
   threePlId?: string;
   sku: string;
   title: string;
+  color?: string;
+  size?: string;
+  stockOwnerCost?: number;
+  buyPrice?: number;
+  sellPrice?: number;
+  stockQuantity?: number;
+  /** The product's whole list of variations (omit to keep them as they are); ones without an id are created. */
+  variations?: ProductVariationPayload[];
+}
+
+/** One variation: its own SKU, color / size, and (STOCK only) prices and stock. */
+export interface ProductVariationPayload {
+  id?: string;
+  sku: string;
+  color?: string;
   size?: string;
   stockOwnerCost?: number;
   buyPrice?: number;

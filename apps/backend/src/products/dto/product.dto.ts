@@ -1,5 +1,48 @@
-import { IsEnum, IsInt, IsNumber, IsOptional, IsString, Min, ValidateIf } from "class-validator";
+import { Type } from "class-transformer";
+import { IsArray, IsEnum, IsInt, IsNumber, IsOptional, IsString, IsUUID, Min, ValidateIf, ValidateNested } from "class-validator";
 import { ProductFulfillmentType } from "@ebay-order-management/shared";
+
+/**
+ * One variation of a product (e.g. a color / size). Title, type, Stock Owner and 3PL come from the main product;
+ * prices and stock only apply to STOCK products.
+ */
+export class ProductVariationDto {
+  // Existing variation of this product to update; omitted for a new one.
+  @IsOptional()
+  @IsUUID()
+  id?: string;
+
+  @IsString()
+  sku!: string;
+
+  @IsOptional()
+  @IsString()
+  color?: string;
+
+  @IsOptional()
+  @IsString()
+  size?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  stockOwnerCost?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  buyPrice?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  sellPrice?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  stockQuantity?: number;
+}
 
 export class CreateProductDto {
   // Required for STOCK (tied to a Stock Owner); omitted entirely for DROPSHIP.
@@ -19,6 +62,10 @@ export class CreateProductDto {
 
   @IsString()
   title!: string;
+
+  @IsOptional()
+  @IsString()
+  color?: string;
 
   @IsOptional()
   @IsString()
@@ -43,6 +90,16 @@ export class CreateProductDto {
   @IsInt()
   @Min(0)
   stockQuantity?: number;
+
+  /**
+   * The product's whole list of variations, in order: entries with an `id` update that variation, the rest are
+   * created, and variations left out are deleted (refused while one is on an order). Omit to leave them as they are.
+   */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductVariationDto)
+  variations?: ProductVariationDto[];
 }
 
 export class SetProductImagesDto {

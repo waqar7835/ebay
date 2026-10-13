@@ -10,15 +10,17 @@ import type {
   ProductFulfillmentType,
   UserDto,
 } from "@ebay-order-management/shared";
-import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Form, Input, InputNumber, Segmented, Select, Tag } from "antd";
+import { DeleteOutlined, InfoCircleOutlined, PlusOutlined } from "@ant-design/icons";
+import { Alert, Button, Card, Form, Input, InputNumber, Segmented, Select, Tag, Tooltip } from "antd";
 import { useEffect, useState } from "react";
 import DateField from "@/components/DateField";
 import FileUpload from "@/components/FileUpload";
 import ProductThumb from "@/components/ProductThumb";
 import { listExchangeRates, listProducts, listUsers, localDateOnly, mediaUrl, type UpdateOrderPayload } from "@/lib/api";
 import { currencySymbol, money, pkr } from "@/lib/currency";
+import { estimateOrderProfit } from "@/lib/orderProfit";
 import { searchable, userNameOptions } from "@/lib/selectOptions";
+import { productLabel } from "@/lib/productLabel";
 
 interface OrderFormProps {
   // Prefills the form for editing; omitted when creating.
@@ -59,6 +61,29 @@ function timeAgo(iso: string | null | undefined): string {
   const hours = Math.round(minutes / 60);
   if (hours < 48) return `${hours} h ago`;
   return `${Math.round(hours / 24)} days ago`;
+}
+
+/** One line of the Amounts card's profit estimate; `amount` colors a total green (profit) or red (loss). */
+function ProfitRow({
+  label,
+  value,
+  amount,
+  strong,
+  divider,
+}: {
+  label: string;
+  value: string;
+  amount?: number;
+  strong?: boolean;
+  divider?: boolean;
+}) {
+  const tone = amount == null ? "text-slate-700" : amount < 0 ? "text-red-600" : "text-green-600";
+  return (
+    <div className={`flex justify-between gap-3 ${divider ? "mt-1 border-t border-slate-100 pt-2" : ""}`}>
+      <dt className={strong ? "font-medium text-slate-700" : "text-slate-500"}>{label}</dt>
+      <dd className={`mb-0 tabular-nums ${tone} ${strong ? "font-semibold" : ""}`}>{value}</dd>
+    </div>
+  );
 }
 
 /** Shared by /orders/new and /orders/[id]/edit so both stay field-for-field identical. */
@@ -142,11 +167,77 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
   const missingRates = neededCurrencies.filter((c) => !rateFor(c));
   const liveByCurrency = new Map(liveRates.map((r) => [r.currency, r]));
   const staleCurrencies = neededCurrencies.filter((c) => liveByCurrency.get(c)?.stale);
-  const sellTotalPkr = rows.reduce((sum, r, i) => {
-    const p = selected[i];
-    if (!p?.sellPrice || !p.currency) return sum;
-    return sum + p.sellPrice * (rateFor(p.currency) ?? 0) * (r?.quantity ?? 0);
-  }, 0);
+  // --- Live profit estimate (same formulas as the backend's FinanceService), shown in the client's currency. ---
+  const ebayNetProceeds: number = Form.useWatch("ebayNetProceeds", form) ?? 0;
+  const shippingCost: number = Form.useWatch("shippingCost", form) ?? 0;
+  // PKR per unit; a missing currency means plain PKR (orders from before currencies).
+  const toPkr = (amount: number | null | undefined, c: Currency | null | undefined) =>
+    (amount ?? 0) * (c ? (rateFor(c) ?? 0) : 1);
+  const accountHolderProfile = accountHolderId ? userById.get(accountHolderId)?.accountHolderProfile : undefined;
+  // Saving keeps the order's own snapshots unless its Account Holder / 3PL changes (then the new one's terms apply).
+  const keepAhTerms = !!initial && !accountHolderChanged;
+  const keepThreePlTerms = keepAhTerms && (threePlId ?? null) === initial?.threePlId;
+  const ahSharePercent = keepAhTerms ? initial.accountHolderSharePercentSnapshot : (accountHolderProfile?.sharePercent ?? 0);
+  const profit = estimateOrderProfit({
+    dropship: isDropship,
+    lines: rows.map((r, i) => {
+      const p = selected[i];
+      const quantity = r?.quantity ?? 0;
+      if (isDropship)
+        return {
+          quantity,
+          clientTotal: toPkr(r?.clientTotal, ahCurrency),
+          buyTotal: threePlId ? toPkr(r?.buyTotal, threePlCurrency) : 0,
+        };
+      if (!p) return { quantity: 0 };
+      // Products already on the order keep their snapshotted prices and Stock Owner terms.
+      const item = initial?.items.find((it) => it.productId === p.id);
+      if (item) {
+        const price = (original: number | null, snapshot: number | null) =>
+          item.currency ? toPkr(original, item.currency) : (snapshot ?? 0);
+        return {
+          quantity,
+          sellPrice: price(item.sellPriceOriginal, item.sellPriceSnapshot),
+          buyPrice: price(item.buyPriceOriginal, item.buyPriceSnapshot),
+          stockOwnerCost: price(item.stockOwnerCostOriginal, item.stockOwnerCostSnapshot),
+          companyCutPercent: item.stockOwnerPayoutModeSnapshot === "PROFIT_SHARE" ? (item.stockOwnerSharePercentSnapshot ?? 0) : 0,
+        };
+      }
+      const so = p.stockOwnerId ? userById.get(p.stockOwnerId)?.stockOwnerProfile : undefined;
+      return {
+        quantity,
+        sellPrice: toPkr(p.sellPrice, p.currency),
+        buyPrice: toPkr(p.buyPrice, p.currency),
+        stockOwnerCost: toPkr(p.stockOwnerCost, p.currency),
+        companyCutPercent: so?.payoutMode === "PROFIT_SHARE" ? (so.sharePercent ?? 0) : 0,
+      };
+    }),
+    ebayNetProceeds: toPkr(ebayNetProceeds, ahCurrency),
+    shippingCost: toPkr(shippingCost, ahCurrency),
+    threePlPriceCharged: !threePlId
+      ? 0
+      : keepThreePlTerms && initial.threePlPriceChargedOriginal != null
+        ? toPkr(initial.threePlPriceChargedOriginal, ahCurrency)
+        : keepThreePlTerms && initial.threePlPriceChargedSnapshot != null && !initial.accountHolderCurrency
+          ? initial.threePlPriceChargedSnapshot
+          : toPkr(accountHolderProfile?.threePlPriceCharged, ahCurrency),
+    threePlPayout: !threePlId
+      ? 0
+      : keepThreePlTerms && initial.threePlPayoutOriginal != null
+        ? toPkr(initial.threePlPayoutOriginal, threePlCurrency)
+        : toPkr(userById.get(threePlId)?.threePlProfile?.payoutPerOrder, threePlCurrency),
+    accountHolderSharePercent: ahSharePercent,
+  });
+  // Shown in the client's currency (the one the payout is typed in); PKR when it has none.
+  const ahRate = ahCurrency ? rateFor(ahCurrency) : 1;
+  const ahMoney = (pkrAmount: number) => {
+    if (!ahRate) return "—";
+    const v = pkrAmount / ahRate;
+    return v < 0 ? `−${money(-v, ahCurrency)}` : money(v, ahCurrency);
+  };
+  // A deduction: "−£3.00" (no sign when it's 0).
+  const ahLess = (pkrAmount: number) => (Math.abs(pkrAmount) < 0.005 ? ahMoney(0) : ahMoney(-pkrAmount));
+  const canEstimate = !!accountHolderId && chosen.length > 0 && missingRates.length === 0;
 
   const initialItems: ItemRow[] = initial?.items.map((i) => ({
     productId: i.productId,
@@ -177,7 +268,7 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
       .filter((p) => p.fulfillmentType === mode && !others.includes(p.id))
       .map((p) => {
         const reason = !isDropship && otherWarehouse && p.threePlId !== otherWarehouse ? "at another 3PL" : null;
-        return { value: p.id, label: `${p.sku} — ${p.title}`, disabled: !!reason, reason, product: p };
+        return { value: p.id, label: `${p.sku} — ${productLabel(p)}`, disabled: !!reason, reason, product: p };
       });
   }
 
@@ -478,12 +569,36 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
             <Form.Item name="shippingCost" label="Shipping label cost" tooltip="In the client's currency" className="mb-3">
               <InputNumber prefix={currencySymbol(ahCurrency)} min={0} step={0.01} className="w-full" />
             </Form.Item>
-            {!isDropship && chosen.length > 0 && missingRates.length === 0 && (
-              <div className="flex justify-between border-t border-slate-100 pt-3 text-sm text-slate-500">
-                <span>Products at sell price</span>
-                <span className="font-medium text-slate-700">{pkr(sellTotalPkr)}</span>
+            <div className="border-t border-slate-100 pt-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-sm font-medium text-slate-700">Profit estimate</span>
+                <Tooltip title="Worked out live from the values on this form, the same way as the saved order. Amounts not entered yet count as 0; Staff revenue share isn't taken off.">
+                  <InfoCircleOutlined className="text-slate-400" />
+                </Tooltip>
               </div>
-            )}
+              {!canEstimate ? (
+                <p className="mb-0 text-xs text-slate-500">
+                  {missingRates.length > 0 && accountHolderId && chosen.length > 0
+                    ? `Enter the exchange rate for ${missingRates.join(", ")} to see the profit.`
+                    : "Pick a client and products to see the profit."}
+                </p>
+              ) : (
+                <dl className="mb-0 flex flex-col gap-1 text-sm">
+                  <ProfitRow label="eBay payout" value={ahMoney(toPkr(ebayNetProceeds, ahCurrency))} />
+                  {shippingCost > 0 && <ProfitRow label="Shipping label" value={ahLess(toPkr(shippingCost, ahCurrency))} />}
+                  <ProfitRow label={isDropship ? "Client buying price" : "Buying price"} value={ahLess(profit.buyingPrice)} />
+                  {!isDropship && <ProfitRow label="3PL charge" value={ahLess(profit.threePlPriceCharged)} />}
+                  <ProfitRow label="Order profit" value={ahMoney(profit.orderProfit)} amount={profit.orderProfit} strong divider />
+                  <ProfitRow label={`Client share (${ahSharePercent}%)`} value={ahMoney(profit.accountHolderShare)} />
+                  <ProfitRow label={`Company share (${100 - ahSharePercent}%)`} value={ahMoney(profit.companyShare)} />
+                  <ProfitRow label="Product markup" value={ahMoney(profit.productMarkup)} />
+                  {profit.stockOwnerCut !== 0 && <ProfitRow label="Stock Owner profit share" value={ahMoney(profit.stockOwnerCut)} />}
+                  {!isDropship && <ProfitRow label="3PL markup" value={ahMoney(profit.threePlMarkup)} />}
+                  <ProfitRow label="Company profit" value={ahMoney(profit.companyProfit)} amount={profit.companyProfit} strong divider />
+                  {ahCurrency && <div className="text-right text-xs text-slate-400">≈ {pkr(profit.companyProfit)}</div>}
+                </dl>
+              )}
+            </div>
           </Card>
 
           <Card title="Exchange rates" extra={<Tag className="mr-0">to PKR</Tag>}>

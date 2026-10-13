@@ -38,6 +38,7 @@ import {
 } from "@/lib/api";
 import { pkr } from "@/lib/currency";
 import StatusCounts from "@/components/StatusCounts";
+import { productLabel } from "@/lib/productLabel";
 
 const STATUS_OPTIONS = ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "REFUNDED"];
 const STATUS_COLORS: Record<string, string> = {
@@ -138,6 +139,10 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   const productById = new Map(products.map((p) => [p.id, p]));
+  const productName = (id: string) => {
+    const p = productById.get(id);
+    return p ? productLabel(p) : id;
+  };
   const isStaffViewer =
     user?.roles.includes("ADMIN" as never) ||
     user?.roles.includes("STAFF" as never) ||
@@ -276,7 +281,7 @@ export default function DashboardPage() {
               </ChartCard>
               <ChartCard title="Units sold by product">
                 <NamedBarChart
-                  data={so.byProduct.map((p) => ({ name: productById.get(p.productId)?.title ?? p.productId, value: p.quantity }))}
+                  data={so.byProduct.map((p) => ({ name: productName(p.productId), value: p.quantity }))}
                   color="#f59e0b"
                   valueLabel="units"
                 />

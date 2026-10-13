@@ -7,6 +7,12 @@ import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import { EditAction } from "@/components/RowActions";
 import ProductImagesUpload, { productImageItems, type ProductImageItem } from "@/components/ProductImagesUpload";
+import ProductVariations, {
+  saveVariationImages,
+  variationFormValues,
+  variationPayloads,
+  type VariationFormValues,
+} from "@/components/ProductVariations";
 import { createProduct, getToken, listProductsPage, listUsers, mediaUrl, setProductImages, updateProduct } from "@/lib/api";
 import { currencySymbol, money } from "@/lib/currency";
 import { searchable, userNameOptions } from "@/lib/selectOptions";
@@ -15,6 +21,9 @@ interface ProductRow {
   id: string;
   sku: string;
   title: string;
+  /** Set on a variation: its main product. */
+  parentProductId: string | null;
+  color: string | null;
   size: string | null;
   fulfillmentType: ProductFulfillmentType;
   stockOwnerId: string | null;
@@ -28,6 +37,8 @@ interface ProductRow {
   stockQuantity: number;
   imageUrl: string | null;
   imageUrls: string[];
+  /** Main products: their variations, shown as expandable child rows (undefined when there are none). */
+  variations?: ProductRow[];
 }
 
 interface UserOption {
@@ -41,6 +52,7 @@ interface UserOption {
 interface ProductFormValues {
   sku: string;
   title: string;
+  color?: string;
   size?: string;
   fulfillmentType: ProductFulfillmentType;
   stockOwnerId?: string;
@@ -49,6 +61,7 @@ interface ProductFormValues {
   buyPrice?: number;
   sellPrice?: number;
   stockQuantity?: number;
+  variations: VariationFormValues[];
 }
 
 interface ProductFilter {
@@ -95,7 +108,10 @@ export default function ProductsPage() {
     )
       .then((res) => {
         if (seq !== requestSeq.current) return;
-        setProducts(res.data as ProductRow[]);
+        // A main product without variations gets no expand arrow.
+        setProducts(
+          (res.data as ProductRow[]).map((p) => ({ ...p, variations: p.variations?.length ? p.variations : undefined })),
+        );
         setTotal(res.total);
       })
       .catch((err) => seq === requestSeq.current && setError(err instanceof Error ? err.message : "Failed to load"))
@@ -152,11 +168,13 @@ export default function ProductsPage() {
       threePlId: p?.threePlId ?? undefined,
       sku: p?.sku ?? "",
       title: p?.title ?? "",
+      color: p?.color ?? "",
       size: p?.size ?? "",
       stockOwnerCost: p?.stockOwnerCost ?? 0,
       buyPrice: p?.buyPrice ?? 0,
       sellPrice: p?.sellPrice ?? 0,
       stockQuantity: p?.stockQuantity ?? 0,
+      variations: variationFormValues(p?.variations),
     });
     setImages(productImageItems(p?.imageUrls));
     setFormError(null);
@@ -174,6 +192,8 @@ export default function ProductsPage() {
       setFormError("A dropship product needs at least one image");
       return;
     }
+    // Read from the store: it also holds each row's id / auto-SKU flag.
+    const variations: VariationFormValues[] = form.getFieldValue("variations") ?? [];
     setFormError(null);
     setSubmitting(true);
     const payload = {
@@ -182,11 +202,13 @@ export default function ProductsPage() {
       threePlId: isStock ? values.threePlId : undefined,
       sku: values.sku,
       title: values.title,
+      color: values.color?.trim() || undefined,
       size: values.size?.trim() || undefined,
       stockOwnerCost: isStock ? Number(values.stockOwnerCost ?? 0) : undefined,
       buyPrice: isStock ? Number(values.buyPrice ?? 0) : undefined,
       sellPrice: isStock ? Number(values.sellPrice ?? 0) : undefined,
       stockQuantity: isStock ? Number(values.stockQuantity ?? 0) : undefined,
+      variations: variationPayloads(variations, isStock),
     };
     try {
       const saved = editingId ? await updateProduct(editingId, payload as never) : await createProduct(payload as never);
@@ -194,6 +216,11 @@ export default function ProductsPage() {
       if (editingId || images.length > 0) {
         await setProductImages(saved.id, images.map((i) => i.file ?? i.existingUrl!));
       }
+      await saveVariationImages(
+        saved,
+        variations.map((v) => (v.images ?? []).map((i) => i.file ?? i.existingUrl!)),
+        !!editingId,
+      );
       setShowForm(false);
       fillForm(null);
       refresh();
@@ -224,7 +251,14 @@ export default function ProductsPage() {
     { title: "SKU", dataIndex: "sku" },
     { title: "Product owner", key: "owner", render: (_, p) => p.stockOwnerName || "—" },
     { title: "Title", dataIndex: "title" },
+    { title: "Color", dataIndex: "color", render: (v) => v || "—" },
     { title: "Size", dataIndex: "size", render: (v) => v || "—" },
+    {
+      title: "Variations",
+      key: "variations",
+      // The main product counts as one of them.
+      render: (_, p) => (p.parentProductId ? null : p.variations ? <Tag className="mr-0">{p.variations.length + 1}</Tag> : "—"),
+    },
     {
       title: "Type",
       dataIndex: "fulfillmentType",
@@ -237,9 +271,8 @@ export default function ProductsPage() {
     { title: "Stock", key: "stock", render: (_, p) => (p.fulfillmentType === "DROPSHIP" ? "—" : p.stockQuantity) },
     {
       key: "actions",
-      render: (_, p) => (
-        <EditAction onClick={() => startEdit(p)} />
-      ),
+      // Variations are edited with their main product.
+      render: (_, p) => !p.parentProductId && <EditAction onClick={() => startEdit(p)} />,
     },
   ];
 
@@ -277,12 +310,29 @@ export default function ProductsPage() {
                 <Form.Item name="title" label="Title" rules={[{ required: true }]} className="flex-1">
                   <Input />
                 </Form.Item>
+                <Form.Item
+                  name="color"
+                  label="Color (optional)"
+                  dependencies={["size", "variations"]}
+                  rules={[
+                    {
+                      // Once there are variations, every one (this product included) needs a color or size.
+                      validator: (_, color?: string) =>
+                        color?.trim() || form.getFieldValue("size")?.trim() || !(form.getFieldValue("variations") ?? []).length
+                          ? Promise.resolve()
+                          : Promise.reject(new Error("Enter a color or a size")),
+                    },
+                  ]}
+                  className="w-40"
+                >
+                  <Input placeholder="e.g. Red" />
+                </Form.Item>
                 <Form.Item name="size" label="Size (optional)" className="w-40">
                   <Input />
                 </Form.Item>
               </div>
 
-              {/* Same width as SKU: mirrors the SKU / Title / Size row above. */}
+              {/* Same width as SKU: mirrors the SKU / Title / Color / Size row above. */}
               <div className="flex gap-3">
                 <Form.Item name="fulfillmentType" label="Fulfillment type" className="flex-1">
                   <Select
@@ -293,6 +343,7 @@ export default function ProductsPage() {
                   />
                 </Form.Item>
                 <div className="flex-1" />
+                <div className="w-40" />
                 <div className="w-40" />
               </div>
 
@@ -328,6 +379,10 @@ export default function ProductsPage() {
               <Form.Item label={isStock ? "Product images (optional)" : "Product images"} required={!isStock}>
                 <ProductImagesUpload value={images} onChange={setImages} disabled={submitting} />
               </Form.Item>
+
+              <div className="mb-6">
+                <ProductVariations inner isStock={isStock} pricePrefix={pricePrefix} disabled={submitting} />
+              </div>
 
               {formError && <Alert type="error" title={formError} className="mb-4" showIcon />}
               <Button type="primary" htmlType="submit" loading={submitting}>
@@ -395,6 +450,7 @@ export default function ProductsPage() {
           loading={loading}
           columns={columns}
           dataSource={products}
+          expandable={{ childrenColumnName: "variations" }}
           pagination={{
             current: page,
             pageSize,

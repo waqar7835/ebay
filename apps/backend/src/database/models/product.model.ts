@@ -1,4 +1,4 @@
-import { BelongsTo, Column, DataType, ForeignKey, Model, Table } from "sequelize-typescript";
+import { BelongsTo, Column, DataType, ForeignKey, HasMany, Model, Table } from "sequelize-typescript";
 import { ProductFulfillmentType } from "@ebay-order-management/shared";
 import { toNullableDecimal } from "../decimal.util";
 import { Company } from "./company.model";
@@ -20,6 +20,22 @@ export class Product extends Model {
   @BelongsTo(() => User, "stockOwnerId")
   declare stockOwner: User;
 
+  // Set on a variation: its main product. Title, type, Stock Owner and 3PL are kept in sync with the main product.
+  @ForeignKey(() => Product)
+  @Column({ type: DataType.UUID, allowNull: true, field: "parent_product_id" })
+  declare parentProductId: string | null;
+
+  @BelongsTo(() => Product, "parentProductId")
+  declare parentProduct: Product | null;
+
+  // Ordered by `position`.
+  @HasMany(() => Product, "parentProductId")
+  declare variations: Product[];
+
+  // Order of a variation among its main product's variations.
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
+  declare position: number;
+
   @Column({
     type: DataType.ENUM(...Object.values(ProductFulfillmentType)),
     allowNull: false,
@@ -40,6 +56,10 @@ export class Product extends Model {
 
   @Column({ type: DataType.STRING, allowNull: false })
   declare title: string;
+
+  // Free-text color label (e.g. "Red", "Navy"); optional.
+  @Column({ type: DataType.STRING, allowNull: true })
+  declare color: string | null;
 
   // Free-text size/variant label (e.g. "M", "10.5", "12x8 in"); optional.
   @Column({ type: DataType.STRING, allowNull: true })

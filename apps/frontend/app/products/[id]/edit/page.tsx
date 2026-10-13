@@ -7,6 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import BackLink from "@/components/BackLink";
 import Nav from "@/components/Nav";
 import ProductForm from "@/components/ProductForm";
+import { saveVariationImages } from "@/components/ProductVariations";
 import { getProduct, getToken, updateProduct, setProductImages } from "@/lib/api";
 
 export default function EditProductPage() {
@@ -21,7 +22,11 @@ export default function EditProductPage() {
       return;
     }
     getProduct(id)
-      .then(setProduct)
+      .then((p) => {
+        // Variations are edited on their main product's page.
+        if (p.parentProductId) router.replace(`/products/${p.parentProductId}/edit`);
+        else setProduct(p);
+      })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load product"));
   }, [router, id]);
 
@@ -38,9 +43,10 @@ export default function EditProductPage() {
             initial={product}
             submitLabel="Save changes"
             submittingLabel="Saving..."
-            onSubmit={async (payload, images) => {
-              await updateProduct(product.id, payload);
+            onSubmit={async (payload, images, variationImages) => {
+              const saved = await updateProduct(product.id, payload);
               await setProductImages(product.id, images);
+              await saveVariationImages(saved, variationImages, true);
               router.push("/products");
             }}
           />

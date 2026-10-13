@@ -22,6 +22,7 @@ import {
 import { Company } from "../database/models/company.model";
 import { Order } from "../database/models/order.model";
 import { OrderItem } from "../database/models/order-item.model";
+import { productLabel } from "../products/product-label.util";
 import { Product } from "../database/models/product.model";
 import { Invoice } from "../database/models/invoice.model";
 import { InvoiceLineItem } from "../database/models/invoice-line-item.model";
@@ -600,12 +601,21 @@ export class InvoicesService {
     return new Map([...products].map(([id, p]) => [id, p.title]));
   }
 
+  /** Title per product — with its color / size when it's one of a family of variations ("T-shirt — Red / M"). */
   private async productInfo(items: OrderItem[]) {
+    const ids = [...new Set(items.map((i) => i.productId))];
     const products = await this.productModel.findAll({
-      attributes: ["id", "title", "fulfillmentType"],
-      where: { id: [...new Set(items.map((i) => i.productId))] },
+      attributes: ["id", "title", "color", "size", "parentProductId", "fulfillmentType"],
+      where: { id: ids },
     });
-    return new Map(products.map((p) => [p.id, { title: p.title, fulfillmentType: p.fulfillmentType }]));
+    const mains = await this.productModel.findAll({ attributes: ["parentProductId"], where: { parentProductId: ids } });
+    const hasVariations = new Set(mains.map((m) => m.parentProductId));
+    return new Map(
+      products.map((p) => [
+        p.id,
+        { title: productLabel(p, !!p.parentProductId || hasVariations.has(p.id)), fulfillmentType: p.fulfillmentType },
+      ]),
+    );
   }
 
   /**

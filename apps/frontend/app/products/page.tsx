@@ -21,6 +21,9 @@ interface ProductRow {
   id: string;
   sku: string;
   title: string;
+  /** Set on a variation: its main product. */
+  parentProductId: string | null;
+  color: string | null;
   size: string | null;
   fulfillmentType: ProductFulfillmentType;
   stockOwnerId: string | null;
@@ -35,6 +38,8 @@ interface ProductRow {
   unitsSold?: number;
   imageUrl: string | null;
   imageUrls: string[];
+  /** Main products: their variations, shown as expandable child rows (undefined when there are none). */
+  variations?: ProductRow[];
 }
 
 interface ProductFilter {
@@ -92,7 +97,10 @@ export default function ProductsPage() {
     )
       .then((res) => {
         if (cancelled) return;
-        setProducts(res.data as ProductRow[]);
+        // A main product without variations gets no expand arrow.
+        setProducts(
+          (res.data as ProductRow[]).map((p) => ({ ...p, variations: p.variations?.length ? p.variations : undefined })),
+        );
         setTotal(res.total);
         setError(null);
       })
@@ -134,9 +142,8 @@ export default function ProductsPage() {
     { title: "Stock", key: "stock", render: (_, p) => (p.fulfillmentType === "DROPSHIP" ? "—" : p.stockQuantity) },
     {
       key: "actions",
-      render: (_, p) => (
-        <EditAction onClick={() => router.push(`/products/${p.id}/edit`)} />
-      ),
+      // Variations are edited on their main product's page.
+      render: (_, p) => !p.parentProductId && <EditAction onClick={() => router.push(`/products/${p.id}/edit`)} />,
     },
   ];
 
@@ -174,7 +181,14 @@ export default function ProductsPage() {
       ? []
       : [{ title: "Product owner", key: "owner", render: (_: unknown, p: ProductRow) => p.stockOwnerName || "—" }]),
     { title: "Title", dataIndex: "title" },
+    { title: "Color", dataIndex: "color", render: (v) => v || "—" },
     { title: "Size", dataIndex: "size", render: (v) => v || "—" },
+    {
+      title: "Variations",
+      key: "variations",
+      // The main product counts as one of them.
+      render: (_, p) => (p.parentProductId ? null : p.variations ? <Tag className="mr-0">{p.variations.length + 1}</Tag> : "—"),
+    },
     ...(isStockOwnerView ? stockOwnerColumns : adminColumns),
   ];
 
@@ -253,6 +267,7 @@ export default function ProductsPage() {
           loading={loading}
           columns={columns}
           dataSource={products}
+          expandable={{ childrenColumnName: "variations" }}
           pagination={{
             current: page,
             pageSize,

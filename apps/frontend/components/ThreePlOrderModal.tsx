@@ -8,6 +8,7 @@ import { isInvoiced } from "@/components/InvoiceStatusTags";
 import { updateThreePlOrder } from "@/lib/api";
 import { currencySymbol } from "@/lib/currency";
 import { formatDate } from "@/lib/date";
+import { variationName } from "@/lib/productLabel";
 
 interface FormValues {
   buyTotals: Record<string, number | null>;
@@ -120,7 +121,7 @@ export default function ThreePlOrderModal({
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-medium">{product?.title ?? "—"}</div>
                   <div className="text-xs text-slate-500">
-                    {product?.sku ?? "—"} · ×{item.quantity}
+                    {[product?.sku ?? "—", variationName(product), `×${item.quantity}`].filter(Boolean).join(" · ")}
                   </div>
                 </div>
                 <Form.Item name={["buyTotals", item.id]} className="mb-0" tooltip="All units together">

@@ -45,6 +45,7 @@ import {
 import { currencySymbol, money, pkr } from "@/lib/currency";
 import { searchable, userNameOptions } from "@/lib/selectOptions";
 import { formatDate } from "@/lib/date";
+import { productLabel, variationName } from "@/lib/productLabel";
 
 const STATUSES: OrderStatus[] = ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "REFUNDED"] as OrderStatus[];
 
@@ -211,7 +212,7 @@ export default function OrdersPage() {
       .filter((p) => p.fulfillmentType === mode && !others.includes(p.id))
       .map((p) => ({
         value: p.id,
-        label: `${p.sku} — ${p.title}`,
+        label: `${p.sku} — ${productLabel(p)}`,
         disabled: !isDropship && others.length > 0 && !!firstWarehouse && p.threePlId !== firstWarehouse,
         product: p,
       }));
@@ -383,7 +384,7 @@ export default function OrdersPage() {
                 <div className="min-w-0">
                   <div className="truncate font-medium">{product?.title ?? "—"}</div>
                   <div className="text-xs text-slate-500">
-                    {product?.sku ?? "—"} · ×{item.quantity}
+                    {[product?.sku ?? "—", variationName(product), `×${item.quantity}`].filter(Boolean).join(" · ")}
                   </div>
                 </div>
               </div>

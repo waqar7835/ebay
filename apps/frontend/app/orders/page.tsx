@@ -51,6 +51,7 @@ import {
 } from "@/lib/api";
 import { searchable, userLabel, userNameOptions } from "@/lib/selectOptions";
 import { formatDate } from "@/lib/date";
+import { productLabel, variationName } from "@/lib/productLabel";
 
 interface UserOption {
   id: string;
@@ -257,6 +258,10 @@ export default function OrdersPage() {
   const searchingRef = !!filter.orderRef;
 
   const productById = new Map(products.map((p) => [p.id, p]));
+  const productName = (id: string) => {
+    const p = productById.get(id);
+    return p ? productLabel(p) : "Product";
+  };
   const userById = new Map(users.map((u) => [u.id, u]));
   const accountHolders = users.filter((u) => u.roles.includes("ACCOUNT_HOLDER"));
   const threePls = users.filter((u) => u.roles.includes("THREE_PL"));
@@ -519,7 +524,7 @@ export default function OrdersPage() {
                 <div className="min-w-0">
                   <div className="truncate font-medium">{product?.title ?? "—"}</div>
                   <div className="text-xs text-slate-500">
-                    {product?.sku ?? "—"} · ×{item.quantity}
+                    {[product?.sku ?? "—", variationName(product), `×${item.quantity}`].filter(Boolean).join(" · ")}
                   </div>
                   {isStockThreePl && product && (
                     <div className={`text-xs ${product.stockQuantity <= 0 ? "text-red-600" : product.stockQuantity <= 5 ? "text-orange-500" : "text-slate-500"}`}>
@@ -648,7 +653,7 @@ export default function OrdersPage() {
                     <div key={item.id}>
                       {order.items.length > 1 && (
                         <div className="truncate text-xs text-slate-500">
-                          {productById.get(item.productId)?.title ?? "Product"} ×{item.quantity}
+                          {productName(item.productId)} ×{item.quantity}
                         </div>
                       )}
                       {item.currency && item.buyTotalOriginal != null

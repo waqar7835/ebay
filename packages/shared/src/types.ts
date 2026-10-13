@@ -160,7 +160,17 @@ export interface ProductDto {
   threePlId: string | null;
   sku: string;
   title: string;
+  /** Set on a variation: its main product (title, type, Stock Owner and 3PL always match it). */
+  parentProductId: string | null;
+  /** Order among the main product's variations. */
+  position: number;
+  color: string | null;
   size: string | null;
+  /**
+   * Main products only, on GET /products/:id and paged lists: its variations (each a product of its own, with its
+   * own SKU, prices, stock and images), in order. Whole-list responses list variations as separate products instead.
+   */
+  variations?: ProductDto[];
   // Cover image — always imageUrls[0] (or null when the product has no images).
   imageUrl: string | null;
   // Up to PRODUCT_MAX_IMAGES, in display order; the first is the cover.
