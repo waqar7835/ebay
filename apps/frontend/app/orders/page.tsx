@@ -32,6 +32,7 @@ import { EditAction } from "@/components/RowActions";
 import { money as ownMoney, pkr } from "@/lib/currency";
 import ProductThumb from "@/components/ProductThumb";
 import ThreePlOrderModal from "@/components/ThreePlOrderModal";
+import OrderPriceModal from "@/components/OrderPriceModal";
 import RefundChoice, { FULL_REFUND, refundAmountFor, restockFor, type RefundChoiceValue } from "@/components/RefundChoice";
 import StatusCounts, { STATUS_COLORS } from "@/components/StatusCounts";
 import DateField from "@/components/DateField";
@@ -150,6 +151,8 @@ export default function OrdersPage() {
   const defaultBulkStatus = threePlBulk ? ("SHIPPED" as OrderStatus) : undefined;
 
   const [selectedIds, setSelectedIds] = useState<Key[]>([]);
+  // Double-clicking a price cell opens that order's prices in a popup (Admin / Staff who manage orders).
+  const [priceOrder, setPriceOrder] = useState<OrderDto | null>(null);
   const [bulkStatus, setBulkStatus] = useState<OrderStatus | undefined>(defaultBulkStatus);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [bulkSaving, setBulkSaving] = useState(false);
@@ -477,6 +480,12 @@ export default function OrdersPage() {
     },
   });
 
+  /** Price cells: double-click opens the order's prices popup (Admin / Staff who manage orders). */
+  const priceCell = (o: OrderDto) =>
+    canBulkEdit
+      ? { onDoubleClick: () => setPriceOrder(o), title: "Double-click to edit prices", className: "cursor-pointer select-none" }
+      : {};
+
   const columns: TableColumnsType<OrderDto> = [
     ...(isDropshipThreePl
       ? [
@@ -628,10 +637,17 @@ export default function OrdersPage() {
           )),
         ]
       : []),
-    ...(!isThreePl && !isStockOwnerView && !isAccountHolderView ? [{ title: "Payout", key: "payout", render: (_: unknown, o: OrderDto) => ahPayout(o) }] : []),
+    ...(!isThreePl && !isStockOwnerView && !isAccountHolderView
+      ? [{ title: "Payout", key: "payout", render: (_: unknown, o: OrderDto) => ahPayout(o), onCell: priceCell }]
+      : []),
     ...(isManager
       ? [
-          { title: "Buy Price", key: "buyPrice", render: (_: unknown, o: OrderDto) => inAhCurrency(o, buyTotal(o), "Pending") },
+          {
+            title: "Buy Price",
+            key: "buyPrice",
+            render: (_: unknown, o: OrderDto) => inAhCurrency(o, buyTotal(o), "Pending"),
+            onCell: priceCell,
+          },
           {
             title: "3PL Fee",
             key: "threePlFee",
@@ -640,8 +656,9 @@ export default function OrdersPage() {
               productById.get(o.items[0]?.productId ?? "")?.fulfillmentType === ProductFulfillmentType.DROPSHIP
                 ? "—"
                 : inAhCurrency(o, o.threePlPayoutSnapshot),
+            onCell: priceCell,
           },
-          { title: "Profit", key: "profit", render: (_: unknown, o: OrderDto) => inAhCurrency(o, o.companyProfit) },
+          { title: "Profit", key: "profit", render: (_: unknown, o: OrderDto) => inAhCurrency(o, o.companyProfit), onCell: priceCell },
           { title: "Invoiced", key: "invoiced", render: (_: unknown, o: OrderDto) => <InvoiceStatusTags order={o} /> },
         ]
       : []),
@@ -1001,6 +1018,14 @@ export default function OrdersPage() {
             onPressEnter={handleTrackingSave}
           />
         </Modal>
+
+        <OrderPriceModal
+          order={priceOrder}
+          productById={productById}
+          onClose={() => setPriceOrder(null)}
+          // The saved order replaces its row right away; list-only fields (days in status…) are kept.
+          onSaved={(updated) => setOrders((prev) => prev.map((o) => (o.id === updated.id ? { ...o, ...updated } : o)))}
+        />
 
         <ThreePlOrderModal
           order={threePlEditing}

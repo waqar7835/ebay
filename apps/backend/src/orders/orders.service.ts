@@ -172,6 +172,8 @@ export class OrdersService {
       ...json,
       items: this.visibleItems(json.items, isManager, requester),
       comments: this.canSeeComments(isManager, requester) ? json.comments : null,
+      // As on the list, so a row edited in place (orders list price popup) can show its new profit.
+      companyProfit: isManager ? this.financeService.companyProfit(order) : undefined,
     };
   }
 

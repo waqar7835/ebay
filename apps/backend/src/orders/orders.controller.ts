@@ -86,13 +86,15 @@ export class OrdersController {
 
   @Patch(":id")
   @RequirePermission("canManageOrders")
-  update(
+  async update(
     @CurrentUser() user: JwtPayload,
     @Param("id") id: string,
     @Body() dto: UpdateOrderDto,
     @Query("companyId") companyId?: string,
   ) {
-    return this.ordersService.update(resolveCompanyId(user, companyId), id, dto);
+    const scopedCompanyId = resolveCompanyId(user, companyId);
+    await this.ordersService.update(scopedCompanyId, id, dto);
+    return this.ordersService.getForRequester(scopedCompanyId, user, id);
   }
 
   @Patch(":id/dropship-buy-price")
