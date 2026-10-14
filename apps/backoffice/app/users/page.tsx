@@ -7,7 +7,8 @@ import { useRouter } from "next/navigation";
 import AutoDeliveryFields from "@/components/AutoDeliveryFields";
 import Nav from "@/components/Nav";
 import RoleTag from "@/components/RoleTag";
-import { DeleteAction, ToggleStatusAction } from "@/components/RowActions";
+import { DeleteAction, EditAction, ToggleStatusAction } from "@/components/RowActions";
+import UserCurrencyModal from "@/components/UserCurrencyModal";
 import { getMyCompany, getSelectedCompanyId, getStoredUser, getToken, deleteUser, inviteUser, listUsers, setUserStatus } from "@/lib/api";
 import { currencyOptions, currencySymbol } from "@/lib/currency";
 
@@ -39,6 +40,7 @@ interface UserRow {
   name: string | null;
   status: string;
   roles: Role[];
+  currency: Currency | null;
 }
 
 export default function UsersPage() {
@@ -46,6 +48,7 @@ export default function UsersPage() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [currencyUser, setCurrencyUser] = useState<UserRow | null>(null);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -200,6 +203,12 @@ export default function UsersPage() {
     { title: "Email", dataIndex: "email", sorter: (a, b) => a.email.localeCompare(b.email) },
     { title: "Roles", dataIndex: "roles", render: (rs: Role[]) => rs.map((r) => <RoleTag key={r} role={r} />) },
     {
+      title: "Currency",
+      dataIndex: "currency",
+      // Only Account Holders, Stock Owners and 3PLs enter amounts in their own currency.
+      render: (c: Currency | null, u) => (u.roles.some((r) => PORTAL_ROLES.includes(r)) && c ? c : "—"),
+    },
+    {
       title: "Status",
       dataIndex: "status",
       render: (s: string) => <Tag color={s === "ACTIVE" ? "green" : s === "DISABLED" ? "red" : "default"}>{s}</Tag>,
@@ -209,6 +218,7 @@ export default function UsersPage() {
       render: (_, u) =>
         u.roles.includes("ADMIN" as Role) ? null : (
           <Space size={2}>
+            {u.roles.some((r) => PORTAL_ROLES.includes(r)) && <EditAction title="Change currency" onClick={() => setCurrencyUser(u)} />}
             <ToggleStatusAction active={u.status !== "DISABLED"} name={u.name ?? u.email} onConfirm={() => toggleStatus(u)} />
             <DeleteAction confirmTitle={`Delete ${u.name ?? u.email}? This can't be undone.`} onConfirm={() => remove(u)} />
           </Space>
@@ -380,6 +390,7 @@ export default function UsersPage() {
           pagination={false}
           locale={{ emptyText: "No users yet." }}
         />
+        <UserCurrencyModal user={currencyUser} onClose={() => setCurrencyUser(null)} onSaved={refresh} />
       </main>
     </>
   );

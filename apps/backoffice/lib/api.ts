@@ -164,6 +164,26 @@ export function listUsers() {
   return request<UserDto[]>("/users");
 }
 
+/** Changes another user's currency. Their open orders keep the old one until recomputeOrdersCurrency(). */
+export function updateUser(id: string, payload: { name?: string; currency?: Currency }) {
+  return request<UserDto>(`/users/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
+}
+
+/** The user's current currency, and their open orders (none on invoices) still in another one. */
+export interface OrdersOffCurrency {
+  currency: Currency;
+  orders: { id: string; ebayOrderRef: string; from: Currency | null }[];
+}
+
+export function getOrdersOffCurrency(id: string) {
+  return request<OrdersOffCurrency>(`/users/${id}/orders-off-currency`);
+}
+
+/** Re-reads those orders' amounts in the user's current currency (the numbers as typed are kept). */
+export function recomputeOrdersCurrency(id: string) {
+  return request<{ currency: Currency; updated: number }>(`/users/${id}/recompute-orders-currency`, { method: "POST" });
+}
+
 export interface InviteUserPayload {
   name?: string;
   email: string;
