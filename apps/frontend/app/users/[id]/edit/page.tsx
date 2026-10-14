@@ -2,7 +2,7 @@
 
 import { DEFAULT_CURRENCY, type Currency, type ProductFulfillmentType, type StockOwnerPayoutMode, type UserDto } from "@ebay-order-management/shared";
 import { MailOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Form, Input, InputNumber, Select, Switch, Tag } from "antd";
+import { Alert, App, Button, Card, Form, Input, InputNumber, Modal, Select, Switch, Table, Tag } from "antd";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AutoDeliveryFields from "@/components/AutoDeliveryFields";
@@ -17,6 +17,9 @@ import {
   updateStockOwnerProfile,
   updateThreePlProfile,
   updateUser,
+  getOrdersOffCurrency,
+  recomputeOrdersCurrency,
+  type OrdersOffCurrency,
   uploadUserAvatar,
 } from "@/lib/api";
 import AvatarUpload from "@/components/AvatarUpload";
@@ -52,6 +55,14 @@ export default function EditUserPage() {
 
   const [name, setName] = useState("");
   const [currency, setCurrency] = useState<Currency>(DEFAULT_CURRENCY);
+  const { message } = App.useApp();
+  // Open orders still in the user's old currency (e.g. after a currency change saved without updating them).
+  const [offCurrency, setOffCurrency] = useState<OrdersOffCurrency | null>(null);
+  const [recomputeOpen, setRecomputeOpen] = useState(false);
+  // After saving a currency change the popup leaves the page whichever button is pressed.
+  const [leaveAfterRecompute, setLeaveAfterRecompute] = useState(false);
+  const [recomputing, setRecomputing] = useState(false);
+  const [recomputeError, setRecomputeError] = useState<string | null>(null);
 
   const [staffPermissions, setStaffPermissions] = useState<StaffPermissionsState>({
     canManageOrders: false,
@@ -87,6 +98,9 @@ export default function EditUserPage() {
         setUser(u);
         setName(u.name ?? "");
         setCurrency(u.currency ?? DEFAULT_CURRENCY);
+        if (u.accountHolderProfile || u.stockOwnerProfile || u.threePlProfile) {
+          getOrdersOffCurrency(u.id).then(setOffCurrency).catch(() => setOffCurrency(null));
+        }
         if (u.staffProfile) {
           setStaffPermissions({
             canManageOrders: u.staffProfile.canManageOrders,
@@ -164,10 +178,45 @@ export default function EditUserPage() {
           deliveryDays: autoDelivery ? deliveryDays : null,
         });
       }
+      if (currencyChanged) {
+        const off = await getOrdersOffCurrency(userId);
+        if (off.orders.length > 0) {
+          setSubmitting(false);
+          setOffCurrency(off);
+          openRecompute(true);
+          return;
+        }
+      }
       router.push("/users");
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to save user");
       setSubmitting(false);
+    }
+  }
+
+  function openRecompute(leaveAfter: boolean) {
+    setRecomputeError(null);
+    setLeaveAfterRecompute(leaveAfter);
+    setRecomputeOpen(true);
+  }
+
+  function closeRecompute() {
+    setRecomputeOpen(false);
+    if (leaveAfterRecompute) router.push("/users");
+  }
+
+  async function handleRecompute() {
+    setRecomputing(true);
+    setRecomputeError(null);
+    try {
+      const res = await recomputeOrdersCurrency(userId);
+      message.success(`${res.updated} order${res.updated === 1 ? "" : "s"} updated to ${res.currency}`);
+      setOffCurrency({ currency: res.currency, orders: [] });
+      closeRecompute();
+    } catch (err) {
+      setRecomputeError(err instanceof Error ? err.message : "Failed to update the orders");
+    } finally {
+      setRecomputing(false);
     }
   }
 
@@ -217,7 +266,7 @@ export default function EditUserPage() {
                     {hasAmounts && (
                       <Form.Item
                         label="Currency"
-                        tooltip="Their amounts are entered in this currency. Changing it affects new orders only — re-enter their fee/prices in the new currency"
+                        tooltip="Their amounts are entered in this currency. After changing it, re-enter their fee/prices in the new currency; open orders can be updated too"
                         className="mb-0"
                       >
                         <Select value={currency} onChange={setCurrency} options={currencyOptions} showSearch={{ optionFilterProp: "label" }} />
@@ -229,7 +278,20 @@ export default function EditUserPage() {
                       type="warning"
                       showIcon
                       className="mt-4"
-                      title={`Existing orders stay in ${user.currency}. Re-enter this user's fees and product prices in ${currency}.`}
+                      title={`Re-enter this user's fees and product prices in ${currency}. After saving you can also update their open orders.`}
+                    />
+                  )}
+                  {hasAmounts && currency === user.currency && offCurrency && offCurrency.orders.length > 0 && (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      className="mt-4"
+                      title={`${offCurrency.orders.length} open order${offCurrency.orders.length === 1 ? " is" : "s are"} still in this user's old currency`}
+                      action={
+                        <Button size="small" onClick={() => openRecompute(false)}>
+                          Update to {offCurrency.currency}
+                        </Button>
+                      }
                     />
                   )}
                 </Card>
@@ -373,6 +435,46 @@ export default function EditUserPage() {
               </div>
             </div>
           </Form>
+        )}
+        {offCurrency && (
+          <Modal
+            open={recomputeOpen}
+            title={`Update orders to ${offCurrency.currency}`}
+            width={560}
+            onCancel={() => !recomputing && closeRecompute()}
+            maskClosable={!recomputing}
+            footer={[
+              <Button key="cancel" onClick={closeRecompute} disabled={recomputing}>
+                {leaveAfterRecompute ? "Not now" : "Cancel"}
+              </Button>,
+              <Button key="update" type="primary" loading={recomputing} onClick={handleRecompute}>
+                Update {offCurrency.orders.length} order{offCurrency.orders.length === 1 ? "" : "s"}
+              </Button>,
+            ]}
+          >
+            <Alert
+              type="warning"
+              showIcon
+              title="The amounts stay as they were typed"
+              description={`Each amount is read as ${offCurrency.currency} (e.g. 5.60 becomes ${currencySymbol(
+                offCurrency.currency,
+              )}5.60) and converted to PKR again. Orders on an invoice aren't changed.`}
+              className="mb-4"
+            />
+            {recomputeError && <Alert type="error" title={recomputeError} className="mb-4" showIcon />}
+            <Table
+              rowKey="id"
+              size="small"
+              dataSource={offCurrency.orders}
+              pagination={false}
+              scroll={{ y: 320 }}
+              columns={[
+                { title: "Order #", dataIndex: "ebayOrderRef" },
+                { title: "Current currency", key: "from", render: (_, o) => <Tag>{o.from ?? "—"}</Tag> },
+                { title: "New currency", key: "to", render: () => <Tag color="blue">{offCurrency.currency}</Tag> },
+              ]}
+            />
+          </Modal>
         )}
       </main>
     </>

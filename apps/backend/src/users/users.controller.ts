@@ -24,6 +24,7 @@ import { parsePaging } from "../common/pagination.util";
 import { multerUploadOptions, publicUploadUrl } from "../uploads/uploads.util";
 import type { JwtPayload } from "../auth/jwt.strategy";
 import { UsersService } from "./users.service";
+import { OrdersService } from "../orders/orders.service";
 import {
   AccountHolderProfileInput,
   InviteUserDto,
@@ -47,7 +48,10 @@ const AVATAR_UPLOAD = multerUploadOptions("avatars", {
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Controller("users")
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly ordersService: OrdersService,
+  ) {}
 
   @Get()
   @RequirePermission("canManageUsers")
@@ -112,6 +116,20 @@ export class UsersController {
     @Query("companyId") companyId?: string,
   ) {
     return this.usersService.updateUser(resolveCompanyId(user, companyId), id, dto);
+  }
+
+  /** Open orders still in this user's old currency (after a currency change). */
+  @Get(":id/orders-off-currency")
+  @RequirePermission("canManageUsers")
+  ordersOffCurrency(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Query("companyId") companyId?: string) {
+    return this.ordersService.listOrdersOffCurrency(resolveCompanyId(user, companyId), id);
+  }
+
+  /** Re-reads those orders' amounts in the user's current currency. */
+  @Post(":id/recompute-orders-currency")
+  @RequirePermission("canManageUsers")
+  recomputeOrdersCurrency(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Query("companyId") companyId?: string) {
+    return this.ordersService.recomputeOrdersCurrency(resolveCompanyId(user, companyId), id);
   }
 
   @Post("invite")

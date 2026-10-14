@@ -632,7 +632,15 @@ export default function OrdersPage() {
     ...(isManager
       ? [
           { title: "Buy Price", key: "buyPrice", render: (_: unknown, o: OrderDto) => inAhCurrency(o, buyTotal(o), "Pending") },
-          { title: "3PL Fee", key: "threePlFee", render: (_: unknown, o: OrderDto) => inAhCurrency(o, o.threePlPayoutSnapshot) },
+          {
+            title: "3PL Fee",
+            key: "threePlFee",
+            // Dropship orders have no 3PL fee: the 3PL's payout there is the buy price, already in Buy Price.
+            render: (_: unknown, o: OrderDto) =>
+              productById.get(o.items[0]?.productId ?? "")?.fulfillmentType === ProductFulfillmentType.DROPSHIP
+                ? "—"
+                : inAhCurrency(o, o.threePlPayoutSnapshot),
+          },
           { title: "Profit", key: "profit", render: (_: unknown, o: OrderDto) => inAhCurrency(o, o.companyProfit) },
           { title: "Invoiced", key: "invoiced", render: (_: unknown, o: OrderDto) => <InvoiceStatusTags order={o} /> },
         ]

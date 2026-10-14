@@ -7,7 +7,7 @@ export class UpdateOwnProfileDto {
   name?: string;
 }
 
-/** What a manager may change on another user. Currency changes apply to new orders only. */
+/** What a manager may change on another user. A currency change reaches existing orders only via recompute-orders-currency. */
 export class UpdateUserDto {
   @IsOptional()
   @IsString()

@@ -382,6 +382,81 @@ export class OrdersService {
     for (const item of items) if (item.changed()) await item.save({ transaction });
   }
 
+  /**
+   * Open orders where this user's currency on the order isn't their current one (decided 2026-10-14). Skips orders on
+   * any invoice (their rates are frozen) and pre-currency ones (their next save takes the user's current currency).
+   */
+  private async ordersOffCurrency(companyId: string, userId: string, currency: Currency, transaction?: Transaction) {
+    const stockOwnerOrderIds = (
+      await this.orderItemModel.findAll({
+        attributes: ["orderId"],
+        where: { stockOwnerId: userId, currency: { [Op.ne]: currency } },
+        transaction,
+      })
+    ).map((i) => i.orderId);
+    const orders = await this.orderModel.findAll({
+      where: {
+        companyId,
+        exchangeRates: { [Op.ne]: null },
+        accountHolderInvoiceId: null,
+        threePlInvoiceId: null,
+        [Op.or]: [
+          { accountHolderId: userId, accountHolderCurrency: { [Op.ne]: currency } },
+          { threePlId: userId, threePlCurrency: { [Op.ne]: currency } },
+          ...(stockOwnerOrderIds.length ? [{ id: [...new Set(stockOwnerOrderIds)] }] : []),
+        ],
+      },
+      order: [["createdAt", "DESC"]],
+      transaction,
+    });
+    return orders.filter((o) => !o.items.some((i) => i.stockOwnerInvoiceId));
+  }
+
+  /** For the confirm popup: each order with the currency this user's amounts are in on it now. */
+  async listOrdersOffCurrency(companyId: string, userId: string) {
+    const currency = await this.currencyOf(userId);
+    const orders = (await this.ordersOffCurrency(companyId, userId, currency)).map((o) => ({
+      id: o.id,
+      ebayOrderRef: o.ebayOrderRef,
+      from:
+        o.accountHolderId === userId
+          ? o.accountHolderCurrency
+          : o.threePlId === userId
+            ? o.threePlCurrency
+            : (o.items.find((i) => i.stockOwnerId === userId && i.currency !== currency)?.currency ?? null),
+    }));
+    return { currency, orders };
+  }
+
+  /**
+   * Puts the user's current currency on their open orders. The amounts as entered are kept and re-read in the new
+   * currency (5.60 entered as USD becomes £5.60 — for fixing a currency that was set wrong), then converted to PKR.
+   * Rates already on the order stay; only a currency new to the order gets today's rate.
+   */
+  async recomputeOrdersCurrency(companyId: string, userId: string) {
+    const currency = await this.currencyOf(userId);
+    const sequelize = this.orderModel.sequelize!;
+    const updated = await sequelize.transaction(async (transaction) => {
+      const orders = await this.ordersOffCurrency(companyId, userId, currency, transaction);
+      for (const order of orders) {
+        const items = order.items;
+        if (order.accountHolderId === userId) order.accountHolderCurrency = currency;
+        if (order.threePlId === userId) order.threePlCurrency = currency;
+        // A dropship line's buy total is in the 3PL's currency.
+        if (await this.isDropshipOrder(order)) syncDropshipPayout(order, items);
+        for (const item of items) if (item.stockOwnerId === userId) item.currency = currency;
+        const currencies = orderCurrencies(order, items);
+        const rates = await this.exchangeRatesService.resolve(currencies, order.exchangeRates ?? {});
+        convertOrderAmounts(order, items, rates);
+        order.exchangeRates = Object.fromEntries([...currencies].map((c) => [c, rates[c]]));
+        for (const item of items) if (item.changed()) await item.save({ transaction });
+        await order.save({ transaction });
+      }
+      return orders.length;
+    });
+    return { currency, updated };
+  }
+
   private async adoptLegacy(order: Order, items: OrderItem[]) {
     const stockOwnerIds = items.map((i) => i.stockOwnerId).filter((id): id is string => !!id);
     const users = await this.userModel.findAll({

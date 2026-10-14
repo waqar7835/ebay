@@ -176,7 +176,7 @@ export class UsersService {
     if (dto.name !== undefined) {
       user.name = dto.name;
     }
-    // Existing orders keep the currency snapshotted on them; only new orders use the new one.
+    // Existing orders keep the currency on them until the manager recomputes them (recompute-orders-currency).
     if (dto.currency !== undefined) {
       user.currency = dto.currency;
     }

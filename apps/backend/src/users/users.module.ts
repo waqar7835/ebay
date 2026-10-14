@@ -14,6 +14,7 @@ import { Product } from "../database/models/product.model";
 import { Invoice } from "../database/models/invoice.model";
 import { TokensModule } from "../tokens/tokens.module";
 import { SubscriptionsModule } from "../subscriptions/subscriptions.module";
+import { OrdersModule } from "../orders/orders.module";
 import { UsersController } from "./users.controller";
 import { UsersService } from "./users.service";
 
@@ -35,6 +36,7 @@ import { UsersService } from "./users.service";
     ]),
     TokensModule,
     SubscriptionsModule,
+    OrdersModule,
   ],
   controllers: [UsersController],
   providers: [UsersService],
