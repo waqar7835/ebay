@@ -2,7 +2,7 @@
 
 import type { Currency, ExchangeRateDto, OrderDto, ProductDto } from "@ebay-order-management/shared";
 import { InfoCircleOutlined } from "@ant-design/icons";
-import { Alert, Button, Form, InputNumber, Modal, Tag, Tooltip } from "antd";
+import { Alert, Button, Form, Input, InputNumber, Modal, Tag, Tooltip } from "antd";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import ProfitRow from "@/components/ProfitRow";
@@ -12,6 +12,7 @@ import { estimateOrderProfit } from "@/lib/orderProfit";
 import { productLabel } from "@/lib/productLabel";
 
 interface PriceValues {
+  trackingNumber?: string | null;
   ebayNetProceeds?: number | null;
   shippingCost?: number | null;
   /** DROPSHIP only, one per item: totals for all units. */
@@ -19,9 +20,9 @@ interface PriceValues {
 }
 
 /**
- * Orders list (Admin / Staff who manage orders): double-click a price cell to edit the order's prices in place.
- * Editable: eBay payout + shipping (client's currency) and, on dropship orders, each line's buy price (3PL's currency)
- * and client buying price. Stock product prices are locked on the order at creation, so they're shown greyed out.
+ * Orders list (Admin / Staff who manage orders): double-click a price or tracking # cell to edit the order's prices in
+ * place. Editable: tracking number, eBay payout + shipping (client's currency) and, on dropship orders, each line's buy
+ * price (3PL's currency) and client buying price. Stock product prices are locked on the order at creation, so they're shown greyed out.
  * Saving goes through the normal order update, so it re-converts the order at today's rates like the Edit page does.
  * Invoiced orders (frozen) and orders from before currencies (need the Edit page's conversion) open read-only.
  */
@@ -45,6 +46,7 @@ export default function OrderPriceModal({
     if (!order) return;
     setError(null);
     form.setFieldsValue({
+      trackingNumber: order.trackingNumber,
       ebayNetProceeds: order.ebayNetProceedsOriginal ?? order.ebayNetProceeds,
       shippingCost: order.shippingCostOriginal ?? order.shippingCost,
       items: order.items.map((i) => ({
@@ -134,6 +136,8 @@ export default function OrderPriceModal({
     if (!order) return;
     const v = form.getFieldsValue(true) as PriceValues;
     const payload: UpdateOrderPayload = {
+      // "" clears it.
+      trackingNumber: (v.trackingNumber ?? "").trim(),
       ebayNetProceeds: Number(v.ebayNetProceeds ?? 0),
       shippingCost: Number(v.shippingCost ?? 0),
     };
@@ -153,7 +157,7 @@ export default function OrderPriceModal({
       onSaved(await updateOrder(order.id, payload));
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save the prices");
+      setError(err instanceof Error ? err.message : "Failed to save the order");
     } finally {
       setSaving(false);
     }
@@ -164,7 +168,7 @@ export default function OrderPriceModal({
   return (
     <Modal
       open
-      title={`Prices — order #${order.ebayOrderRef}`}
+      title={`Order #${order.ebayOrderRef}`}
       width={760}
       onCancel={() => !saving && onClose()}
       maskClosable={!saving}
@@ -180,7 +184,7 @@ export default function OrderPriceModal({
                 Cancel
               </Button>,
               <Button key="save" type="primary" loading={saving} disabled={!ratesReady} onClick={handleSave}>
-                Save prices
+                Save
               </Button>,
             ]
       }
@@ -226,6 +230,9 @@ export default function OrderPriceModal({
       <Form form={form} layout="vertical" disabled={readOnly || saving}>
         <div className="grid gap-6 md:grid-cols-[1fr_280px]">
           <div>
+            <Form.Item name="trackingNumber" label="Tracking number">
+              <Input placeholder="Not added" allowClear />
+            </Form.Item>
             <div className="mb-2 flex items-center justify-between">
               <span className="text-sm font-medium text-slate-700">Amounts</span>
               <Tag className="mr-0">{ahCurrency ?? "PKR"}</Tag>

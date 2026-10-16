@@ -480,10 +480,10 @@ export default function OrdersPage() {
     },
   });
 
-  /** Price cells: double-click opens the order's prices popup (Admin / Staff who manage orders). */
+  /** Price and tracking # cells: double-click opens the order's prices popup (Admin / Staff who manage orders). */
   const priceCell = (o: OrderDto) =>
     canBulkEdit
-      ? { onDoubleClick: () => setPriceOrder(o), title: "Double-click to edit prices", className: "cursor-pointer select-none" }
+      ? { onDoubleClick: () => setPriceOrder(o), title: "Double-click to edit", className: "cursor-pointer select-none" }
       : {};
 
   const columns: TableColumnsType<OrderDto> = [
@@ -593,6 +593,7 @@ export default function OrdersPage() {
           {
             title: "Tracking #",
             key: "trackingNumber",
+            onCell: priceCell,
             render: (_: unknown, o: OrderDto) =>
               isStockThreePl ? (
                 <span className="inline-flex items-center gap-1 whitespace-nowrap">

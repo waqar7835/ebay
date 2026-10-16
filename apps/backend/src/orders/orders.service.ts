@@ -343,7 +343,7 @@ export class OrdersService {
       await this.assertEbayOrderRefAvailable(companyId, ebayOrderRef, order.id);
       order.ebayOrderRef = ebayOrderRef;
     }
-    if (dto.trackingNumber !== undefined) order.trackingNumber = dto.trackingNumber;
+    if (dto.trackingNumber !== undefined) order.trackingNumber = dto.trackingNumber.trim() || null;
     if (dto.buyerDetails !== undefined) order.buyerDetails = dto.buyerDetails;
     // Entered in the Account Holder's currency; converted to PKR in finalizeAmounts().
     if (dto.ebayNetProceeds !== undefined) order.ebayNetProceedsOriginal = dto.ebayNetProceeds;
