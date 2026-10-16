@@ -9,6 +9,7 @@ import Nav from "@/components/Nav";
 import ProductForm from "@/components/ProductForm";
 import { saveVariationImages } from "@/components/ProductVariations";
 import { getProduct, getToken, updateProduct, setProductImages } from "@/lib/api";
+import { listHref } from "@/lib/listQuery";
 
 export default function EditProductPage() {
   const router = useRouter();
@@ -47,7 +48,7 @@ export default function EditProductPage() {
               const saved = await updateProduct(product.id, payload);
               await setProductImages(product.id, images);
               await saveVariationImages(saved, variationImages, true);
-              router.push("/products");
+              router.push(listHref("/products"));
             }}
           />
         )}

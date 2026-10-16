@@ -24,6 +24,7 @@ import {
 } from "@/lib/api";
 import AvatarUpload from "@/components/AvatarUpload";
 import { currencyOptions, currencySymbol } from "@/lib/currency";
+import { listHref } from "@/lib/listQuery";
 
 const STAFF_PERMISSIONS = [
   { key: "canManageOrders", label: "Manage orders", hint: "Create, edit and update orders" },
@@ -187,7 +188,7 @@ export default function EditUserPage() {
           return;
         }
       }
-      router.push("/users");
+      router.push(listHref("/users"));
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to save user");
       setSubmitting(false);
@@ -202,7 +203,7 @@ export default function EditUserPage() {
 
   function closeRecompute() {
     setRecomputeOpen(false);
-    if (leaveAfterRecompute) router.push("/users");
+    if (leaveAfterRecompute) router.push(listHref("/users"));
   }
 
   async function handleRecompute() {

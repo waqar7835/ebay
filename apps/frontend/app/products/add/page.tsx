@@ -7,6 +7,7 @@ import Nav from "@/components/Nav";
 import ProductForm from "@/components/ProductForm";
 import { saveVariationImages } from "@/components/ProductVariations";
 import { createProduct, getToken, setProductImages } from "@/lib/api";
+import { listHref } from "@/lib/listQuery";
 
 export default function AddProductPage() {
   const router = useRouter();
@@ -32,7 +33,7 @@ export default function AddProductPage() {
               await setProductImages(created.id, images);
             }
             await saveVariationImages(created, variationImages, false);
-            router.push("/products");
+            router.push(listHref("/products"));
           }}
         />
       </main>

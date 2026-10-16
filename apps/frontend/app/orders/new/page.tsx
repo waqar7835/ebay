@@ -6,6 +6,7 @@ import BackLink from "@/components/BackLink";
 import Nav from "@/components/Nav";
 import OrderForm from "@/components/OrderForm";
 import { createOrder, getToken, uploadOrderShippingLabel, type CreateOrderPayload } from "@/lib/api";
+import { listHref } from "@/lib/listQuery";
 
 export default function NewOrderPage() {
   const router = useRouter();
@@ -26,7 +27,7 @@ export default function NewOrderPage() {
           onSubmit={async (payload, shippingLabel) => {
             const order = await createOrder(payload as CreateOrderPayload);
             if (shippingLabel) await uploadOrderShippingLabel(order.id, shippingLabel);
-            router.push("/orders");
+            router.push(listHref("/orders"));
           }}
         />
       </main>

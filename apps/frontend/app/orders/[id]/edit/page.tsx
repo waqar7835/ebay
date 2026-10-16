@@ -9,6 +9,7 @@ import Nav from "@/components/Nav";
 import OrderForm from "@/components/OrderForm";
 import { isInvoiced } from "@/components/InvoiceStatusTags";
 import { getToken, listOrders, updateOrder, uploadOrderShippingLabel } from "@/lib/api";
+import { listHref } from "@/lib/listQuery";
 
 export default function EditOrderPage() {
   const router = useRouter();
@@ -58,7 +59,7 @@ export default function EditOrderPage() {
             onSubmit={async (payload, shippingLabel) => {
               await updateOrder(orderId, payload);
               if (shippingLabel) await uploadOrderShippingLabel(orderId, shippingLabel);
-              router.push("/orders");
+              router.push(listHref("/orders"));
             }}
           />
         )}

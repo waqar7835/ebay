@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  DEFAULT_LIST_PAGE_SIZE,
   LIST_PAGE_SIZES,
   ProductFulfillmentType,
   Role,
@@ -24,8 +23,8 @@ import {
   Tooltip,
   type TableColumnsType,
 } from "antd";
-import { useEffect, useRef, useState, type Key } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useRef, useState, type Key } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Nav from "@/components/Nav";
 import InvoiceStatusTags, { isInvoiced } from "@/components/InvoiceStatusTags";
 import { EditAction } from "@/components/RowActions";
@@ -52,6 +51,7 @@ import {
 } from "@/lib/api";
 import { searchable, userLabel, userNameOptions } from "@/lib/selectOptions";
 import { formatDate } from "@/lib/date";
+import { buildListQuery, pagingQuery, readPaging, useListUrl } from "@/lib/listQuery";
 import { productLabel, variationName } from "@/lib/productLabel";
 
 interface UserOption {
@@ -79,12 +79,23 @@ function round2(value: number) {
 }
 
 export default function OrdersPage() {
+  return (
+    <Suspense fallback={null}>
+      <OrdersList />
+    </Suspense>
+  );
+}
+
+function OrdersList() {
   const router = useRouter();
+  // Filters, paging and the 3PL tab live in the URL (read once here, written back by useListUrl below), so a reload or
+  // coming back from an order's form keeps the same view.
+  const params = useSearchParams();
   const [orders, setOrders] = useState<OrderDto[]>([]);
   // Server-side paging: one page of orders, the total matching the filters, and per-status counts over every filter
   // except status.
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_LIST_PAGE_SIZE);
+  const [page, setPage] = useState(() => readPaging(params).page);
+  const [pageSize, setPageSize] = useState(() => readPaging(params).pageSize);
   const [total, setTotal] = useState(0);
   const [serverCounts, setServerCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
@@ -99,17 +110,17 @@ export default function OrdersPage() {
     startDate: string;
     endDate: string;
     orderRef: string;
-  }>({
-    orderRef: "",
-    accountHolderId: "",
-    threePlId: "",
-    status: "",
-    startDate: "",
-    endDate: "",
-  });
+  }>(() => ({
+    orderRef: params.get("orderRef") ?? "",
+    accountHolderId: params.get("accountHolderId") ?? "",
+    threePlId: params.get("threePlId") ?? "",
+    status: params.get("status") ?? "",
+    startDate: params.get("startDate") ?? "",
+    endDate: params.get("endDate") ?? "",
+  }));
   const [filterInit, setFilterInit] = useState(false);
   // Typed order number; copied into filter.orderRef after a short pause so each keystroke isn't a request.
-  const [orderRefInput, setOrderRefInput] = useState("");
+  const [orderRefInput, setOrderRefInput] = useState(() => params.get("orderRef") ?? "");
   // A DROPSHIP 3PL edits its PROCESSING orders (buy prices, supplier URL) in a popup.
   const [threePlEditing, setThreePlEditing] = useState<OrderDto | null>(null);
   // Order whose full comment is open in a popup.
@@ -119,7 +130,9 @@ export default function OrdersPage() {
   const [myThreePlType, setMyThreePlType] = useState<ProductFulfillmentType | null>(null);
   // 3PL list (decided 2026-10-08): a STOCK 3PL switches between its Processing and Shipped orders (adding tracking
   // numbers on the Shipped tab); a DROPSHIP 3PL only ever lists its Processing orders.
-  const [threePlTab, setThreePlTab] = useState<"PROCESSING" | "SHIPPED">("PROCESSING");
+  const [threePlTab, setThreePlTab] = useState<"PROCESSING" | "SHIPPED">(() =>
+    params.get("tab") === "SHIPPED" ? "SHIPPED" : "PROCESSING",
+  );
   // STOCK 3PL: order whose tracking number is being added/edited.
   const [trackingOrder, setTrackingOrder] = useState<OrderDto | null>(null);
   const [trackingInput, setTrackingInput] = useState("");
@@ -202,23 +215,27 @@ export default function OrdersPage() {
     }
     listProducts().then(setProducts).catch(() => undefined);
     listUsers().then(setUsers as never).catch(() => undefined);
+    // A 3PL's list (its tab) depends on its type, so it loads once that's known.
+    const waitForThreePlType = isThreePl && !isManager;
     if (isThreePl)
       getMyProfile()
         .then((me) => {
           setMyCurrency(me.currency);
           setMyThreePlType(me.threePlProfile?.fulfillmentType ?? null);
         })
-        .catch(() => undefined);
+        .catch(() => undefined)
+        .finally(() => waitForThreePlType && setFilterInit(true));
 
-    if (isManager) {
+    // Managers default to the current billing cycle, unless the URL already says which dates ("" = cleared).
+    if (isManager && !params.has("startDate") && !params.has("endDate")) {
       getMyCompany()
         .then((company) => {
           const cycle = computeCurrentCycle(company.billingAnchorDay);
-          setFilter((f) => ({ ...f, accountHolderId: "", threePlId: "", status: "", startDate: cycle.start, endDate: cycle.end }));
+          setFilter((f) => ({ ...f, startDate: cycle.start, endDate: cycle.end }));
           setFilterInit(true);
         })
         .catch(() => setFilterInit(true));
-    } else {
+    } else if (!waitForThreePlType) {
       setFilterInit(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -228,7 +245,8 @@ export default function OrdersPage() {
   const isStockThreePl = threePlBulk && myThreePlType === ProductFulfillmentType.STOCK;
   const threePlListStatus = isStockThreePl ? threePlTab : "PROCESSING";
 
-  // Changing a filter (or the 3PL tab) goes back to the first page; changing page or page size keeps the filters.
+  // Changing a filter (or the 3PL tab) goes back to the first page; changing page or page size keeps the filters. A
+  // change before the list first loads (a 3PL's type arriving) keeps the page from the URL.
   const filterKey = [
     filter.accountHolderId,
     filter.threePlId,
@@ -243,7 +261,7 @@ export default function OrdersPage() {
     setSelectedIds([]);
     if (lastFilterKey.current !== filterKey) {
       lastFilterKey.current = filterKey;
-      if (page !== 1) {
+      if (filterInit && page !== 1) {
         setPage(1);
         return;
       }
@@ -256,6 +274,25 @@ export default function OrdersPage() {
     const t = setTimeout(() => setFilter((f) => (f.orderRef === orderRefInput.trim() ? f : { ...f, orderRef: orderRefInput.trim() })), 400);
     return () => clearTimeout(t);
   }, [orderRefInput]);
+
+  useListUrl(
+    "/orders",
+    buildListQuery(
+      {
+        orderRef: filter.orderRef,
+        accountHolderId: filter.accountHolderId,
+        threePlId: filter.threePlId,
+        status: filter.status,
+        startDate: filter.startDate,
+        endDate: filter.endDate,
+        tab: threePlTab === "SHIPPED" ? threePlTab : undefined,
+        ...pagingQuery(page, pageSize),
+      },
+      // Managers' dates default to the billing cycle, so a cleared date has to be spelled out.
+      isManager ? ["startDate", "endDate"] : [],
+    ),
+    filterInit,
+  );
 
   // An order number search overrides the other filters (they're shown disabled and not applied).
   const searchingRef = !!filter.orderRef;

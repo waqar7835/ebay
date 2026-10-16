@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  DEFAULT_LIST_PAGE_SIZE,
   LIST_PAGE_SIZES,
   Role,
   type Currency,
@@ -9,12 +8,13 @@ import {
   type UserDto,
 } from "@ebay-order-management/shared";
 import { Alert, Badge, Button, Card, Image, Input, Select, Table, Tag, type TableColumnsType } from "antd";
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Nav from "@/components/Nav";
 import { EditAction } from "@/components/RowActions";
 import { getStoredUser, getToken, listProductsPage, listUsers, mediaUrl } from "@/lib/api";
 import { money } from "@/lib/currency";
+import { buildListQuery, pagingQuery, readPaging, useListUrl } from "@/lib/listQuery";
 import { searchable, userNameOptions } from "@/lib/selectOptions";
 
 interface ProductRow {
@@ -50,18 +50,34 @@ interface ProductFilter {
 }
 
 export default function ProductsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ProductsList />
+    </Suspense>
+  );
+}
+
+function ProductsList() {
   const router = useRouter();
+  // Filters and paging live in the URL (read once here, written back by useListUrl below), so a reload or coming back
+  // from a product's form keeps the same view.
+  const params = useSearchParams();
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_LIST_PAGE_SIZE);
+  const [page, setPage] = useState(() => readPaging(params).page);
+  const [pageSize, setPageSize] = useState(() => readPaging(params).pageSize);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stockOwners, setStockOwners] = useState<UserDto[]>([]);
   // Applied filters; the title / SKU boxes are copied in after a short pause so each keystroke isn't a request.
-  const [filter, setFilter] = useState<ProductFilter>({ stockOwnerId: "", fulfillmentType: "", title: "", sku: "" });
-  const [titleInput, setTitleInput] = useState("");
-  const [skuInput, setSkuInput] = useState("");
+  const [filter, setFilter] = useState<ProductFilter>(() => ({
+    stockOwnerId: params.get("stockOwnerId") ?? "",
+    fulfillmentType: params.get("fulfillmentType") ?? "",
+    title: params.get("title") ?? "",
+    sku: params.get("sku") ?? "",
+  }));
+  const [titleInput, setTitleInput] = useState(filter.title);
+  const [skuInput, setSkuInput] = useState(filter.sku);
 
   // A Stock Owner gets a read-only list of their own products (the API only returns those) — same test as the backend.
   const roles = getStoredUser()?.roles ?? [];
@@ -125,6 +141,8 @@ export default function ProductsPage() {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [titleInput, skuInput]);
+
+  useListUrl("/products", buildListQuery({ ...filter, ...pagingQuery(page, pageSize) }));
 
   const filtered = Object.values(filter).some(Boolean);
 

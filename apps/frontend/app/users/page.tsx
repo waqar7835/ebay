@@ -1,14 +1,15 @@
 "use client";
 
-import { DEFAULT_LIST_PAGE_SIZE, LIST_PAGE_SIZES, type Role } from "@ebay-order-management/shared";
+import { LIST_PAGE_SIZES, type Role } from "@ebay-order-management/shared";
 import type { CompanySubscriptionDto } from "@ebay-order-management/shared";
 import { Alert, Avatar, Button, Space, Table, Tag, Tooltip, type TableColumnsType } from "antd";
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Nav from "@/components/Nav";
 import RoleTag, { roleLabel } from "@/components/RoleTag";
 import { DeleteAction, EditAction, ToggleStatusAction } from "@/components/RowActions";
+import { buildListQuery, pagingQuery, readPaging, useListUrl } from "@/lib/listQuery";
 import { deleteUser, getSubscription, getToken, listUsersPage, mediaUrl, setUserStatus } from "@/lib/api";
 
 interface UserRow {
@@ -22,11 +23,21 @@ interface UserRow {
 }
 
 export default function UsersPage() {
+  return (
+    <Suspense fallback={null}>
+      <UsersList />
+    </Suspense>
+  );
+}
+
+function UsersList() {
   const router = useRouter();
+  // Paging lives in the URL (no filters yet), so a reload or coming back from a user's page keeps the same page.
+  const params = useSearchParams();
   const [users, setUsers] = useState<UserRow[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_LIST_PAGE_SIZE);
+  const [page, setPage] = useState(() => readPaging(params).page);
+  const [pageSize, setPageSize] = useState(() => readPaging(params).pageSize);
   const [subscriptionDisabledCount, setSubscriptionDisabledCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +72,8 @@ export default function UsersPage() {
     refresh(page, pageSize);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router, page, pageSize]);
+
+  useListUrl("/users", buildListQuery(pagingQuery(page, pageSize)));
 
   async function setStatus(user: UserRow, enable: boolean) {
     setError(null);
