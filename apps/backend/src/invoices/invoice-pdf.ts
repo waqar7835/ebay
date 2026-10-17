@@ -312,7 +312,7 @@ function drawSettlementBox(
     doc
       .font("Helvetica")
       .fontSize(10)
-      .fillColor(C.text)
+      .fillColor(isNegativeAmount(row.value) ? C.red : C.text)
       .text(row.value, x + 20, cy, { width: inner, align: "right" });
     cy += 24;
   }
@@ -331,7 +331,7 @@ function drawSettlementBox(
   doc
     .font("Helvetica-Bold")
     .fontSize(14)
-    .fillColor(C.noteTitle)
+    .fillColor(isNegativeAmount(total.value) ? C.red : C.noteTitle)
     .text(total.value, x + 20, cy, { width: inner, align: "right" });
   cy += totalHeight + 10;
   if (total.footnote) {
@@ -340,7 +340,7 @@ function drawSettlementBox(
       .fontSize(9)
       .fillColor(C.muted)
       .text(total.footnote.label, x + 20, cy, { width: totalLabelWidth });
-    doc.text(total.footnote.value, x + 20, cy, { width: inner, align: "right" });
+    doc.fillColor(isNegativeAmount(total.footnote.value) ? C.red : C.muted).text(total.footnote.value, x + 20, cy, { width: inner, align: "right" });
   }
   return y + height;
 }
@@ -513,7 +513,7 @@ function drawAccountHolderPayable(
     doc
       .font("Helvetica-Bold")
       .fontSize(10)
-      .fillColor(color ?? C.ink)
+      .fillColor(isNegativeAmount(value) ? C.red : (color ?? C.ink))
       .text(value, x + 20, cy, { width: inner - 60, align: "right" });
     cy += 18;
     dashedLine(doc, x + 20, cy, inner, C.line);
@@ -775,7 +775,7 @@ function drawTable(
       doc
         .font(fontFor(i))
         .fontSize(9.5)
-        .fillColor(opts.columnColors?.[i] ?? (i === 0 ? C.ink : C.text))
+        .fillColor(isNegativeAmount(cell) ? C.red : (opts.columnColors?.[i] ?? (i === 0 ? C.ink : C.text)))
         .text(cell, x + pad, y + (height - heights[i]) / 2, { width: c.width - pad * 2, align: c.align });
       x += c.width;
     });
@@ -823,7 +823,7 @@ function summaryRows(doc: Doc, y: number, rows: [string, string, { bold?: boolea
     doc.text(label, PAGE.margin, y, { width: valueX - PAGE.margin - 30, align: "right" });
     doc
       .font("Helvetica-Bold")
-      .fillColor(style?.valueColor ?? C.ink)
+      .fillColor(isNegativeAmount(value) ? C.red : (style?.valueColor ?? C.ink))
       .text(value, valueX, y, { width: 112, align: "right" });
     y += 22;
   }
@@ -906,6 +906,11 @@ export function currencySymbol(currency: string) {
 
 export function currencyLabel(currency: string) {
   return currency === "PKR" ? "PKR (Rs.)" : `${currency} (${currencySymbol(currency).trim()})`;
+}
+
+/** True for a formatted amount below zero ("-£5.60", "-Rs. 1,683", "-5.60") — drawn in red. */
+export function isNegativeAmount(text: string) {
+  return /^-[^\d\n]{0,6}\d/.test(text.trim());
 }
 
 /** PKR drops ".00" like the samples (Rs. 1,683); other currencies always show pence/cents (£38.03). */

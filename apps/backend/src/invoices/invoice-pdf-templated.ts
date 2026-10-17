@@ -17,6 +17,7 @@ import {
   currencySymbol,
   formatDate,
   formatMoney,
+  isNegativeAmount,
   parseDateOnly,
   pct,
   round2,
@@ -55,7 +56,7 @@ const CW = PAGE.width - PAGE.margin * 2;
 const BOTTOM = PAGE.height - PAGE.margin;
 /** Sidebar layout: width of the colored column on the left. */
 const SIDEBAR_WIDTH = 172;
-/** Meaning-carrying colors stay fixed whatever the template: profit in green, VOID in red. */
+/** Meaning-carrying colors stay fixed whatever the template: profit in green, VOID and negative amounts in red. */
 const FIXED = { green: "#15803d", red: "#dc2626" };
 
 export function renderTemplatedInvoicePdf(input: TemplatedPdfInput): Promise<Buffer> {
@@ -915,7 +916,7 @@ function table(
       doc
         .font(font(i))
         .fontSize(bodySize)
-        .fillColor(opts.columnColors?.[i] ?? t.text)
+        .fillColor(isNegativeAmount(cell) ? FIXED.red : (opts.columnColors?.[i] ?? t.text))
         .text(cell, x + pad, y + (height - heights[i]) / 2, { width: c.width - pad * 2, align: c.align });
       x += c.width;
     });
@@ -1101,7 +1102,7 @@ function ruledTotal(ctx: Ctx, m: Model, y: number): number {
   }
   hr(doc, x0, cy + 4, cw, t.accent, 1.5);
   doc.font("Helvetica-Bold").fontSize(9.5).fillColor(t.text).text(b.totalLabel, x0, cy + 14, { width: cw - 170 });
-  doc.font("Helvetica-Bold").fontSize(valueSize).fillColor(t.accent).text(b.totalValue, x0, cy + 12, { width: cw, align: "right", lineBreak: false });
+  doc.font("Helvetica-Bold").fontSize(valueSize).fillColor(isNegativeAmount(b.totalValue) ? FIXED.red : t.accent).text(b.totalValue, x0, cy + 12, { width: cw, align: "right", lineBreak: false });
   return y + height + 6;
 }
 
@@ -1131,7 +1132,7 @@ function statementTotal(ctx: Ctx, m: Model, y: number): number {
   const valueSize = fitSize(doc, "Helvetica-Bold", b.totalValue, rightW, 28);
   const valueW = doc.font("Helvetica-Bold").fontSize(valueSize).widthOfString(b.totalValue);
   const vy = y + 56 + labelH;
-  doc.fillColor(t.text).text(b.totalValue, rx, vy, { width: rightW, align: "right", lineBreak: false });
+  doc.fillColor(isNegativeAmount(b.totalValue) ? FIXED.red : t.text).text(b.totalValue, rx, vy, { width: rightW, align: "right", lineBreak: false });
   doc.rect(rx + rightW - valueW, vy + valueSize + 4, valueW, 5).fill(t.accent);
   return y + Math.max(height, vy + valueSize + 12 - y);
 }
@@ -1227,6 +1228,7 @@ function customWatermark(ctx: Ctx, w: InvoiceWatermark) {
 // Helpers.
 
 function rowColor(ctx: Ctx, row: BoxRow) {
+  if (isNegativeAmount(row.value)) return FIXED.red;
   return row.color === "accent" ? ctx.t.accent : (row.color ?? ctx.t.text);
 }
 
