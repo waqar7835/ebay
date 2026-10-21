@@ -911,7 +911,7 @@ function table(
 
   const drawHeader = (hy: number) => {
     doc.font("Helvetica-Bold").fontSize(headSize);
-    const height = Math.max(...cols.map((c) => doc.heightOfString(c.header, { width: c.width - pad * 2 }))) + (style.headerFill ? 14 : 12);
+    const height = Math.max(...cols.map((c) => doc.heightOfString(c.header, { width: c.width - pad * 2, characterSpacing: 0.4 }))) + (style.headerFill ? 14 : 12);
     if (style.headerRules?.above) hr(doc, x0, hy, cw, style.headerRules.color, style.headerRules.above);
     if (style.headerFill) {
       if (style.radius) doc.roundedRect(x0, hy, cw, height, style.radius).fill(style.headerFill);
@@ -919,7 +919,7 @@ function table(
     }
     let x = x0;
     for (const c of cols) {
-      const h = doc.heightOfString(c.header, { width: c.width - pad * 2 });
+      const h = doc.heightOfString(c.header, { width: c.width - pad * 2, characterSpacing: 0.4 });
       doc.fillColor(style.headerText).text(c.header, x + pad, hy + (height - h) / 2, { width: c.width - pad * 2, align: c.align, characterSpacing: 0.4 });
       x += c.width;
     }
