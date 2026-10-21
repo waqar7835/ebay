@@ -10,7 +10,6 @@ import {
 import {
   InvoicePdfInput,
   InvoicePdfLine,
-  aggregateAccountHolderProducts,
   aggregateStockOwnerProducts,
   billingPeriod,
   currencyLabel,
@@ -347,7 +346,10 @@ function statusLabel(status: string) {
   return status.charAt(0) + status.slice(1).toLowerCase();
 }
 
-/** Account Holder: what the Account Holder pays the company (they hold the eBay proceeds). */
+/**
+ * Account Holder: what the Account Holder pays the company (they hold the eBay proceeds). One row per
+ * order, with what makes up its amount due: company share + buying + 3PL charge + shipping.
+ */
 function accountHolderModel(input: TemplatedPdfInput): Model {
   const cur = input.currency;
   const money = (v: number) => formatMoney(v, cur);
@@ -358,13 +360,33 @@ function accountHolderModel(input: TemplatedPdfInput): Model {
   const extrasTotal = round2(sum(extraLines.map((l) => l.netAmount)));
   const hasOrders = orderLines.length > 0;
 
-  const products = aggregateAccountHolderProducts(orderLines);
+  const orders = orderLines.map((l) => {
+    const d = l.details?.role === "ACCOUNT_HOLDER" ? l.details : null;
+    const products = d?.products ?? [];
+    const selling = round2(sum(products.map((p) => p.selling)));
+    const buying = round2(sum(products.map((p) => p.buying)));
+    const threePl = round2(sum(products.map((p) => p.threePl)));
+    const shipping = round2(sum(products.map((p) => p.shipping ?? 0)));
+    return {
+      orderRef: d?.orderRef ?? l.description,
+      orderDate: d?.orderDate ?? null,
+      products: products.map((p) => `${p.title} ×${p.quantity}`).join("\n"),
+      selling,
+      buying,
+      threePl,
+      shipping,
+      profit: round2(selling - buying - threePl - shipping),
+      companyShare: round2(l.netAmount - buying - threePl - shipping),
+      due: l.netAmount,
+    };
+  });
   const totals = {
-    quantity: sum(products.map((p) => p.quantity)),
-    selling: round2(sum(products.map((p) => p.selling))),
-    buying: round2(sum(products.map((p) => p.buying))),
-    threePl: round2(sum(products.map((p) => p.threePl))),
-    shipping: round2(sum(products.map((p) => p.shipping))),
+    selling: round2(sum(orders.map((o) => o.selling))),
+    buying: round2(sum(orders.map((o) => o.buying))),
+    threePl: round2(sum(orders.map((o) => o.threePl))),
+    shipping: round2(sum(orders.map((o) => o.shipping))),
+    companyShare: round2(sum(orders.map((o) => o.companyShare))),
+    due: round2(sum(orders.map((o) => o.due))),
   };
   const profit = round2(totals.selling - totals.buying - totals.threePl - totals.shipping);
   const sharePercent = uniform(
@@ -376,38 +398,48 @@ function accountHolderModel(input: TemplatedPdfInput): Model {
   if (hasOrders) {
     // The Shipping column only appears when a label was bought outside eBay on one of the orders.
     const withShipping = totals.shipping !== 0;
+    // Beside the Sidebar layout's column the table is narrow: the date goes under the order #, the
+    // headers are shortened and the currency is given once above the table instead of in each header.
+    const narrow = input.layout === InvoiceLayout.SIDEBAR;
+    const head = (label: string, short: string) => (narrow ? short : `${label} (${symbol})`);
     const cols = columns([
-      ["SOURCE", 150, "left"],
-      ["QTY", 38, "center"],
-      [`SELLING (${symbol})`, 70, "right"],
-      [`BUYING (${symbol})`, 70, "right"],
-      [`3PL (${symbol})`, 60, "right"],
-      ...(withShipping ? ([[`SHIPPING (${symbol})`, 76, "right"]] as [string, number, Align][]) : []),
-      [`PROFIT (${symbol})`, 68, "right"],
+      ["ORDER #", 78, "left"],
+      ...(narrow ? [] : ([["DATE", 56, "left"]] as [string, number, Align][])),
+      ["PRODUCTS", 110, "left"],
+      [head("SELLING", "SELL"), 54, "right"],
+      [head("BUYING", "BUY"), 52, "right"],
+      [head("3PL", "3PL"), 44, "right"],
+      ...(withShipping ? ([[head("SHIPPING", "SHIP"), 56, "right"]] as [string, number, Align][]) : []),
+      [head("PROFIT", "PROFIT"), 52, "right"],
+      [head(`COMPANY SHARE${pct(sharePercent)}`, "CO. SHARE"), 60, "right"],
+      [head("AMOUNT DUE", "DUE"), 60, "right"],
     ]);
-    const row = (title: string, r: Omit<(typeof products)[number], "title">, rowProfit: number) => [
-      title,
-      String(r.quantity),
-      ...[r.selling, r.buying, r.threePl, ...(withShipping ? [r.shipping] : []), rowProfit].map((v) => plain(v, cur)),
-    ];
-    blocks.push({ type: "section", title: `${section++}. PRODUCT BREAKDOWN` });
+    const amounts = (r: Omit<(typeof orders)[number], "orderRef" | "orderDate" | "products">) =>
+      [r.selling, r.buying, r.threePl, ...(withShipping ? [r.shipping] : []), r.profit, r.companyShare, r.due].map((v) =>
+        plain(v, cur),
+      );
+    blocks.push({ type: "section", title: `${section++}. ORDER BREAKDOWN`, note: narrow ? `Amounts in ${currencyLabel(cur)}` : undefined });
     blocks.push({
       type: "table",
       columns: cols,
       rows: [
-        ...products.map((p) => row(p.title, p, p.selling - p.buying - p.threePl - p.shipping)),
-        row("TOTAL SUMMARY", totals, profit),
+        ...orders.map((o) => {
+          const date = o.orderDate ? shortDate(o.orderDate) : "";
+          return narrow
+            ? [date ? `${o.orderRef}\n${date}` : o.orderRef, o.products, ...amounts(o)]
+            : [o.orderRef, date, o.products, ...amounts(o)];
+        }),
+        ["TOTAL", ...(narrow ? [] : [""]), "", ...amounts({ ...totals, profit })],
       ],
       boldLastRow: true,
-      columnColors: { [cols.length - 1]: FIXED.green },
+      columnColors: { [cols.length - 3]: FIXED.green },
     });
   }
   blocks.push(...extrasBlocks(`${section}. ADJUSTMENTS & OTHER CHARGES`, extraLines, money));
   if (extraLines.length) section++;
 
   // What the company is owed: its profit share + reimbursements (+ adjustments).
-  const orderDue = round2(sum(orderLines.map((l) => l.netAmount)));
-  const companyShare = round2(orderDue - totals.buying - totals.threePl - totals.shipping);
+  const companyShare = totals.companyShare;
   const withCur = (v: number) => `${money(v)} ${cur}`;
   const rows: BoxRow[] = [
     ...(hasOrders
