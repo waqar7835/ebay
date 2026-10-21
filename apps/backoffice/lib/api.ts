@@ -98,6 +98,20 @@ function apiErrorMessage(status: number, body: { message?: unknown }): string {
   return "The request couldn't be completed. Please check the form and try again.";
 }
 
+/**
+ * The API rejected the login token (expired or invalid): forget it and go back to the login page instead of showing the
+ * error. The returned promise never settles, so the page doesn't flash the error before the redirect.
+ */
+function endSession(): Promise<never> {
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("user");
+    localStorage.removeItem("selectedCompanyId");
+    window.location.replace("/");
+  }
+  return new Promise<never>(() => {});
+}
+
 /** fetch that turns a network failure (API down, offline) into a readable error. */
 async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
   try {
@@ -115,6 +129,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   if (res.status === 204) return undefined as T;
@@ -295,6 +310,7 @@ export async function setProductImages(productId: string, images: Array<string |
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<ProductDto>;
@@ -372,6 +388,7 @@ export async function downloadInvoicePdf(invoiceId: string): Promise<Blob> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.blob();
@@ -401,6 +418,7 @@ async function rawRequest<T>(path: string, options: RequestInit = {}): Promise<T
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json();
@@ -514,6 +532,7 @@ export async function uploadPlatformLogo(logo: File) {
   const res = await apiFetch(`${API_URL}/platform-settings/logo`, { method: "POST", headers: authHeaders(), body: form });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<PlatformSettingsDto>;
@@ -529,6 +548,7 @@ export async function uploadPlatformFavicon(favicon: File) {
   const res = await apiFetch(`${API_URL}/platform-settings/favicon`, { method: "POST", headers: authHeaders(), body: form });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<PlatformSettingsDto>;

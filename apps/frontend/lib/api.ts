@@ -98,6 +98,20 @@ function apiErrorMessage(status: number, body: { message?: unknown }): string {
   return "The request couldn't be completed. Please check the form and try again.";
 }
 
+/**
+ * The API rejected the login token (expired or invalid): forget it and go back to the login page instead of showing the
+ * error. The returned promise never settles, so the page doesn't flash the error before the redirect.
+ */
+function endSession(): Promise<never> {
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("user");
+    localStorage.removeItem("navCompany");
+    window.location.replace("/login");
+  }
+  return new Promise<never>(() => {});
+}
+
 /** fetch that turns a network failure (API down, offline) into a readable error. */
 async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
   try {
@@ -115,6 +129,7 @@ async function requestBlob(path: string, options: RequestInit = {}): Promise<Blo
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.blob();
@@ -128,6 +143,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
     const error = new Error(apiErrorMessage(res.status, body)) as Error & { status?: number };
     error.status = res.status;
     throw error;
@@ -378,6 +394,7 @@ export async function uploadCompanyLogo(logo: File) {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<CompanyDto>;
@@ -394,6 +411,7 @@ async function uploadAvatar(path: string, file: File) {
   const res = await apiFetch(`${API_URL}${path}`, { method: "POST", headers: authHeaders(), body: form });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<UserDto>;
@@ -590,6 +608,7 @@ export async function setProductImages(productId: string, images: Array<string |
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<ProductDto>;
@@ -688,6 +707,7 @@ export async function uploadOrderShippingLabel(orderId: string, shippingLabel: F
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<OrderDto>;
@@ -784,6 +804,7 @@ async function sendForm(path: string, form: FormData): Promise<Response> {
   const res = await apiFetch(`${API_URL}${path}`, { method: "POST", headers: authHeaders(), body: form, cache: "no-store" });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res;
@@ -856,6 +877,7 @@ export async function submitSubscriptionPayment(planId: string, billingPeriodId:
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<SubscriptionPaymentDto>;
