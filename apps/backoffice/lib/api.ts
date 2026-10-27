@@ -37,9 +37,26 @@ export function mediaUrl(path: string | null | undefined): string {
   return /^https?:\/\//.test(path) ? path : `${API_URL}${path}`;
 }
 
+/** True when the JWT's own `exp` has passed, so pages redirect to login without waiting for an API 401. */
+function tokenExpired(token: string): boolean {
+  try {
+    const { exp } = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return typeof exp === "number" && exp * 1000 <= Date.now();
+  } catch {
+    return false;
+  }
+}
+
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("accessToken");
+  const token = localStorage.getItem("accessToken");
+  if (token && tokenExpired(token)) {
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("user");
+    localStorage.removeItem("selectedCompanyId");
+    return null;
+  }
+  return token;
 }
 
 export interface StoredUser {
@@ -99,6 +116,14 @@ function apiErrorMessage(status: number, body: { message?: unknown }): string {
 }
 
 /**
+ * A 401 for the login token itself: tagged SESSION_EXPIRED by the API's JWT guard, or Nest's bare "Unauthorized" (an
+ * API build from before that tag). Other 401s (e.g. "Current password is incorrect") carry their own message.
+ */
+function isDeadSession(status: number, body: { error?: unknown; message?: unknown }): boolean {
+  return status === 401 && (body.error === "SESSION_EXPIRED" || body.message === "Unauthorized");
+}
+
+/**
  * The API rejected the login token (expired or invalid): forget it and go back to the login page instead of showing the
  * error. The returned promise never settles, so the page doesn't flash the error before the redirect.
  */
@@ -129,7 +154,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
+    if (isDeadSession(res.status, body)) return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   if (res.status === 204) return undefined as T;
@@ -310,7 +335,7 @@ export async function setProductImages(productId: string, images: Array<string |
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
+    if (isDeadSession(res.status, body)) return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<ProductDto>;
@@ -388,7 +413,7 @@ export async function downloadInvoicePdf(invoiceId: string): Promise<Blob> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
+    if (isDeadSession(res.status, body)) return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.blob();
@@ -418,7 +443,7 @@ async function rawRequest<T>(path: string, options: RequestInit = {}): Promise<T
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
+    if (isDeadSession(res.status, body)) return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json();
@@ -532,7 +557,7 @@ export async function uploadPlatformLogo(logo: File) {
   const res = await apiFetch(`${API_URL}/platform-settings/logo`, { method: "POST", headers: authHeaders(), body: form });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
+    if (isDeadSession(res.status, body)) return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<PlatformSettingsDto>;
@@ -548,7 +573,7 @@ export async function uploadPlatformFavicon(favicon: File) {
   const res = await apiFetch(`${API_URL}/platform-settings/favicon`, { method: "POST", headers: authHeaders(), body: form });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
+    if (isDeadSession(res.status, body)) return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<PlatformSettingsDto>;

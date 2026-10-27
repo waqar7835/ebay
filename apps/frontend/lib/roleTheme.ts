@@ -39,6 +39,6 @@ export function themeIdForRoles(roles: Role[] | undefined): RoleThemeId {
  * Inline script for <head> that sets data-role-theme from the stored user before first paint, so non-Admin roles
  * don't flash the Aurora background on load. Mirrors themeIdForRoles().
  */
-export const ROLE_THEME_BOOT_SCRIPT = `try{var u=JSON.parse(localStorage.getItem("user")||"null"),r=(u&&u.roles)||[],m=${JSON.stringify(
+export const ROLE_THEME_BOOT_SCRIPT = `try{var u=JSON.parse(sessionStorage.getItem("user")||localStorage.getItem("user")||"null"),r=(u&&u.roles)||[],m=${JSON.stringify(
   THEME_BY_ROLE,
 )};for(var i=0;i<m.length;i++){if(r.indexOf(m[i][0])>-1){document.documentElement.dataset.roleTheme=m[i][1];break}}}catch(e){}`;

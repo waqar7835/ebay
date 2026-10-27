@@ -15,7 +15,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { CompanyDto, Role } from "@ebay-order-management/shared";
-import { getMyCompany, getStoredUser, getToken, mediaUrl, type StoredUser } from "@/lib/api";
+import { clearSession, getMyCompany, getStoredUser, getToken, mediaUrl, type StoredUser } from "@/lib/api";
 
 const COMPANY_CACHE_KEY = "navCompany";
 type NavCompany = Pick<CompanyDto, "name" | "logoUrl">;
@@ -80,9 +80,7 @@ export default function Nav() {
   ].filter((link) => link.show);
 
   function logout() {
-    localStorage.removeItem("accessToken");
-    localStorage.removeItem("user");
-    localStorage.removeItem(COMPANY_CACHE_KEY);
+    clearSession();
     router.push("/login");
   }
 

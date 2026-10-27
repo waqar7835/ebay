@@ -57,9 +57,47 @@ export function mediaUrl(path: string | null | undefined): string {
   return /^https?:\/\//.test(path) ? path : `${API_URL}${path}`;
 }
 
+/**
+ * Where the login lives: localStorage when "Keep me logged in" was ticked (survives closing the browser), else
+ * sessionStorage (gone when the window closes). The token itself expires on the server either way.
+ */
+function sessionStore(): Storage {
+  return localStorage.getItem("accessToken") ? localStorage : sessionStorage;
+}
+
+export function saveSession(accessToken: string, user: StoredUser, remember: boolean) {
+  clearSession();
+  const store = remember ? localStorage : sessionStorage;
+  store.setItem("accessToken", accessToken);
+  store.setItem("user", JSON.stringify(user));
+}
+
+export function clearSession() {
+  for (const store of [localStorage, sessionStorage]) {
+    store.removeItem("accessToken");
+    store.removeItem("user");
+  }
+  localStorage.removeItem("navCompany");
+}
+
+/** True when the JWT's own `exp` has passed, so pages redirect to login without waiting for an API 401. */
+function tokenExpired(token: string): boolean {
+  try {
+    const { exp } = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return typeof exp === "number" && exp * 1000 <= Date.now();
+  } catch {
+    return false;
+  }
+}
+
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("accessToken");
+  const token = sessionStore().getItem("accessToken");
+  if (token && tokenExpired(token)) {
+    clearSession();
+    return null;
+  }
+  return token;
 }
 
 export interface StoredUser {
@@ -72,7 +110,7 @@ export interface StoredUser {
 
 export function getStoredUser(): StoredUser | null {
   if (typeof window === "undefined") return null;
-  const raw = localStorage.getItem("user");
+  const raw = sessionStore().getItem("user");
   return raw ? JSON.parse(raw) : null;
 }
 
@@ -99,14 +137,20 @@ function apiErrorMessage(status: number, body: { message?: unknown }): string {
 }
 
 /**
+ * A 401 for the login token itself: tagged SESSION_EXPIRED by the API's JWT guard, or Nest's bare "Unauthorized" (an
+ * API build from before that tag). Other 401s (e.g. "Current password is incorrect") carry their own message.
+ */
+function isDeadSession(status: number, body: { error?: unknown; message?: unknown }): boolean {
+  return status === 401 && (body.error === "SESSION_EXPIRED" || body.message === "Unauthorized");
+}
+
+/**
  * The API rejected the login token (expired or invalid): forget it and go back to the login page instead of showing the
  * error. The returned promise never settles, so the page doesn't flash the error before the redirect.
  */
 function endSession(): Promise<never> {
   if (typeof window !== "undefined") {
-    localStorage.removeItem("accessToken");
-    localStorage.removeItem("user");
-    localStorage.removeItem("navCompany");
+    clearSession();
     window.location.replace("/login");
   }
   return new Promise<never>(() => {});
@@ -129,7 +173,7 @@ async function requestBlob(path: string, options: RequestInit = {}): Promise<Blo
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
+    if (isDeadSession(res.status, body)) return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.blob();
@@ -143,7 +187,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
+    if (isDeadSession(res.status, body)) return endSession();
     const error = new Error(apiErrorMessage(res.status, body)) as Error & { status?: number };
     error.status = res.status;
     throw error;
@@ -152,10 +196,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json();
 }
 
-export function login(email: string, password: string, role: Role) {
+export function login(email: string, password: string, role: Role, rememberMe: boolean) {
   return request<{ accessToken: string; user: StoredUser }>("/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email, password, role, context: "portal" }),
+    body: JSON.stringify({ email, password, role, rememberMe, context: "portal" }),
   });
 }
 
@@ -394,7 +438,7 @@ export async function uploadCompanyLogo(logo: File) {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
+    if (isDeadSession(res.status, body)) return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<CompanyDto>;
@@ -411,7 +455,7 @@ async function uploadAvatar(path: string, file: File) {
   const res = await apiFetch(`${API_URL}${path}`, { method: "POST", headers: authHeaders(), body: form });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
+    if (isDeadSession(res.status, body)) return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<UserDto>;
@@ -608,7 +652,7 @@ export async function setProductImages(productId: string, images: Array<string |
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
+    if (isDeadSession(res.status, body)) return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<ProductDto>;
@@ -707,7 +751,7 @@ export async function uploadOrderShippingLabel(orderId: string, shippingLabel: F
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
+    if (isDeadSession(res.status, body)) return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<OrderDto>;
@@ -804,7 +848,7 @@ async function sendForm(path: string, form: FormData): Promise<Response> {
   const res = await apiFetch(`${API_URL}${path}`, { method: "POST", headers: authHeaders(), body: form, cache: "no-store" });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
+    if (isDeadSession(res.status, body)) return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res;
@@ -877,7 +921,7 @@ export async function submitSubscriptionPayment(planId: string, billingPeriodId:
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    if (res.status === 401 && body.error === "SESSION_EXPIRED") return endSession();
+    if (isDeadSession(res.status, body)) return endSession();
     throw new Error(apiErrorMessage(res.status, body));
   }
   return res.json() as Promise<SubscriptionPaymentDto>;

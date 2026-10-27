@@ -1,12 +1,12 @@
 "use client";
 
 import { Role } from "@ebay-order-management/shared";
-import { Button, Form, Input, Radio } from "antd";
+import { Button, Checkbox, Form, Input, Radio } from "antd";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import AuthShell, { AuthNote, useAuthToasts } from "@/components/site/AuthShell";
-import { login } from "@/lib/api";
+import { login, saveSession } from "@/lib/api";
 import { ROLE_COLORS } from "@/lib/brand";
 
 const USER_TYPES: { role: Role; label: string; color: string; bg: string }[] = [
@@ -21,6 +21,7 @@ interface LoginValues {
   userType: Role;
   email: string;
   password: string;
+  rememberMe: boolean;
 }
 
 export default function LoginPage() {
@@ -28,13 +29,11 @@ export default function LoginPage() {
   const { onFinishFailed, showError } = useAuthToasts();
   const [loading, setLoading] = useState(false);
 
-  async function handleFinish({ userType, email, password }: LoginValues) {
+  async function handleFinish({ userType, email, password, rememberMe }: LoginValues) {
     setLoading(true);
     try {
-      const { accessToken, user } = await login(email, password, userType);
-      localStorage.setItem("accessToken", accessToken);
-      localStorage.setItem("user", JSON.stringify(user));
-      localStorage.removeItem("navCompany"); // the portal sidebar re-reads this account's company
+      const { accessToken, user } = await login(email, password, userType, rememberMe);
+      saveSession(accessToken, user, rememberMe); // also clears navCompany, so the sidebar re-reads this account's company
       router.push("/dashboard");
     } catch (err) {
       showError(err, "Login failed");
@@ -56,7 +55,7 @@ export default function LoginPage() {
           requiredMark={false}
           onFinish={handleFinish}
           onFinishFailed={onFinishFailed}
-          initialValues={{ userType: Role.ADMIN }}
+          initialValues={{ userType: Role.ADMIN, rememberMe: false }}
           style={{ marginTop: 18 }}
         >
           <Form.Item name="userType" label="I'm logging in as">
@@ -82,6 +81,9 @@ export default function LoginPage() {
             rules={[{ required: true, message: "Enter your password" }]}
           >
             <Input.Password autoComplete="current-password" placeholder="Your password" />
+          </Form.Item>
+          <Form.Item name="rememberMe" valuePropName="checked">
+            <Checkbox>Keep me logged in for 7 days</Checkbox>
           </Form.Item>
           <Button className="submit" type="primary" htmlType="submit" loading={loading} block>
             {loading ? "Signing in..." : "Log in"}

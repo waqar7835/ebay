@@ -1,4 +1,4 @@
-import { IsEmail, IsIn, IsOptional, MinLength } from "class-validator";
+import { IsBoolean, IsEmail, IsIn, IsOptional, MinLength } from "class-validator";
 import { PORTAL_ROLES, Role } from "@ebay-order-management/shared";
 
 export type LoginContext = "backoffice" | "portal";
@@ -18,4 +18,9 @@ export class LoginDto {
   @IsOptional()
   @IsIn(PORTAL_ROLES)
   role?: Role;
+
+  // "Keep me logged in": the token then lasts REMEMBER_ME_EXPIRES_IN (7 days) instead of JWT_EXPIRES_IN.
+  @IsOptional()
+  @IsBoolean()
+  rememberMe?: boolean;
 }

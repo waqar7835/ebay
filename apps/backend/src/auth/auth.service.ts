@@ -18,6 +18,9 @@ import { ForgotPasswordDto, ResetPasswordDto } from "./dto/password-reset.dto";
 import { AcceptInviteDto } from "./dto/accept-invite.dto";
 import { JwtPayload } from "./jwt.strategy";
 
+/** Token lifetime when the user ticks "Keep me logged in" on the login page. */
+const REMEMBER_ME_EXPIRES_IN = "7d";
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -91,14 +94,19 @@ export class AuthService {
     return { message: "Email verified" };
   }
 
-  async login(dto: LoginDto) {
-    if (dto.context === "backoffice") {
-      return this.loginBackoffice(dto.email, dto.password);
-    }
-    return this.loginPortal(dto.email, dto.password, dto.role);
+  /** A fixed lifetime from login (not extended by activity): 7 days with "Keep me logged in", else JWT_EXPIRES_IN. */
+  private signToken(payload: JwtPayload, rememberMe: boolean) {
+    return rememberMe ? this.jwtService.signAsync(payload, { expiresIn: REMEMBER_ME_EXPIRES_IN }) : this.jwtService.signAsync(payload);
   }
 
-  private async loginPortal(email: string, password: string, role?: Role) {
+  async login(dto: LoginDto) {
+    if (dto.context === "backoffice") {
+      return this.loginBackoffice(dto.email, dto.password, !!dto.rememberMe);
+    }
+    return this.loginPortal(dto.email, dto.password, dto.role, !!dto.rememberMe);
+  }
+
+  private async loginPortal(email: string, password: string, role: Role | undefined, rememberMe: boolean) {
     // A person can hold several role-scoped accounts under the same email, each with its own
     // password: the selected user type narrows to that account, then password confirms it.
     const candidates = await this.userModel.scope("withPassword").findAll({
@@ -139,7 +147,7 @@ export class AuthService {
     };
 
     return {
-      accessToken: await this.jwtService.signAsync(payload),
+      accessToken: await this.signToken(payload, rememberMe),
       user: {
         id: user.id,
         email: user.email,
@@ -159,7 +167,7 @@ export class AuthService {
     };
   }
 
-  private async loginBackoffice(email: string, password: string) {
+  private async loginBackoffice(email: string, password: string, rememberMe: boolean) {
     const user = await this.backofficeUserModel.scope("withPassword").findOne({
       where: { email },
       include: [BackofficeStaffProfile],
@@ -183,7 +191,7 @@ export class AuthService {
     };
 
     return {
-      accessToken: await this.jwtService.signAsync(payload),
+      accessToken: await this.signToken(payload, rememberMe),
       user: {
         id: user.id,
         email: user.email,
