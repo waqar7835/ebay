@@ -120,6 +120,8 @@ export interface ThreePlProfileDto {
   payoutPerOrder: number;
   billingCycleStartDay: number;
   fulfillmentType: ProductFulfillmentType;
+  /** DROPSHIP 3PLs: % taken off the buy prices they enter — they're paid the rest (default 10). */
+  dropshipDiscountPercent: number;
   /**
    * Auto-delivery: orders this 3PL marks shipped after it was switched on (`autoDeliveryEnabledAt`) move to DELIVERED
    * once `deliveryDays` have passed — a STOCK order only once it has a tracking number. Off by default.
@@ -285,6 +287,11 @@ export interface OrderDto {
   threePlPriceChargedOriginal: number | null;
   threePlPayoutOriginal: number | null;
   /**
+   * DROPSHIP: the 3PL's discount %, locked on the order when its 3PL is set (null = 0). The 3PL is paid each line's
+   * buy total minus this % ("admin buy price"); threePlPayout* is that sum. Null for Account Holders / Stock Owners.
+   */
+  threePlDiscountPercent: number | null;
+  /**
    * PKR per 1 unit of each currency used on this order: today's rates as of its last save by Admin/Staff (every save
    * refreshes them). They stay frozen while the order is on an invoice, since an invoiced order can't be edited.
    */
@@ -386,6 +393,12 @@ export type InvoiceLineDetails =
       status?: OrderStatus;
       trackingNumber?: string | null;
       products?: { title: string; quantity: number }[];
+      /**
+       * DROPSHIP, since 2026-10-27: the buy prices the 3PL entered (PKR) and the % taken off them; the line's amount is
+       * what it's paid. Absent on older lines (paid the full buy price).
+       */
+      buyTotal?: number;
+      discountPercent?: number | null;
     };
 
 export interface InvoiceLineItemDto {

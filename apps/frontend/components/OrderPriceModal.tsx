@@ -4,11 +4,11 @@ import type { Currency, ExchangeRateDto, OrderDto, ProductDto } from "@ebay-orde
 import { InfoCircleOutlined } from "@ant-design/icons";
 import { Alert, Button, Form, Input, InputNumber, Modal, Tag, Tooltip } from "antd";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ProfitRow from "@/components/ProfitRow";
 import { listExchangeRates, updateOrder, type UpdateOrderPayload } from "@/lib/api";
 import { currencySymbol, money, pkr } from "@/lib/currency";
-import { estimateOrderProfit } from "@/lib/orderProfit";
+import { dropshipGrossBuy, dropshipNetBuy, estimateOrderProfit } from "@/lib/orderProfit";
 import { productLabel } from "@/lib/productLabel";
 
 interface PriceValues {
@@ -41,10 +41,13 @@ export default function OrderPriceModal({
   const [liveRates, setLiveRates] = useState<ExchangeRateDto[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Client buying prices filled in from the 3PL's buy price, per line: they keep following it until edited by hand.
+  const autoClientTotals = useRef(new Map<number, number>());
 
   useEffect(() => {
     if (!order) return;
     setError(null);
+    autoClientTotals.current.clear();
     form.setFieldsValue({
       trackingNumber: order.trackingNumber,
       ebayNetProceeds: order.ebayNetProceedsOriginal ?? order.ebayNetProceeds,
@@ -87,6 +90,19 @@ export default function OrderPriceModal({
     (amount ?? 0) * (c ? (rateFor(c) ?? 0) : 1);
 
   const lines = values?.items ?? [];
+  // The 3PL's discount % locked on the order: the company pays it the buy price less this ("admin buy price").
+  const discountPercent = order.threePlDiscountPercent ?? 0;
+  /** A new 3PL buy price: an empty (or still auto-filled) client buying price starts as the same amount, in the client's currency. */
+  function onBuyTotalChange(i: number, buyTotal: number | null) {
+    const current: number | null | undefined = form.getFieldValue(["items", i, "clientTotal"]);
+    if (current != null && current !== autoClientTotals.current.get(i)) return;
+    const from = threePlCurrency ? rateFor(threePlCurrency) : 1;
+    const to = ahCurrency ? rateFor(ahCurrency) : 1;
+    if (buyTotal == null || !from || !to) return;
+    const client = Math.round(((buyTotal * from) / to) * 100) / 100;
+    autoClientTotals.current.set(i, client);
+    form.setFieldValue(["items", i, "clientTotal"], client);
+  }
   const ebayNetProceeds = values?.ebayNetProceeds ?? 0;
   const shippingCost = values?.shippingCost ?? 0;
   const ahSharePercent = order.accountHolderSharePercentSnapshot;
@@ -97,7 +113,8 @@ export default function OrderPriceModal({
         return {
           quantity: item.quantity,
           clientTotal: toPkr(lines[i]?.clientTotal, ahCurrency),
-          buyTotal: order.threePlId ? toPkr(lines[i]?.buyTotal, threePlCurrency) : 0,
+          buyTotal:
+            order.threePlId && lines[i]?.buyTotal != null ? toPkr(dropshipNetBuy(lines[i].buyTotal!, discountPercent), threePlCurrency) : 0,
         };
       const price = (original: number | null, snapshot: number | null) =>
         item.currency ? toPkr(original, item.currency) : (snapshot ?? 0);
@@ -257,10 +274,10 @@ export default function OrderPriceModal({
                       <span className="shrink-0 text-slate-500">× {item.quantity}</span>
                     </div>
                     {dropship ? (
-                      <div className="grid gap-x-3 sm:grid-cols-2">
+                      <div className="grid gap-x-3 sm:grid-cols-3">
                         <Form.Item
                           name={["items", i, "buyTotal"]}
-                          label="Buy price"
+                          label="3PL buy price"
                           tooltip="What the 3PL pays for all units of this product, in the 3PL's currency. Needed before the order can be marked shipped."
                           className="mb-0"
                         >
@@ -270,6 +287,28 @@ export default function OrderPriceModal({
                             prefix={currencySymbol(threePlCurrency)}
                             placeholder={order.threePlId ? "All units (optional)" : "No 3PL on this order"}
                             disabled={readOnly || saving || !order.threePlId}
+                            onChange={(v) => onBuyTotalChange(i, typeof v === "number" ? v : null)}
+                            className="w-full"
+                          />
+                        </Form.Item>
+                        {/* Not saved: worked out from the 3PL buy price; typing here sets that price instead. */}
+                        <Form.Item
+                          label={`Admin buy price (−${discountPercent}%)`}
+                          tooltip="What the company pays the 3PL: its buy price less its discount %."
+                          className="mb-0"
+                        >
+                          <InputNumber
+                            min={0}
+                            step={0.01}
+                            prefix={currencySymbol(threePlCurrency)}
+                            placeholder={order.threePlId ? "All units (optional)" : "No 3PL on this order"}
+                            disabled={readOnly || saving || !order.threePlId}
+                            value={lines[i]?.buyTotal != null ? dropshipNetBuy(lines[i].buyTotal!, discountPercent) : null}
+                            onChange={(v) => {
+                              const gross = typeof v === "number" ? dropshipGrossBuy(v, discountPercent) : null;
+                              form.setFieldValue(["items", i, "buyTotal"], gross);
+                              onBuyTotalChange(i, gross);
+                            }}
                             className="w-full"
                           />
                         </Form.Item>

@@ -726,17 +726,20 @@ export class InvoicesService {
 
   /**
    * STOCK orders pay the 3PL its fee per order; on a DROPSHIP order the payout is the sum of the
-   * lines' buy totals (the 3PL bought the products). The invoice shows the two in separate sections.
+   * lines' buy totals minus the order's 3PL discount % (the 3PL bought the products). The invoice shows the two in
+   * separate sections.
    */
   private threePlLine(order: Order, products: Map<string, { title: string; fulfillmentType: ProductFulfillmentType }>): DraftLine {
     const fee = round2(order.threePlPayoutSnapshot ?? 0);
     const dropship = order.items.some((i) => products.get(i.productId)?.fulfillmentType === ProductFulfillmentType.DROPSHIP);
+    // Dropship: gross = the buy prices the 3PL entered, deduction = its discount, net = what it's paid.
+    const buyTotal = dropship ? round2(order.items.reduce((sum, i) => sum + (i.buyTotalSnapshot ?? 0), 0)) : fee;
     return {
       orderId: order.id,
       kind: InvoiceLineKind.ORDER,
       description: `Order ${order.ebayOrderRef} — ${dropship ? "dropship buy price" : "fulfillment fee"}`,
-      grossAmount: fee,
-      deductionAmount: 0,
+      grossAmount: buyTotal,
+      deductionAmount: round2(buyTotal - fee),
       netAmount: fee,
       details: {
         role: "THREE_PL",
@@ -747,6 +750,7 @@ export class InvoicesService {
         status: order.status,
         trackingNumber: order.trackingNumber,
         products: order.items.map((i) => ({ title: products.get(i.productId)?.title ?? "Product", quantity: i.quantity })),
+        ...(dropship ? { buyTotal, discountPercent: order.threePlDiscountPercent } : {}),
       },
     };
   }

@@ -46,6 +46,8 @@ export class ThreePlProfileInput {
   payoutPerOrder?: number;
   @IsInt() @Min(1) @Max(28) billingCycleStartDay!: number;
   @IsEnum(ProductFulfillmentType) fulfillmentType!: ProductFulfillmentType;
+  /** DROPSHIP 3PLs: % taken off the buy prices they enter (they're paid the rest). Omitted = unchanged (10 when new). */
+  @IsOptional() @IsNumber() @Min(0) @Max(100) dropshipDiscountPercent?: number;
   /** Auto-mark this 3PL's shipped orders DELIVERED after `deliveryDays` (required when on). Omitted = off. */
   @IsOptional() @IsBoolean() autoDeliveryEnabled?: boolean;
   @ValidateIf((o) => o.autoDeliveryEnabled === true)

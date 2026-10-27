@@ -12,14 +12,14 @@ import type {
 } from "@ebay-order-management/shared";
 import { DeleteOutlined, InfoCircleOutlined, PlusOutlined } from "@ant-design/icons";
 import { Alert, Button, Card, Form, Input, InputNumber, Segmented, Select, Tag, Tooltip } from "antd";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import DateField from "@/components/DateField";
 import FileUpload from "@/components/FileUpload";
 import ProductThumb from "@/components/ProductThumb";
 import ProfitRow from "@/components/ProfitRow";
 import { listExchangeRates, listProducts, listUsers, localDateOnly, mediaUrl, type UpdateOrderPayload } from "@/lib/api";
 import { currencySymbol, money, pkr } from "@/lib/currency";
-import { estimateOrderProfit } from "@/lib/orderProfit";
+import { dropshipGrossBuy, dropshipNetBuy, estimateOrderProfit } from "@/lib/orderProfit";
 import { searchable, userNameOptions } from "@/lib/selectOptions";
 import { productLabel } from "@/lib/productLabel";
 
@@ -35,7 +35,10 @@ interface OrderFormProps {
 interface ItemRow {
   productId?: string;
   quantity: number;
-  /** Dropship only: what the 3PL pays for this line (all units), in the 3PL's currency. Optional. */
+  /**
+   * Dropship only: what the 3PL pays for this line (all units), in the 3PL's currency. Optional. The company pays the 3PL
+   * this less the 3PL's discount % (the "admin buy price", typed in either field).
+   */
   buyTotal?: number | null;
   /** Dropship only: what the client (Account Holder) is charged for this line (all units), in their currency. Optional. */
   clientTotal?: number | null;
@@ -156,6 +159,13 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
   const keepAhTerms = !!initial && !accountHolderChanged;
   const keepThreePlTerms = keepAhTerms && (threePlId ?? null) === initial?.threePlId;
   const ahSharePercent = keepAhTerms ? initial.accountHolderSharePercentSnapshot : (accountHolderProfile?.sharePercent ?? 0);
+  // Dropship 3PL discount: the order's own while its 3PL stays (null = 0), else the picked 3PL's current %.
+  const threePlDiscountPercent =
+    initial && (threePlId ?? null) === initial.threePlId
+      ? (initial.threePlDiscountPercent ?? 0)
+      : threePlId
+        ? (userById.get(threePlId)?.threePlProfile?.dropshipDiscountPercent ?? 0)
+        : 0;
   const profit = estimateOrderProfit({
     dropship: isDropship,
     lines: rows.map((r, i) => {
@@ -165,7 +175,7 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
         return {
           quantity,
           clientTotal: toPkr(r?.clientTotal, ahCurrency),
-          buyTotal: threePlId ? toPkr(r?.buyTotal, threePlCurrency) : 0,
+          buyTotal: threePlId && r?.buyTotal != null ? toPkr(dropshipNetBuy(r.buyTotal, threePlDiscountPercent), threePlCurrency) : 0,
         };
       if (!p) return { quantity: 0 };
       // Products already on the order keep their snapshotted prices and Stock Owner terms.
@@ -216,6 +226,20 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
   // A deduction: "−£3.00" (no sign when it's 0).
   const ahLess = (pkrAmount: number) => (Math.abs(pkrAmount) < 0.005 ? ahMoney(0) : ahMoney(-pkrAmount));
   const canEstimate = !!accountHolderId && chosen.length > 0 && missingRates.length === 0;
+
+  // Client buying prices filled in from the 3PL's buy price, per row: they keep following it until edited by hand.
+  const autoClientTotals = useRef(new Map<number, number>());
+  /** A new 3PL buy price for a row: an empty (or still auto-filled) client buying price starts as the same amount, in the client's currency. */
+  function onBuyTotalChange(index: number, buyTotal: number | null) {
+    const current: number | null | undefined = form.getFieldValue(["items", index, "clientTotal"]);
+    if (current != null && current !== autoClientTotals.current.get(index)) return;
+    const from = threePlCurrency ? rateFor(threePlCurrency) : 1;
+    const to = ahCurrency ? rateFor(ahCurrency) : 1;
+    if (buyTotal == null || !from || !to) return;
+    const client = Math.round(((buyTotal * from) / to) * 100) / 100;
+    autoClientTotals.current.set(index, client);
+    form.setFieldValue(["items", index, "clientTotal"], client);
+  }
 
   const initialItems: ItemRow[] = initial?.items.map((i) => ({
     productId: i.productId,
@@ -460,11 +484,11 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
                             )}
                           </div>
                           {isDropship && (
-                            <div className="mt-3 grid gap-x-3 sm:grid-cols-2">
+                            <div className="mt-3 grid gap-x-3 sm:grid-cols-3">
                               <Form.Item
                                 name={[field.name, "buyTotal"]}
-                                label="Buy price"
-                                tooltip="What the 3PL pays for all units of this product, in the 3PL's currency — reimbursed to the 3PL, who can also enter it. Needed before the order can be marked shipped."
+                                label="3PL buy price"
+                                tooltip="What the 3PL pays for all units of this product, in the 3PL's currency — the 3PL can also enter it. Needed before the order can be marked shipped."
                                 className="mb-0"
                               >
                                 <InputNumber
@@ -473,6 +497,28 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
                                   prefix={threePlCurrency !== undefined ? currencySymbol(threePlCurrency) : undefined}
                                   placeholder={threePlId ? "All units (optional)" : "Pick a 3PL first"}
                                   disabled={!threePlId}
+                                  onChange={(v) => onBuyTotalChange(field.name, typeof v === "number" ? v : null)}
+                                  className="w-full"
+                                />
+                              </Form.Item>
+                              {/* Not saved: worked out from the 3PL buy price; typing here sets that price instead. */}
+                              <Form.Item
+                                label={`Admin buy price (−${threePlDiscountPercent}%)`}
+                                tooltip="What the company pays the 3PL: its buy price less its discount %."
+                                className="mb-0"
+                              >
+                                <InputNumber
+                                  min={0}
+                                  step={0.01}
+                                  prefix={threePlCurrency !== undefined ? currencySymbol(threePlCurrency) : undefined}
+                                  placeholder={threePlId ? "All units (optional)" : "Pick a 3PL first"}
+                                  disabled={!threePlId}
+                                  value={rows[index]?.buyTotal != null ? dropshipNetBuy(rows[index].buyTotal!, threePlDiscountPercent) : null}
+                                  onChange={(v) => {
+                                    const gross = typeof v === "number" ? dropshipGrossBuy(v, threePlDiscountPercent) : null;
+                                    form.setFieldValue(["items", field.name, "buyTotal"], gross);
+                                    onBuyTotalChange(field.name, gross);
+                                  }}
                                   className="w-full"
                                 />
                               </Form.Item>

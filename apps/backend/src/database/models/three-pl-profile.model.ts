@@ -35,6 +35,21 @@ export class ThreePlProfile extends Model {
   declare fulfillmentType: ProductFulfillmentType;
 
   /**
+   * DROPSHIP 3PLs (decided 2026-10-27): the % taken off the buy price they enter — they're paid the rest. Locked on each
+   * order when its 3PL is set (`orders.three_pl_discount_percent`).
+   */
+  @Column({
+    type: DataType.DECIMAL(5, 2),
+    allowNull: false,
+    defaultValue: 10,
+    field: "dropship_discount_percent",
+    get(this: ThreePlProfile) {
+      return toDecimal(this.getDataValue("dropshipDiscountPercent" as keyof ThreePlProfile));
+    },
+  })
+  declare dropshipDiscountPercent: number;
+
+  /**
    * Auto-delivery (decided 2026-10-08): when on, an order this 3PL marks shipped after `autoDeliveryEnabledAt` moves to
    * DELIVERED once `deliveryDays` have passed (a STOCK order also needs its tracking number first). Off by default.
    */

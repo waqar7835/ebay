@@ -85,6 +85,7 @@ export default function EditUserPage() {
 
   const [fulfillmentType, setFulfillmentType] = useState<ProductFulfillmentType>("STOCK" as ProductFulfillmentType);
   const [payoutPerOrder, setPayoutPerOrder] = useState("0");
+  const [dropshipDiscountPercent, setDropshipDiscountPercent] = useState("10");
   const [autoDelivery, setAutoDelivery] = useState(false);
   const [deliveryDays, setDeliveryDays] = useState<number | null>(null);
   const [tpBillingCycleStartDay, setTpBillingCycleStartDay] = useState("1");
@@ -128,6 +129,7 @@ export default function EditUserPage() {
         if (u.threePlProfile) {
           setFulfillmentType(u.threePlProfile.fulfillmentType);
           setPayoutPerOrder(String(u.threePlProfile.payoutPerOrder));
+          setDropshipDiscountPercent(String(u.threePlProfile.dropshipDiscountPercent ?? 10));
           setAutoDelivery(u.threePlProfile.autoDeliveryEnabled);
           setDeliveryDays(u.threePlProfile.deliveryDays);
           setTpBillingCycleStartDay(String(u.threePlProfile.billingCycleStartDay));
@@ -174,6 +176,7 @@ export default function EditUserPage() {
         await updateThreePlProfile(userId, {
           fulfillmentType,
           payoutPerOrder: fulfillmentType === ("STOCK" as ProductFulfillmentType) ? Number(payoutPerOrder) : undefined,
+          dropshipDiscountPercent: fulfillmentType === ("DROPSHIP" as ProductFulfillmentType) ? Number(dropshipDiscountPercent) : undefined,
           billingCycleStartDay: Number(tpBillingCycleStartDay),
           autoDeliveryEnabled: autoDelivery,
           deliveryDays: autoDelivery ? deliveryDays : null,
@@ -383,11 +386,17 @@ export default function EditUserPage() {
                           <InputNumber prefix={currencySymbol(currency)} min={0} step={0.01} className="w-full" {...numProps(payoutPerOrder, setPayoutPerOrder)} />
                         </Form.Item>
                       )}
+                      {fulfillmentType === ("DROPSHIP" as ProductFulfillmentType) && (
+                        <Form.Item label="Discount on buy price" tooltip="Taken off the buy price the 3PL enters — it's paid the rest" className="mb-0">
+                          <InputNumber suffix="%" min={0} max={100} step={0.5} className="w-full" {...numProps(dropshipDiscountPercent, setDropshipDiscountPercent)} />
+                        </Form.Item>
+                      )}
                       {billingDayField(tpBillingCycleStartDay, setTpBillingCycleStartDay)}
                     </div>
                     {fulfillmentType === ("DROPSHIP" as ProductFulfillmentType) && (
                       <p className="mb-0 mt-3 text-xs text-slate-500">
-                        Dropshipping 3PLs have no fixed rate — they&apos;re paid the buy price they enter against each order.
+                        Dropshipping 3PLs have no fixed rate — they&apos;re paid the buy price they enter against each order, less the
+                        discount above. A new discount applies to orders this 3PL is put on from now on.
                       </p>
                     )}
                     <AutoDeliveryFields enabled={autoDelivery} onEnabledChange={setAutoDelivery} days={deliveryDays} onDaysChange={setDeliveryDays} />

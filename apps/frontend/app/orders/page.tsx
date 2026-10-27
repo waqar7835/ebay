@@ -53,6 +53,7 @@ import { searchable, userLabel, userNameOptions } from "@/lib/selectOptions";
 import { formatDate } from "@/lib/date";
 import { buildListQuery, pagingQuery, readPaging, useListUrl } from "@/lib/listQuery";
 import { productLabel, variationName } from "@/lib/productLabel";
+import { dropshipNetBuy } from "@/lib/orderProfit";
 
 interface UserOption {
   id: string;
@@ -128,8 +129,9 @@ function OrdersList() {
   // A 3PL enters dropship buy prices in their own currency; a STOCK 3PL has no buy prices at all.
   const [myCurrency, setMyCurrency] = useState<Currency | null>(null);
   const [myThreePlType, setMyThreePlType] = useState<ProductFulfillmentType | null>(null);
-  // 3PL list (decided 2026-10-08): a STOCK 3PL switches between its Processing and Shipped orders (adding tracking
-  // numbers on the Shipped tab); a DROPSHIP 3PL only ever lists its Processing orders.
+  // 3PL list: a STOCK 3PL switches between its Processing and Shipped orders (adding tracking numbers on the Shipped
+  // tab; decided 2026-10-08); a DROPSHIP 3PL lists every status it can see and filters with the status cards
+  // (2026-10-27).
   const [threePlTab, setThreePlTab] = useState<"PROCESSING" | "SHIPPED">(() =>
     params.get("tab") === "SHIPPED" ? "SHIPPED" : "PROCESSING",
   );
@@ -185,8 +187,8 @@ function OrdersList() {
         orderRef: filter.orderRef.trim() || undefined,
         accountHolderId: filter.accountHolderId || undefined,
         threePlId: filter.threePlId || undefined,
-        // A 3PL lists one status at a time (its tab); the status counts above the table come back for every status.
-        status: (threePlBulk ? threePlListStatus : filter.status || undefined) as OrderStatus | undefined,
+        // A STOCK 3PL lists one status at a time (its tab); the status counts above the table come back for every status.
+        status: ((threePlBulk ? threePlListStatus : filter.status) || undefined) as OrderStatus | undefined,
         startDate: filter.startDate || undefined,
         endDate: filter.endDate || undefined,
       },
@@ -243,7 +245,8 @@ function OrdersList() {
 
   const isDropshipThreePl = threePlBulk && myThreePlType === ProductFulfillmentType.DROPSHIP;
   const isStockThreePl = threePlBulk && myThreePlType === ProductFulfillmentType.STOCK;
-  const threePlListStatus = isStockThreePl ? threePlTab : "PROCESSING";
+  // "" = every status the 3PL sees (the API leaves out PENDING and CANCELLED).
+  const threePlListStatus: string = isStockThreePl ? threePlTab : filter.status;
 
   // Changing a filter (or the 3PL tab) goes back to the first page; changing page or page size keeps the filters. A
   // change before the list first loads (a 3PL's type arriving) keeps the page from the URL.
@@ -306,21 +309,23 @@ function OrdersList() {
   const accountHolders = users.filter((u) => u.roles.includes("ACCOUNT_HOLDER"));
   const threePls = users.filter((u) => u.roles.includes("THREE_PL"));
 
-  // 3PLs: display-only count cards over all their orders; "No tracking #" only for a STOCK 3PL (dropship 3PLs don't
-  // enter tracking numbers).
+  // 3PLs: count cards over all their orders (clickable status filters for a DROPSHIP 3PL, display-only for a STOCK 3PL,
+  // which has its tabs); "No tracking #" only for a STOCK 3PL (dropship 3PLs don't enter tracking numbers).
   const countStatuses: string[] = threePlBulk
     ? ["PROCESSING", "SHIPPED", "DELIVERED", "REFUNDED", ...(isStockThreePl ? [NO_TRACKING] : [])]
     : STATUSES;
   // The API filters by status (a 3PL's tab included), except on an order number search, which finds the order in any
-  // status — a 3PL still only sees it on the tab of its own status.
-  const visibleOrders = threePlBulk && searchingRef ? orders.filter((o) => o.status === threePlListStatus) : orders;
+  // status — a STOCK 3PL still only sees it on the tab of its own status.
+  const visibleOrders = isStockThreePl && searchingRef ? orders.filter((o) => o.status === threePlListStatus) : orders;
   const statusCounts = new Map<string, number>(STATUSES.map((s) => [s, serverCounts[s] ?? 0]));
   if (isStockThreePl) statusCounts.set(NO_TRACKING, serverCounts[NO_TRACKING] ?? 0);
-  const countsTotal = STATUSES.reduce((sum, s) => sum + (statusCounts.get(s) ?? 0), 0);
+  // A 3PL's Total is the sum of the status cards it sees (Processing + Shipped + Delivered + Refunded), like its list.
+  const totalStatuses = threePlBulk ? countStatuses.filter((s) => s !== NO_TRACKING) : STATUSES;
+  const countsTotal = totalStatuses.reduce((sum, s) => sum + (statusCounts.get(s) ?? 0), 0);
   // A dropship order can't ship until the 3PL has entered every line's buy price.
   const missingBuyPrice = (o: OrderDto) => isDropshipThreePl && o.items.some((i) => i.buyTotalSnapshot == null);
   const canMarkShipped = (o: OrderDto) => o.status === "PROCESSING" && !missingBuyPrice(o);
-  const threePlSelectable = threePlBulk && threePlListStatus === "PROCESSING";
+  const threePlSelectable = threePlBulk && (threePlListStatus === "PROCESSING" || (!isStockThreePl && !threePlListStatus));
 
   function openMarkShipped(order: OrderDto) {
     setSelectedIds([order.id]);
@@ -472,6 +477,12 @@ function OrdersList() {
     i.buyTotalSnapshot ?? (i.buyPriceSnapshot == null ? null : i.buyPriceSnapshot * i.quantity);
   const buyTotal = (o: OrderDto) =>
     o.items.some((i) => itemBuyTotal(i) == null) ? null : o.items.reduce((sum, i) => sum + itemBuyTotal(i)!, 0);
+  // Dropship: what the company pays the 3PL — each line's buy total less the order's 3PL discount % (PKR).
+  const adminBuyTotal = (o: OrderDto) =>
+    o.items.some((i) => i.buyTotalSnapshot == null)
+      ? null
+      : round2(o.items.reduce((sum, i) => sum + dropshipNetBuy(i.buyTotalSnapshot!, o.threePlDiscountPercent), 0));
+  const isDropshipRow = (o: OrderDto) => productById.get(o.items[0]?.productId ?? "")?.fulfillmentType === ProductFulfillmentType.DROPSHIP;
 
   /**
    * A Stock Owner's figures for one item, in their own currency as entered (PKR on orders from before currencies).
@@ -554,7 +565,7 @@ function OrdersList() {
           },
         ]
       : []),
-    // 3PLs only list one status at a time (their Processing / Shipped orders), so they get no Status column.
+    // 3PLs get no Status column (a STOCK 3PL lists one status per tab; a DROPSHIP 3PL picks one with the cards).
     ...(canBulkEdit ? [{ title: "Status", key: "status", render: (_: unknown, order: OrderDto) => statusTag(order.status) }] : []),
     {
       title: "Products",
@@ -683,7 +694,21 @@ function OrdersList() {
           {
             title: "Buy Price",
             key: "buyPrice",
-            render: (_: unknown, o: OrderDto) => inAhCurrency(o, buyTotal(o), "Pending"),
+            // Dropship: the 3PL's price and what the company pays it (less its discount %).
+            render: (_: unknown, o: OrderDto) =>
+              isDropshipRow(o) && buyTotal(o) != null ? (
+                <div className="whitespace-nowrap">
+                  <div>
+                    <span className="text-xs text-slate-500">3PL:</span> {inAhCurrency(o, buyTotal(o))}
+                  </div>
+                  <div>
+                    <span className="text-xs text-slate-500">Admin{o.threePlDiscountPercent ? ` (−${o.threePlDiscountPercent}%)` : ""}:</span>{" "}
+                    {inAhCurrency(o, adminBuyTotal(o))}
+                  </div>
+                </div>
+              ) : (
+                inAhCurrency(o, buyTotal(o), "Pending")
+              ),
             onCell: priceCell,
           },
           {
@@ -724,6 +749,16 @@ function OrdersList() {
                         : item.buyTotalSnapshot != null
                           ? pkr(item.buyTotalSnapshot)
                           : <span className="text-slate-400">Pending</span>}
+                      {/* What it's paid: its price less its discount % (2026-10-27). */}
+                      {!!order.threePlDiscountPercent && (item.buyTotalOriginal != null || item.buyTotalSnapshot != null) && (
+                        <div className="text-xs text-emerald-600">
+                          You get{" "}
+                          {item.currency && item.buyTotalOriginal != null
+                            ? ownMoney(dropshipNetBuy(item.buyTotalOriginal, order.threePlDiscountPercent), item.currency)
+                            : pkr(dropshipNetBuy(item.buyTotalSnapshot!, order.threePlDiscountPercent))}{" "}
+                          (−{order.threePlDiscountPercent}%)
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -779,13 +814,14 @@ function OrdersList() {
       ? [
           {
             key: "ship",
-            render: (_: unknown, order: OrderDto) => (
-              <Tooltip title={missingBuyPrice(order) ? "Enter the buy price of every product first (Edit)" : undefined}>
-                <Button size="small" icon={<SendOutlined />} disabled={!canMarkShipped(order)} onClick={() => openMarkShipped(order)}>
-                  Mark as shipped
-                </Button>
-              </Tooltip>
-            ),
+            render: (_: unknown, order: OrderDto) =>
+              order.status !== "PROCESSING" ? null : (
+                <Tooltip title={missingBuyPrice(order) ? "Enter the buy price of every product first (Edit)" : undefined}>
+                  <Button size="small" icon={<SendOutlined />} disabled={!canMarkShipped(order)} onClick={() => openMarkShipped(order)}>
+                    Mark as shipped
+                  </Button>
+                </Tooltip>
+              ),
           },
         ]
       : []),
@@ -894,8 +930,8 @@ function OrdersList() {
               total={countsTotal}
               statuses={countStatuses}
               counts={Object.fromEntries(statusCounts)}
-              active={threePlBulk || searchingRef ? null : filter.status || null}
-              onSelect={threePlBulk ? undefined : (st) => setFilter((f) => ({ ...f, status: st ?? "" }))}
+              active={isStockThreePl || searchingRef ? null : filter.status || null}
+              onSelect={isStockThreePl ? undefined : (st) => setFilter((f) => ({ ...f, status: st ?? "" }))}
               labels={{ [NO_TRACKING]: "No tracking #" }}
               colors={{ [NO_TRACKING]: "#ea580c" }}
             />
@@ -945,7 +981,7 @@ function OrdersList() {
           pagination={{
             current: page,
             pageSize,
-            total: threePlBulk && searchingRef ? visibleOrders.length : total,
+            total: isStockThreePl && searchingRef ? visibleOrders.length : total,
             showSizeChanger: true,
             pageSizeOptions: LIST_PAGE_SIZES.map(String),
             showTotal: (n, [from, to]) => `${from}–${to} of ${n} orders`,

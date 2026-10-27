@@ -300,6 +300,8 @@ export class UsersService {
       billingCycleStartDay: input.billingCycleStartDay,
       fulfillmentType: input.fulfillmentType,
     });
+    // Only used on dropship orders; new orders lock the current value, existing ones keep theirs.
+    if (input.dropshipDiscountPercent !== undefined) profile.dropshipDiscountPercent = input.dropshipDiscountPercent;
     // Auto-delivery: left as it is when not sent. Switching it on stamps the time, so only orders shipped from now on
     // are auto-delivered; changing the days keeps that time.
     if (input.autoDeliveryEnabled !== undefined) {

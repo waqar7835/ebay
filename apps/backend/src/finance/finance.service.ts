@@ -14,7 +14,8 @@ export class FinanceService {
    * Account Holder is charged, the dropship counterpart of a STOCK product's sell price). There's no 3PL
    * service charge or fee. So the Account Holder's profit subtracts the client prices, the company's
    * product markup is client price − buy price, and the 3PL payout isn't counted a second time as a
-   * negative 3PL markup. Prices not entered yet count as 0.
+   * negative 3PL markup. Prices not entered yet count as 0. The company's cost of a dropship line is the 3PL's buy
+   * price minus the order's 3PL discount % (dropshipNetBuy; decided 2026-10-27), which is also what the 3PL is paid.
    *
    * Pass `stockOwnerId` to get the stockOwner* figures for just that Stock Owner's items (for their
    * invoice/dashboard); every other figure always covers the whole order.
@@ -29,7 +30,9 @@ export class FinanceService {
     for (const item of items) {
       const buy = item.buyPriceSnapshot ?? 0;
       const lineSell = lineSellTotal(item);
-      productMarkup += lineSell - (item.buyTotalSnapshot ?? buy * item.quantity);
+      productMarkup +=
+        lineSell -
+        (item.buyTotalSnapshot != null ? dropshipNetBuy(item.buyTotalSnapshot, order.threePlDiscountPercent) : buy * item.quantity);
       sellTotal += lineSell;
       if (stockOwnerId && item.stockOwnerId !== stockOwnerId) continue;
       stockOwnerGross += buy * item.quantity;
@@ -69,6 +72,14 @@ export class FinanceService {
     const f = this.compute(order);
     return round2(f.productMarkup + f.threePlMarkup + f.companyRemainderFromOrder + f.stockOwnerShareCut);
   }
+}
+
+/**
+ * DROPSHIP: what the company pays the 3PL for a line — its entered buy total minus the order's 3PL discount % (the
+ * "admin buy price"). Same currency as `buyTotal`.
+ */
+export function dropshipNetBuy(buyTotal: number, discountPercent: number | null): number {
+  return round2(buyTotal * (1 - (discountPercent ?? 0) / 100));
 }
 
 /** STOCK: sell price × qty; DROPSHIP: the line's client buying price. */

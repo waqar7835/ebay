@@ -173,6 +173,18 @@ export class Order extends Model {
   })
   declare threePlPayoutOriginal: number | null;
 
+  // DROPSHIP orders (decided 2026-10-27): the 3PL's discount %, locked when the 3PL is set on the order. The 3PL is paid
+  // each line's buy total minus this % (dropshipNetBuy). Null = 0 (STOCK orders, dropship orders invoiced before it).
+  @Column({
+    type: DataType.DECIMAL(5, 2),
+    allowNull: true,
+    field: "three_pl_discount_percent",
+    get(this: Order) {
+      return toNullableDecimal(this.getDataValue("threePlDiscountPercent" as keyof Order));
+    },
+  })
+  declare threePlDiscountPercent: number | null;
+
   // REFUNDED orders: how much of the eBay payout was refunded (full = the whole payout; dropship orders are always
   // full). Entered in the Account Holder's currency (refundAmountOriginal) and kept in PKR (refundAmount).
   // Null while the order isn't REFUNDED.

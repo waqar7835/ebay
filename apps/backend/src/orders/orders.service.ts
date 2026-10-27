@@ -19,7 +19,7 @@ import { User } from "../database/models/user.model";
 import { StaffProfile } from "../database/models/staff-profile.model";
 import { BackofficeStaffProfile } from "../database/models/backoffice-staff-profile.model";
 import { SubscriptionsService } from "../subscriptions/subscriptions.service";
-import { FinanceService } from "../finance/finance.service";
+import { FinanceService, dropshipNetBuy } from "../finance/finance.service";
 import { ExchangeRatesService } from "../exchange-rates/exchange-rates.service";
 import type { JwtPayload } from "../auth/jwt.strategy";
 import { likeContains, type Paging } from "../common/pagination.util";
@@ -120,6 +120,8 @@ export class OrdersService {
     // Everything but the status filter: what the status counts are taken over.
     const countWhere = { ...where };
     if (filters.status && !(threePlOnly && filters.status === OrderStatus.PENDING)) where.status = filters.status;
+    // A 3PL's "all statuses" list is the statuses on its count cards: no CANCELLED orders either.
+    else if (threePlOnly && !filters.status) where.status = { [Op.notIn]: [OrderStatus.PENDING, OrderStatus.CANCELLED] };
 
     const staleOrderDays = await this.staleOrderDays(companyId);
     const now = new Date();
@@ -172,6 +174,8 @@ export class OrdersService {
       ...json,
       items: this.visibleItems(json.items, isManager, requester),
       comments: this.canSeeComments(isManager, requester) ? json.comments : null,
+      // Same audience as the buy price: managers and the 3PL.
+      threePlDiscountPercent: this.canSeeComments(isManager, requester) ? json.threePlDiscountPercent : null,
       // As on the list, so a row edited in place (orders list price popup) can show its new profit.
       companyProfit: isManager ? this.financeService.companyProfit(order) : undefined,
     };
@@ -216,6 +220,8 @@ export class OrdersService {
       daysInStatus: daysInStatus(order.statusChangedAt, now),
       stale: isOrderStale(order.status, order.statusChangedAt, staleOrderDays, now),
       comments: this.canSeeComments(isManager, requester) ? json.comments : null,
+      // Same audience as the buy price: managers and the 3PL.
+      threePlDiscountPercent: this.canSeeComments(isManager, requester) ? json.threePlDiscountPercent : null,
       // Company profit is a manager-only figure — Account Holders/Stock Owners/3PLs only ever see their own payout.
       companyProfit: isManager ? this.financeService.companyProfit(order) : undefined,
     };
@@ -662,7 +668,7 @@ export class OrdersService {
 
   /**
    * The once-per-order 3PL fee: what the Account Holder is charged and what the 3PL is paid. DROPSHIP: no charge,
-   * and the payout is replaced by the sum of the buy prices (syncDropshipPayout).
+   * and the payout is replaced by the sum of the buy prices minus the 3PL's discount %, locked here (syncDropshipPayout).
    */
   private async snapshotThreePl(
     threePlId: string | null,
@@ -670,7 +676,7 @@ export class OrdersService {
     accountHolderProfile: AccountHolderProfile | null,
     previousThreePlId: string | null,
   ) {
-    const none = { threePlCurrency: null, threePlPriceChargedOriginal: null, threePlPayoutOriginal: null };
+    const none = { threePlCurrency: null, threePlPriceChargedOriginal: null, threePlPayoutOriginal: null, threePlDiscountPercent: null };
     if (!threePlId) return { ...none, threePlPriceChargedSnapshot: null, threePlPayoutSnapshot: null };
     if (threePlId !== previousThreePlId && (await this.subscriptions.isUserDisabled(threePlId))) {
       throw new ForbiddenException("This 3PL's account is deactivated");
@@ -683,6 +689,8 @@ export class OrdersService {
       threePlPriceChargedOriginal:
         fulfillmentType === ProductFulfillmentType.DROPSHIP ? 0 : (accountHolderProfile?.threePlPriceCharged ?? 0),
       threePlPayoutOriginal: threePlProfile.payoutPerOrder,
+      // Locked here: a later change to the 3PL's % only reaches orders it's set on afterwards.
+      threePlDiscountPercent: fulfillmentType === ProductFulfillmentType.DROPSHIP ? threePlProfile.dropshipDiscountPercent : null,
       threePlPriceChargedSnapshot: null as number | null,
       threePlPayoutSnapshot: null as number | null,
     };
@@ -788,17 +796,28 @@ export class OrdersService {
 
     if (!order.exchangeRates) {
       // Pre-currency order: amounts stay plain PKR.
-      for (const { item, buyTotal } of items) item.buyTotalSnapshot = buyTotal;
-      order.threePlPayoutSnapshot = sumBuyTotals(order.items.map((i) => i.buyTotalSnapshot));
+      for (const { item, buyTotal } of items) {
+        item.buyTotalSnapshot = buyTotal;
+        item.clientTotalSnapshot ??= buyTotal;
+      }
+      order.threePlPayoutSnapshot = sumNetBuyTotals(order.items.map((i) => i.buyTotalSnapshot), order.threePlDiscountPercent);
     } else {
       // Entered in the 3PL's own currency, converted with the order's locked rate for it.
       order.threePlCurrency = order.threePlCurrency ?? (await this.currencyOf(requester.sub));
       for (const { item, buyTotal } of items) item.buyTotalOriginal = buyTotal;
       syncDropshipPayout(order, order.items);
-      if (!order.exchangeRates[order.threePlCurrency]) {
-        order.exchangeRates = { ...order.exchangeRates, ...(await this.exchangeRatesService.resolve([order.threePlCurrency])) };
+      const needed = [order.threePlCurrency, order.accountHolderCurrency].filter((c): c is Currency => !!c && !order.exchangeRates![c]);
+      if (needed.length) {
+        order.exchangeRates = { ...order.exchangeRates, ...(await this.exchangeRatesService.resolve(needed)) };
       }
-      convertOrderAmounts(order, order.items, order.exchangeRates);
+      // An empty client buying price starts as the 3PL's full price (decided 2026-10-27), converted into the Account
+      // Holder's currency with the order's rates; Admin/Staff can change it afterwards.
+      const rates = order.exchangeRates!;
+      for (const { item, buyTotal } of items) {
+        if (item.clientTotalOriginal != null || !order.accountHolderCurrency) continue;
+        item.clientTotalOriginal = round2((buyTotal * rates[order.threePlCurrency]!) / rates[order.accountHolderCurrency]!);
+      }
+      convertOrderAmounts(order, order.items, order.exchangeRates!);
     }
   }
 
@@ -1030,7 +1049,7 @@ function assertDropshipTotalsAllowed(lines: OrderLine[], threePlId: string | nul
  * caller converts to PKR. Without a 3PL there's no currency, so totals are cleared.
  */
 function syncDropshipPayout(
-  order: { threePlCurrency: Currency | null; threePlPayoutOriginal: number | null },
+  order: { threePlCurrency: Currency | null; threePlPayoutOriginal: number | null; threePlDiscountPercent: number | null },
   items: { currency: Currency | null; buyTotalOriginal: number | null; buyTotalSnapshot: number | null }[],
 ) {
   for (const item of items) {
@@ -1040,13 +1059,15 @@ function syncDropshipPayout(
       item.buyTotalSnapshot = null;
     }
   }
-  order.threePlPayoutOriginal = order.threePlCurrency ? sumBuyTotals(items.map((i) => i.buyTotalOriginal)) : null;
+  order.threePlPayoutOriginal = order.threePlCurrency
+    ? sumNetBuyTotals(items.map((i) => i.buyTotalOriginal), order.threePlDiscountPercent)
+    : null;
 }
 
-/** Null while any line still lacks a buy total. */
-function sumBuyTotals(totals: (number | null)[]): number | null {
+/** What the 3PL is paid: the lines' buy totals minus its discount %. Null while any line still lacks a buy total. */
+function sumNetBuyTotals(totals: (number | null)[], discountPercent: number | null): number | null {
   if (!totals.length || totals.some((t) => t == null)) return null;
-  return round2(totals.reduce<number>((sum, t) => sum + t!, 0));
+  return round2(totals.reduce<number>((sum, t) => sum + dropshipNetBuy(t!, discountPercent), 0));
 }
 
 function round2(value: number): number {

@@ -11,7 +11,7 @@ export interface ProfitLineInput {
   stockOwnerCost?: number;
   /** STOCK: the company's PROFIT_SHARE cut %, or 0 for FIXED Stock Owners. */
   companyCutPercent?: number;
-  /** DROPSHIP: line totals (all units) — the client buying price and the 3PL's buy price. */
+  /** DROPSHIP: line totals (all units) — the client buying price and the company's buy price (the 3PL's less its %). */
   clientTotal?: number;
   buyTotal?: number;
 }
@@ -39,6 +39,24 @@ export interface ProfitEstimate {
   stockOwnerCut: number;
   threePlMarkup: number;
   companyProfit: number;
+}
+
+/**
+ * DROPSHIP 3PL discount (decided 2026-10-27; mirrors the backend's dropshipNetBuy): the company pays the 3PL its entered
+ * buy price minus the order's 3PL discount % — the "admin buy price". Same currency as `buyTotal`.
+ */
+export function dropshipNetBuy(buyTotal: number, discountPercent: number | null | undefined): number {
+  return round2(buyTotal * (1 - (discountPercent ?? 0) / 100));
+}
+
+/** The 3PL's buy price that gives this admin buy price (the admin can type either). */
+export function dropshipGrossBuy(netBuy: number, discountPercent: number | null | undefined): number {
+  const keep = 1 - (discountPercent ?? 0) / 100;
+  return keep > 0 ? round2(netBuy / keep) : 0;
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 export function estimateOrderProfit(input: ProfitInput): ProfitEstimate {

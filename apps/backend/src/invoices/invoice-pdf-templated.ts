@@ -270,16 +270,26 @@ function threePlModel(input: TemplatedPdfInput): Model {
   let section = 1;
   groups.forEach((group, i) => {
     const subtotal = round2(sum(group.lines.map((l) => l.netAmount)));
+    // Dropship lines with the 3PL's discount (2026-10-27) show buy price − discount = paid; older ones just the amount.
+    const discounted = group.lines.some((l) => detailsOf(l)?.buyTotal != null && l.deductionAmount !== 0);
+    const buyOf = (l: InvoicePdfLine) => detailsOf(l)?.buyTotal ?? l.netAmount;
+    const pctOf = (l: InvoicePdfLine) => detailsOf(l)?.discountPercent;
     blocks.push({ type: "section", title: `${section++}. ${group.title}`, note: i === 0 ? `Amounts in ${currencyLabel(cur)}` : undefined });
     blocks.push({
       type: "table",
       columns: columns([
         ["ORDER #", 100, "left"],
         ["DATE", 72, "left"],
-        ["PRODUCTS", 150, "left"],
-        ["TRACKING #", 96, "left"],
+        ["PRODUCTS", discounted ? 120 : 150, "left"],
+        ["TRACKING #", discounted ? 80 : 96, "left"],
         ["STATUS", 58, "left"],
-        [group.amountHeader, 64, "right"],
+        ...(discounted
+          ? ([
+              [group.amountHeader, 64, "right"],
+              ["DISCOUNT", 64, "right"],
+              ["PAID", 64, "right"],
+            ] as [string, number, Align][])
+          : ([[group.amountHeader, 64, "right"]] as [string, number, Align][])),
       ]),
       rows: [
         ...group.lines.map((l) => {
@@ -290,10 +300,27 @@ function threePlModel(input: TemplatedPdfInput): Model {
             d?.products?.map((p) => `${p.title} ×${p.quantity}`).join("\n") ?? (d ? `${d.units} unit${d.units === 1 ? "" : "s"}` : ""),
             d?.trackingNumber ?? "",
             d?.status ? statusLabel(d.status) : "",
-            plain(l.netAmount, cur),
+            ...(discounted
+              ? [
+                  plain(buyOf(l), cur),
+                  `${plain(-l.deductionAmount, cur)}${pctOf(l) ? ` (${pctOf(l)}%)` : ""}`,
+                  plain(l.netAmount, cur),
+                ]
+              : [plain(l.netAmount, cur)]),
           ];
         }),
-        ["SUBTOTAL", "", "", "", "", plain(subtotal, cur)],
+        discounted
+          ? [
+              "SUBTOTAL",
+              "",
+              "",
+              "",
+              "",
+              plain(round2(sum(group.lines.map(buyOf))), cur),
+              plain(-round2(sum(group.lines.map((l) => l.deductionAmount))), cur),
+              plain(subtotal, cur),
+            ]
+          : ["SUBTOTAL", "", "", "", "", plain(subtotal, cur)],
       ],
       boldLastRow: true,
     });
