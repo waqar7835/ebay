@@ -634,6 +634,18 @@ function OrdersList() {
         </span>
       ),
     },
+    // The 3PL ships to the buyer: the order form's free-text name / address / phone, line breaks kept.
+    ...(isThreePl
+      ? [
+          {
+            title: "Buyer",
+            key: "buyerDetails",
+            render: (_: unknown, o: OrderDto) => (
+              <div className="min-w-[180px] max-w-[260px] whitespace-pre-wrap break-words">{o.buyerDetails || "—"}</div>
+            ),
+          },
+        ]
+      : []),
     // Dropship 3PLs don't handle tracking numbers; a STOCK 3PL adds/edits them on its Shipped tab.
     ...(isDropshipThreePl || (isStockThreePl && threePlTab === "PROCESSING")
       ? []
