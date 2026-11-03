@@ -41,6 +41,8 @@ export class ProductsController {
     @Query("fulfillmentType") fulfillmentType?: ProductFulfillmentType,
     @Query("title") title?: string,
     @Query("sku") sku?: string,
+    // Products held at this 3PL (ignored for a 3PL, who only ever sees its own).
+    @Query("threePlId") threePlId?: string,
     // Sending either returns { data, total, page, pageSize } instead of the whole list.
     @Query("page") page?: string,
     @Query("pageSize") pageSize?: string,
@@ -48,7 +50,7 @@ export class ProductsController {
     return this.productsService.list(
       resolveCompanyId(user, companyId),
       user,
-      { stockOwnerId, fulfillmentType, title, sku },
+      { stockOwnerId, fulfillmentType, title, sku, threePlId },
       parsePaging(page, pageSize),
     );
   }

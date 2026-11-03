@@ -12,6 +12,8 @@ import { Order } from "../database/models/order.model";
 import { OrderItem } from "../database/models/order-item.model";
 import { Company } from "../database/models/company.model";
 import { Product } from "../database/models/product.model";
+import { ProductStock } from "../database/models/product-stock.model";
+import { variationName } from "../products/product-label.util";
 import { AccountHolderProfile } from "../database/models/account-holder-profile.model";
 import { StockOwnerProfile } from "../database/models/stock-owner-profile.model";
 import { ThreePlProfile } from "../database/models/three-pl-profile.model";
@@ -73,6 +75,7 @@ export class OrdersService {
     @InjectModel(OrderItem) private readonly orderItemModel: typeof OrderItem,
     @InjectModel(Company) private readonly companyModel: typeof Company,
     @InjectModel(Product) private readonly productModel: typeof Product,
+    @InjectModel(ProductStock) private readonly productStockModel: typeof ProductStock,
     @InjectModel(AccountHolderProfile) private readonly accountHolderProfileModel: typeof AccountHolderProfile,
     @InjectModel(StockOwnerProfile) private readonly stockOwnerProfileModel: typeof StockOwnerProfile,
     @InjectModel(ThreePlProfile) private readonly threePlProfileModel: typeof ThreePlProfile,
@@ -266,7 +269,7 @@ export class OrdersService {
       throw new BadRequestException("Account Holder profile not found");
     }
 
-    const threePlId = this.resolveThreePlId(lines, dto.threePlId, null);
+    const threePlId = await this.resolveThreePlId(lines, dto.threePlId, null);
     const threePlSnapshot = await this.snapshotThreePl(threePlId, fulfillmentType, accountHolderProfile, null);
     const itemRows = await Promise.all(lines.map((line, position) => this.snapshotItem(line, position)));
     if (fulfillmentType === ProductFulfillmentType.DROPSHIP) {
@@ -320,8 +323,8 @@ export class OrdersService {
           itemRows.map((row) => ({ ...row, orderId: order.id })),
           { transaction },
         );
-        // DROPSHIP products hold no stock to decrement.
-        for (const line of lines) await adjustStock(line.product, -line.quantity, transaction);
+        // Taken off the order's 3PL (which holds every product — resolveThreePlId). DROPSHIP products hold no stock.
+        for (const line of lines) await this.adjustStock(line.product, threePlId, -line.quantity, transaction, []);
         return order.id;
       }),
     );
@@ -329,8 +332,13 @@ export class OrdersService {
     return this.get(companyId, orderId);
   }
 
-  async update(companyId: string, id: string, dto: UpdateOrderDto) {
+  /**
+   * Returns the stock warnings (see adjustStock): lines whose stock should have moved at a 3PL that's no longer on the
+   * product.
+   */
+  async update(companyId: string, id: string, dto: UpdateOrderDto): Promise<{ stockWarnings: string[] }> {
     const order = await this.get(companyId, id);
+    const stockWarnings: string[] = [];
     assertNotInvoiced(order);
     // An order from before currencies holds plain PKR amounts. Treat them as entered in each party's
     // current currency; finalizeAmounts() converts them with today's rates.
@@ -361,13 +369,13 @@ export class OrdersService {
     await this.saveWithUniqueRef(order.ebayOrderRef, () =>
       sequelize.transaction(async (transaction) => {
         if (dto.items !== undefined || (dto.threePlId !== undefined && dto.threePlId !== order.threePlId)) {
-          await this.changeItems(companyId, order, dto.items, dto.threePlId, transaction);
+          await this.changeItems(companyId, order, dto.items, dto.threePlId, transaction, stockWarnings);
         }
         await this.finalizeAmounts(order, legacy, dto, dropship, transaction);
         await order.save({ transaction });
       }),
     );
-    return this.get(companyId, order.id);
+    return { stockWarnings };
   }
 
   /**
@@ -523,6 +531,7 @@ export class OrdersService {
     inputs: OrderItemInputDto[] | undefined,
     threePlIdOverride: string | null | undefined,
     transaction: Transaction,
+    stockWarnings: string[],
   ) {
     const existing = order.items ?? [];
     const alreadyOnOrder = new Set(existing.map((i) => i.productId));
@@ -540,8 +549,9 @@ export class OrdersService {
       throw new BadRequestException("An order can't be switched between Stock and Dropship products once it's created");
     }
 
-    // Keep an already-assigned dropship 3PL when staying on DROPSHIP.
-    const threePlId = this.resolveThreePlId(lines, threePlIdOverride, wasDropship ? order.threePlId : null);
+    // Keep the order's 3PL unless another one is picked (a Stock order's 3PL must hold every product added to it).
+    const oldThreePlId = order.threePlId;
+    const threePlId = await this.resolveThreePlId(lines, threePlIdOverride, order.threePlId, alreadyOnOrder);
     if (threePlId !== order.threePlId) {
       const accountHolderProfile = await this.accountHolderProfileModel.findByPk(order.accountHolderId);
       Object.assign(order, await this.snapshotThreePl(threePlId, fulfillmentType, accountHolderProfile, order.threePlId));
@@ -561,13 +571,35 @@ export class OrdersService {
       if (!order.exchangeRates) item.clientTotalSnapshot = total;
     };
 
+    // Stock moves at the order's 3PL. Orders already restocked (cancelled, or refunded with the product back) hold no
+    // stock, so there's nothing to move. A new 3PL: every unit goes back to the old one and comes off the new one.
+    const threePlChanged = threePlId !== oldThreePlId;
+    if (!order.restocked) {
+      if (threePlChanged) {
+        for (const item of existing) {
+          const product = oldProductById.get(item.productId);
+          if (product) await this.adjustStock(product, oldThreePlId, item.quantity, transaction, stockWarnings);
+        }
+        for (const line of lines) await this.adjustStock(line.product, threePlId, -line.quantity, transaction, stockWarnings);
+      } else {
+        const lineByProduct = new Map(lines.map((l) => [l.product.id, l]));
+        for (const line of lines) {
+          const delta = line.quantity - (existing.find((i) => i.productId === line.product.id)?.quantity ?? 0);
+          await this.adjustStock(line.product, threePlId, -delta, transaction, stockWarnings);
+        }
+        for (const item of existing) {
+          const product = oldProductById.get(item.productId);
+          if (product && !lineByProduct.has(item.productId)) {
+            await this.adjustStock(product, threePlId, item.quantity, transaction, stockWarnings);
+          }
+        }
+      }
+    }
+
     const existingByProduct = new Map(existing.map((i) => [i.productId, i]));
     const keptIds = new Set<string>();
     for (const [position, line] of lines.entries()) {
       const current = existingByProduct.get(line.product.id);
-      // Orders already restocked (cancelled, or refunded with the product back) hold no stock, so there's nothing to move.
-      const stockDelta = line.quantity - (current?.quantity ?? 0);
-      if (!order.restocked) await adjustStock(line.product, -stockDelta, transaction);
       if (current) {
         keptIds.add(current.id);
         current.quantity = line.quantity;
@@ -585,10 +617,7 @@ export class OrdersService {
       }
     }
     for (const item of existing) {
-      if (keptIds.has(item.id)) continue;
-      const product = oldProductById.get(item.productId);
-      if (product && !order.restocked) await adjustStock(product, item.quantity, transaction);
-      await item.destroy({ transaction });
+      if (!keptIds.has(item.id)) await item.destroy({ transaction });
     }
   }
 
@@ -639,20 +668,42 @@ export class OrdersService {
   }
 
   /**
-   * STOCK orders ship from one 3PL (its fee is charged once per order), so every product must be held
-   * at the same 3PL; the caller may override which 3PL. DROPSHIP orders take the override (null = no 3PL)
-   * or, when it's undefined, `keepExisting`.
+   * STOCK orders ship from one 3PL (its fee is charged once per order). A product can be held at several 3PLs
+   * (decided 2026-11-03), so the order's 3PL is the one picked (`override`), else `keepExisting` (edit), else the only
+   * 3PL holding every product. That 3PL must hold every product — on edit, every product being added (`alreadyOnOrder`
+   * are kept as they are, even if the 3PL has since been taken off them), or all of them when the 3PL changes.
+   * DROPSHIP orders take the override (null = no 3PL) or, when it's undefined, `keepExisting`.
    */
-  private resolveThreePlId(lines: OrderLine[], override: string | null | undefined, keepExisting: string | null): string | null {
+  private async resolveThreePlId(
+    lines: OrderLine[],
+    override: string | null | undefined,
+    keepExisting: string | null,
+    alreadyOnOrder: Set<string> = new Set(),
+  ): Promise<string | null> {
     if (lines[0].product.fulfillmentType === ProductFulfillmentType.DROPSHIP) return override !== undefined ? override : keepExisting;
 
-    const warehouses = new Set(lines.map((l) => l.product.threePlId).filter((id): id is string => !!id));
-    if (warehouses.size > 1) {
-      throw new BadRequestException("These products are held at different 3PLs — an order can only ship from one 3PL");
+    const rows = await this.productStockModel.findAll({
+      where: { productId: lines.map((l) => l.product.id) },
+      attributes: ["productId", "threePlId"],
+    });
+    const holds = (threePlId: string, product: Product) => rows.some((r) => r.productId === product.id && r.threePlId === threePlId);
+    const chosen = override ?? keepExisting;
+    if (chosen) {
+      const mustHold = lines.map((l) => l.product).filter((p) => chosen !== keepExisting || !alreadyOnOrder.has(p.id));
+      const missing = mustHold.filter((p) => !holds(chosen, p));
+      if (missing.length) {
+        throw new BadRequestException(
+          `The selected 3PL doesn't hold ${missing.map(stockLabel).join(", ")} — pick another 3PL or split the products into separate orders`,
+        );
+      }
+      return chosen;
     }
-    const threePlId = override ?? [...warehouses][0];
-    if (!threePlId) throw new BadRequestException("A 3PL must be assigned for STOCK fulfillment products");
-    return threePlId;
+    const candidates = [...new Set(rows.map((r) => r.threePlId))].filter((id) => lines.every((l) => holds(id, l.product)));
+    if (!candidates.length) {
+      throw new BadRequestException("No single 3PL holds all these products — split them into separate orders");
+    }
+    if (candidates.length > 1) throw new BadRequestException("These products are held at more than one 3PL — pick the 3PL to ship from");
+    return candidates[0];
   }
 
   private async assertThreePlHandles(threePlId: string, fulfillmentType: ProductFulfillmentType) {
@@ -830,15 +881,17 @@ export class OrdersService {
 
   async updateStatus(companyId: string, requester: JwtPayload, id: string, dto: UpdateOrderStatusDto) {
     const order = await this.get(companyId, id);
+    const stockWarnings: string[] = [];
     this.assertStatusTransitionAllowed(order, requester, dto.status);
     if ((dto.refundAmount !== undefined || dto.restock !== undefined) && dto.status !== OrderStatus.REFUNDED) {
       throw new BadRequestException("A refund amount or restock choice only goes with the REFUNDED status");
     }
     // One transaction, so stock moves and the order change land together.
     await this.orderModel.sequelize!.transaction((transaction) =>
-      this.applyStatus(order, dto.status, transaction, { amount: dto.refundAmount, restock: dto.restock }),
+      this.applyStatus(order, dto.status, transaction, { amount: dto.refundAmount, restock: dto.restock }, stockWarnings),
     );
-    return this.getForRequester(companyId, requester, id);
+    const updated = await this.getForRequester(companyId, requester, id);
+    return stockWarnings.length ? { ...updated, stockWarnings } : updated;
   }
 
   /**
@@ -859,13 +912,14 @@ export class OrdersService {
         throw new NotFoundException("Some of the selected orders no longer exist — refresh and try again");
       }
       let updated = 0;
+      const stockWarnings: string[] = [];
       for (const order of orders) {
         if (order.status === dto.status) continue;
         this.assertStatusTransitionAllowed(order, requester, dto.status);
-        await this.applyStatus(order, dto.status, transaction);
+        await this.applyStatus(order, dto.status, transaction, {}, stockWarnings);
         updated++;
       }
-      return { updated, unchanged: orders.length - updated };
+      return { updated, unchanged: orders.length - updated, stockWarnings };
     });
   }
 
@@ -891,6 +945,7 @@ export class OrdersService {
     status: OrderStatus,
     transaction?: Transaction,
     refund: { amount?: number; restock?: boolean } = {},
+    stockWarnings: string[] = [],
   ) {
     await this.assertCanShip(order, status);
     // Every check comes before any stock moves.
@@ -905,7 +960,7 @@ export class OrdersService {
     // Leaving CANCELLED / REFUNDED undoes its restock: the units are taken off stock again, so the order holds its
     // stock like any other and a later cancel or refund can put it back.
     if (order.restocked && status !== order.status) {
-      await this.moveStock(order, -1, transaction);
+      await this.moveStock(order, -1, transaction, stockWarnings);
       order.restocked = false;
     }
     if (status === OrderStatus.SHIPPED && order.status !== OrderStatus.SHIPPED) order.shippedAt = new Date();
@@ -916,19 +971,52 @@ export class OrdersService {
     }
 
     if (restock && !order.restocked) {
-      await this.moveStock(order, 1, transaction);
+      await this.moveStock(order, 1, transaction, stockWarnings);
       order.restocked = true;
     }
 
     await order.save({ transaction });
   }
 
-  /** Puts the order's units back on the shelf (`direction` 1) or takes them off again (-1). DROPSHIP holds no stock. */
-  private async moveStock(order: Order, direction: 1 | -1, transaction?: Transaction) {
+  /**
+   * Puts the order's units back at its 3PL (`direction` 1) or takes them off again (-1). DROPSHIP holds no stock.
+   */
+  private async moveStock(order: Order, direction: 1 | -1, transaction: Transaction | undefined, stockWarnings: string[]) {
     for (const item of order.items) {
       const product = await this.productModel.findByPk(item.productId, { transaction });
-      if (product) await adjustStock(product, direction * item.quantity, transaction);
+      if (product) await this.adjustStock(product, order.threePlId, direction * item.quantity, transaction, stockWarnings, order.ebayOrderRef);
     }
+  }
+
+  /**
+   * Moves a STOCK product's units at one 3PL by `delta` (negative = taken by an order; may go below zero) and its total
+   * with it. DROPSHIP holds no stock. When that 3PL is no longer on the product (decided 2026-11-03), nothing moves and a
+   * warning asking the admin to adjust the quantity by hand is added to `stockWarnings` instead.
+   */
+  private async adjustStock(
+    product: Product,
+    threePlId: string | null,
+    delta: number,
+    transaction: Transaction | undefined,
+    stockWarnings: string[],
+    orderRef?: string,
+  ) {
+    if (delta === 0 || product.fulfillmentType !== ProductFulfillmentType.STOCK) return;
+    const row = threePlId
+      ? await this.productStockModel.findOne({ where: { productId: product.id, threePlId }, transaction })
+      : null;
+    if (!row) {
+      const threePl = threePlId ? await this.userModel.findByPk(threePlId, { attributes: ["name", "email"], transaction }) : null;
+      const units = Math.abs(delta);
+      stockWarnings.push(
+        `${orderRef ? `Order ${orderRef}: ` : ""}3PL "${threePl ? threePl.name || threePl.email : "unknown"}" is no longer attached to ` +
+          `"${stockLabel(product)}", so ${units} unit${units === 1 ? " was" : "s were"} not ${delta > 0 ? "put back in stock" : "taken off stock"}. ` +
+          "Please adjust the product's quantity manually.",
+      );
+      return;
+    }
+    await row.increment("quantity", { by: delta, transaction });
+    await product.increment("stockQuantity", { by: delta, transaction });
   }
 
   /**
@@ -1029,11 +1117,10 @@ function assertNotInvoiced(order: Order) {
   }
 }
 
-/** Moves a STOCK product's on-hand quantity by `delta` (negative = taken by an order). DROPSHIP holds no stock. */
-async function adjustStock(product: Product, delta: number, transaction?: Transaction) {
-  if (delta === 0 || product.fulfillmentType !== ProductFulfillmentType.STOCK) return;
-  product.stockQuantity += delta;
-  await product.save({ transaction });
+/** "Title (Red / M)", for stock messages. */
+function stockLabel(product: Product): string {
+  const name = variationName(product);
+  return `${product.title}${name ? ` (${name})` : ""}`;
 }
 
 /** A dropship line's buy total is in the 3PL's currency, so it can only be entered once a 3PL is picked. */

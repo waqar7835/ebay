@@ -1,12 +1,21 @@
 "use client";
 
-import { DEFAULT_LIST_PAGE_SIZE, LIST_PAGE_SIZES, type Currency, type ProductFulfillmentType } from "@ebay-order-management/shared";
+import {
+  DEFAULT_LIST_PAGE_SIZE,
+  LIST_PAGE_SIZES,
+  type Currency,
+  type ProductFulfillmentType,
+  type ProductStockDto,
+  type UserDto,
+} from "@ebay-order-management/shared";
 import { Alert, Badge, Button, Card, Form, Image, Input, InputNumber, Select, Table, Tag, type TableColumnsType } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import { EditAction } from "@/components/RowActions";
 import ProductImagesUpload, { productImageItems, type ProductImageItem } from "@/components/ProductImagesUpload";
+import ProductStockRows, { stockFormValues, stockPayloads, stockThreePls, type StockRowValues } from "@/components/ProductStockRows";
+import StockLevel from "@/components/StockLevel";
 import ProductVariations, {
   saveVariationImages,
   variationFormValues,
@@ -28,7 +37,8 @@ interface ProductRow {
   fulfillmentType: ProductFulfillmentType;
   stockOwnerId: string | null;
   stockOwnerName?: string | null;
-  threePlId: string | null;
+  /** Units per 3PL. */
+  stocks: ProductStockDto[];
   /** The Stock Owner's currency — prices are in it. */
   currency: Currency | null;
   stockOwnerCost: number | null;
@@ -41,14 +51,6 @@ interface ProductRow {
   variations?: ProductRow[];
 }
 
-interface UserOption {
-  id: string;
-  name: string | null;
-  email: string;
-  roles: string[];
-  currency: Currency;
-}
-
 interface ProductFormValues {
   sku: string;
   title: string;
@@ -56,11 +58,11 @@ interface ProductFormValues {
   size?: string;
   fulfillmentType: ProductFulfillmentType;
   stockOwnerId?: string;
-  threePlId?: string;
+  /** The 3PLs holding the product and the units at each (Stock only). */
+  stocks: StockRowValues[];
   stockOwnerCost?: number;
   buyPrice?: number;
   sellPrice?: number;
-  stockQuantity?: number;
   variations: VariationFormValues[];
 }
 
@@ -69,13 +71,14 @@ interface ProductFilter {
   fulfillmentType: string;
   title: string;
   sku: string;
+  threePlId: string;
 }
 
 export default function ProductsPage() {
   const router = useRouter();
   const [form] = Form.useForm<ProductFormValues>();
   const [products, setProducts] = useState<ProductRow[]>([]);
-  const [users, setUsers] = useState<UserOption[]>([]);
+  const [users, setUsers] = useState<UserDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,7 +90,7 @@ export default function ProductsPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_LIST_PAGE_SIZE);
-  const [filter, setFilter] = useState<ProductFilter>({ stockOwnerId: "", fulfillmentType: "", title: "", sku: "" });
+  const [filter, setFilter] = useState<ProductFilter>({ stockOwnerId: "", fulfillmentType: "", title: "", sku: "", threePlId: "" });
   const [titleInput, setTitleInput] = useState("");
   const [skuInput, setSkuInput] = useState("");
   const requestSeq = useRef(0);
@@ -102,6 +105,7 @@ export default function ProductsPage() {
         fulfillmentType: (filter.fulfillmentType || undefined) as ProductFulfillmentType | undefined,
         title: filter.title || undefined,
         sku: filter.sku || undefined,
+        threePlId: filter.threePlId || undefined,
       },
       page,
       pageSize,
@@ -123,7 +127,9 @@ export default function ProductsPage() {
       router.push("/");
       return;
     }
-    listUsers().then(setUsers as never).catch(() => undefined);
+    listUsers()
+      .then((list) => setUsers(list as unknown as UserDto[]))
+      .catch(() => undefined);
   }, [router]);
 
   useEffect(() => {
@@ -148,10 +154,11 @@ export default function ProductsPage() {
 
   const filtered = Object.values(filter).some(Boolean);
 
-  const stockOwners = users.filter((u) => u.roles.includes("STOCK_OWNER"));
-  const threePls = users.filter((u) => u.roles.includes("THREE_PL"));
-
+  const stockOwners = users.filter((u) => u.roles.includes("STOCK_OWNER" as never));
   const editingProduct = editingId ? products.find((p) => p.id === editingId) : undefined;
+  // Active Stock 3PLs (plus any already holding the product being edited); the filter lists every Stock 3PL.
+  const threePls = stockThreePls(users, (editingProduct?.stocks ?? []).map((s) => s.threePlId));
+  const filterThreePls = users.filter((u) => u.roles.includes("THREE_PL" as never) && u.threePlProfile?.fulfillmentType === "STOCK");
   const fulfillmentType = Form.useWatch("fulfillmentType", form) ?? ("STOCK" as ProductFulfillmentType);
   const isStock = fulfillmentType === ("STOCK" as ProductFulfillmentType);
   // Prices are entered in the selected Stock Owner's currency.
@@ -165,7 +172,7 @@ export default function ProductsPage() {
     form.setFieldsValue({
       fulfillmentType: p?.fulfillmentType ?? ("STOCK" as ProductFulfillmentType),
       stockOwnerId: p?.stockOwnerId ?? undefined,
-      threePlId: p?.threePlId ?? undefined,
+      stocks: stockFormValues(p?.stocks),
       sku: p?.sku ?? "",
       title: p?.title ?? "",
       color: p?.color ?? "",
@@ -173,7 +180,6 @@ export default function ProductsPage() {
       stockOwnerCost: p?.stockOwnerCost ?? 0,
       buyPrice: p?.buyPrice ?? 0,
       sellPrice: p?.sellPrice ?? 0,
-      stockQuantity: p?.stockQuantity ?? 0,
       variations: variationFormValues(p?.variations),
     });
     setImages(productImageItems(p?.imageUrls));
@@ -194,12 +200,12 @@ export default function ProductsPage() {
     }
     // Read from the store: it also holds each row's id / auto-SKU flag.
     const variations: VariationFormValues[] = form.getFieldValue("variations") ?? [];
+    const stocks = stockPayloads(values.stocks ?? []);
     setFormError(null);
     setSubmitting(true);
     const payload = {
       stockOwnerId: isStock ? values.stockOwnerId : undefined,
       fulfillmentType: values.fulfillmentType,
-      threePlId: isStock ? values.threePlId : undefined,
       sku: values.sku,
       title: values.title,
       color: values.color?.trim() || undefined,
@@ -207,8 +213,8 @@ export default function ProductsPage() {
       stockOwnerCost: isStock ? Number(values.stockOwnerCost ?? 0) : undefined,
       buyPrice: isStock ? Number(values.buyPrice ?? 0) : undefined,
       sellPrice: isStock ? Number(values.sellPrice ?? 0) : undefined,
-      stockQuantity: isStock ? Number(values.stockQuantity ?? 0) : undefined,
-      variations: variationPayloads(variations, isStock),
+      stocks: isStock ? stocks : undefined,
+      variations: variationPayloads(variations, isStock, stocks.map((s) => s.threePlId)),
     };
     try {
       const saved = editingId ? await updateProduct(editingId, payload as never) : await createProduct(payload as never);
@@ -268,7 +274,12 @@ export default function ProductsPage() {
     // In the Stock Owner's currency.
     { title: "Buy", dataIndex: "buyPrice", render: (v: number | null, p) => money(v, p.currency) },
     { title: "Sell", dataIndex: "sellPrice", render: (v: number | null, p) => money(v, p.currency) },
-    { title: "Stock", key: "stock", render: (_, p) => (p.fulfillmentType === "DROPSHIP" ? "—" : p.stockQuantity) },
+    // Total, with the units at each 3PL on hover.
+    {
+      title: "Stock",
+      key: "stock",
+      render: (_, p) => (p.fulfillmentType === "DROPSHIP" ? "—" : <StockLevel total={p.stockQuantity} stocks={p.stocks ?? []} mode="tooltip" />),
+    },
     {
       key: "actions",
       // Variations are edited with their main product.
@@ -301,7 +312,7 @@ export default function ProductsPage() {
               form={form}
               layout="vertical"
               onFinish={handleFinish}
-              initialValues={{ fulfillmentType: "STOCK", stockOwnerCost: 0, buyPrice: 0, sellPrice: 0, stockQuantity: 0 }}
+              initialValues={{ fulfillmentType: "STOCK", stockOwnerCost: 0, buyPrice: 0, sellPrice: 0, stocks: [{ quantity: 0 }] }}
             >
               <div className="flex gap-3">
                 <Form.Item name="sku" label="SKU" rules={[{ required: true }]} className="flex-1">
@@ -354,9 +365,9 @@ export default function ProductsPage() {
               )}
 
               {isStock && (
-                <Form.Item name="threePlId" label="3PL warehouse" rules={[{ required: true, message: "Select a 3PL warehouse" }]}>
-                  <Select showSearch={searchable} placeholder="Select…" options={userNameOptions(threePls)} />
-                </Form.Item>
+                <div className="mb-6">
+                  <ProductStockRows threePls={threePls} disabled={submitting} />
+                </div>
               )}
 
               {isStock && (
@@ -370,9 +381,6 @@ export default function ProductsPage() {
                   <Form.Item name="sellPrice" label="Sell price (charged to Account Holder)" className="flex-1">
                     <InputNumber prefix={pricePrefix} min={0} step={0.01} className="w-full" />
                   </Form.Item>
-                  <Form.Item name="stockQuantity" label="Stock quantity" className="flex-1">
-                    <InputNumber min={0} precision={0} className="w-full" />
-                  </Form.Item>
                 </div>
               )}
 
@@ -381,7 +389,7 @@ export default function ProductsPage() {
               </Form.Item>
 
               <div className="mb-6">
-                <ProductVariations inner isStock={isStock} pricePrefix={pricePrefix} disabled={submitting} />
+                <ProductVariations inner isStock={isStock} pricePrefix={pricePrefix} disabled={submitting} threePls={threePls} />
               </div>
 
               {formError && <Alert type="error" title={formError} className="mb-4" showIcon />}
@@ -423,6 +431,18 @@ export default function ProductsPage() {
                 value={filter.stockOwnerId || undefined}
                 onChange={(v) => updateFilter({ stockOwnerId: v ?? "" })}
                 options={userNameOptions(stockOwners)}
+                className="mt-1 flex w-56"
+              />
+            </label>
+            <label>
+              3PL
+              <Select
+                showSearch={searchable}
+                allowClear
+                placeholder="All"
+                value={filter.threePlId || undefined}
+                onChange={(v) => updateFilter({ threePlId: v ?? "" })}
+                options={userNameOptions(filterThreePls)}
                 className="mt-1 flex w-56"
               />
             </label>

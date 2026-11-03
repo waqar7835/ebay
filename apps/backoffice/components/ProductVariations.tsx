@@ -1,7 +1,7 @@
 "use client";
 
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
-import type { ProductDto } from "@ebay-order-management/shared";
+import type { ProductDto, UserDto } from "@ebay-order-management/shared";
 import { Button, Card, Form, Input, InputNumber, Tag } from "antd";
 import { useEffect } from "react";
 import ProductImagesUpload, { productImageItems, type ProductImageItem } from "@/components/ProductImagesUpload";
@@ -19,7 +19,8 @@ export interface VariationFormValues {
   stockOwnerCost?: number;
   buyPrice?: number;
   sellPrice?: number;
-  stockQuantity?: number;
+  /** Units at each of the main product's 3PLs, by 3PL id (a 3PL without an entry counts as 0). */
+  stockByThreePl?: Record<string, number | null>;
   images: ProductImageItem[];
 }
 
@@ -39,7 +40,7 @@ export function suggestedSku(mainSku: string | undefined, color?: string, size?:
 
 type SavedVariation = Pick<
   ProductDto,
-  "id" | "sku" | "color" | "size" | "stockOwnerCost" | "buyPrice" | "sellPrice" | "stockQuantity" | "imageUrls"
+  "id" | "sku" | "color" | "size" | "stockOwnerCost" | "buyPrice" | "sellPrice" | "stocks" | "imageUrls"
 >;
 
 /** Form rows for a saved product's variations (edit). */
@@ -53,12 +54,13 @@ export function variationFormValues(variations: SavedVariation[] | undefined): V
     stockOwnerCost: v.stockOwnerCost ?? 0,
     buyPrice: v.buyPrice ?? 0,
     sellPrice: v.sellPrice ?? 0,
-    stockQuantity: v.stockQuantity,
+    stockByThreePl: Object.fromEntries((v.stocks ?? []).map((st) => [st.threePlId, st.quantity])),
     images: productImageItems(v.imageUrls),
   }));
 }
 
-export function variationPayloads(rows: VariationFormValues[], isStock: boolean): ProductVariationPayload[] {
+/** `threePlIds` = the main product's 3PLs: each variation sends its units at every one of them. */
+export function variationPayloads(rows: VariationFormValues[], isStock: boolean, threePlIds: string[] = []): ProductVariationPayload[] {
   return rows.map((r) => ({
     id: r.id,
     sku: r.sku.trim(),
@@ -69,7 +71,7 @@ export function variationPayloads(rows: VariationFormValues[], isStock: boolean)
           stockOwnerCost: Number(r.stockOwnerCost ?? 0),
           buyPrice: Number(r.buyPrice ?? 0),
           sellPrice: Number(r.sellPrice ?? 0),
-          stockQuantity: Number(r.stockQuantity ?? 0),
+          stocks: threePlIds.map((threePlId) => ({ threePlId, quantity: Number(r.stockByThreePl?.[threePlId] ?? 0) })),
         }
       : {}),
   }));
@@ -107,6 +109,8 @@ interface ProductVariationsProps {
   disabled?: boolean;
   /** Renders as an inner card (inside another card). */
   inner?: boolean;
+  /** For the 3PL names: the main product's 3PLs come from the form's `stocks` rows. */
+  threePls: UserDto[];
 }
 
 /**
@@ -114,10 +118,17 @@ interface ProductVariationsProps {
  * color / size, SKU, images and — for Stock products — prices and stock. Must sit inside the product's <Form>, whose
  * values hold them under `variations`.
  */
-export default function ProductVariations({ isStock, pricePrefix, disabled, inner }: ProductVariationsProps) {
+export default function ProductVariations({ isStock, pricePrefix, disabled, inner, threePls }: ProductVariationsProps) {
   const form = Form.useFormInstance();
   const mainSku: string | undefined = Form.useWatch("sku", form);
   const rows: VariationFormValues[] = Form.useWatch("variations", form) ?? [];
+  // Variations are held at the main product's 3PLs (each with its own quantities).
+  const mainStocks: { threePlId?: string }[] = Form.useWatch("stocks", form) ?? [];
+  const mainThreePlIds = [...new Set(mainStocks.map((r) => r?.threePlId).filter((id): id is string => !!id))];
+  const threePlName = (id: string) => {
+    const u = threePls.find((t) => t.id === id);
+    return u ? u.name || u.email : "3PL";
+  };
 
   // Auto SKUs follow the main SKU and the row's color / size until the SKU is typed over.
   const autoKey = rows.map((r) => (r?.skuAuto ? `${r.color ?? ""}|${r.size ?? ""}|${r.sku ?? ""}` : "")).join("\n");
@@ -141,7 +152,7 @@ export default function ProductVariations({ isStock, pricePrefix, disabled, inne
       stockOwnerCost: main.stockOwnerCost ?? 0,
       buyPrice: main.buyPrice ?? 0,
       sellPrice: main.sellPrice ?? 0,
-      stockQuantity: 0,
+      stockByThreePl: {},
       images: [],
     };
   }
@@ -214,20 +225,30 @@ export default function ProductVariations({ isStock, pricePrefix, disabled, inne
                     </Form.Item>
                   </div>
                   {isStock && (
-                    <div className="grid gap-x-4 sm:grid-cols-2 xl:grid-cols-4">
-                      <Form.Item name={[field.name, "stockOwnerCost"]} label="Stock Owner cost">
-                        <InputNumber prefix={pricePrefix} min={0} step={0.01} className="w-full" />
-                      </Form.Item>
-                      <Form.Item name={[field.name, "buyPrice"]} label="Buy price">
-                        <InputNumber prefix={pricePrefix} min={0} step={0.01} className="w-full" />
-                      </Form.Item>
-                      <Form.Item name={[field.name, "sellPrice"]} label="Sell price">
-                        <InputNumber prefix={pricePrefix} min={0} step={0.01} className="w-full" />
-                      </Form.Item>
-                      <Form.Item name={[field.name, "stockQuantity"]} label="Stock quantity">
-                        <InputNumber min={0} precision={0} className="w-full" />
-                      </Form.Item>
-                    </div>
+                    <>
+                      <div className="grid gap-x-4 sm:grid-cols-3">
+                        <Form.Item name={[field.name, "stockOwnerCost"]} label="Stock Owner cost">
+                          <InputNumber prefix={pricePrefix} min={0} step={0.01} className="w-full" />
+                        </Form.Item>
+                        <Form.Item name={[field.name, "buyPrice"]} label="Buy price">
+                          <InputNumber prefix={pricePrefix} min={0} step={0.01} className="w-full" />
+                        </Form.Item>
+                        <Form.Item name={[field.name, "sellPrice"]} label="Sell price">
+                          <InputNumber prefix={pricePrefix} min={0} step={0.01} className="w-full" />
+                        </Form.Item>
+                      </div>
+                      {mainThreePlIds.length === 0 ? (
+                        <p className="mb-4 mt-0 text-xs text-slate-500">Pick the product&apos;s 3PLs above to enter this variation&apos;s stock.</p>
+                      ) : (
+                        <div className="grid gap-x-4 sm:grid-cols-2 xl:grid-cols-3">
+                          {mainThreePlIds.map((id) => (
+                            <Form.Item key={id} name={[field.name, "stockByThreePl", id]} label={`Stock at ${threePlName(id)}`}>
+                              <InputNumber precision={0} placeholder="0" className="w-full" />
+                            </Form.Item>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
                   <Form.Item
                     name={[field.name, "images"]}

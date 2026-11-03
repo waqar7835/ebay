@@ -5,6 +5,7 @@ import { BaseError, DatabaseError, ForeignKeyConstraintError, UniqueConstraintEr
 /** Friendly messages for the unique constraints/indexes we know about, by constraint name. */
 const UNIQUE_MESSAGES: Record<string, string> = {
   products_company_id_sku_unique: "A product with this SKU already exists in your company. Use a different SKU.",
+  product_stocks_product_three_pl_unique: "This 3PL is already on the product. Each 3PL can only be added once.",
   orders_company_id_ebay_order_ref_unique: "This eBay order number is already used by another order.",
   user_roles_user_id_role_unique: "This user already has that role.",
   invoices_company_sequence_unique: "Another invoice was created at the same time. Please try again.",

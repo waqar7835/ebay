@@ -14,6 +14,7 @@ import { VerificationToken } from "./models/verification-token.model";
 import { Product } from "./models/product.model";
 import { Order } from "./models/order.model";
 import { OrderItem } from "./models/order-item.model";
+import { ProductStock } from "./models/product-stock.model";
 import { Invoice } from "./models/invoice.model";
 import { InvoiceLineItem } from "./models/invoice-line-item.model";
 import { SubscriptionPlan } from "./models/subscription-plan.model";
@@ -37,6 +38,7 @@ export const ALL_MODELS = [
   Product,
   Order,
   OrderItem,
+  ProductStock,
   Invoice,
   InvoiceLineItem,
   InvoiceTemplate,

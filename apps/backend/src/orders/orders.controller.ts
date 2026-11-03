@@ -93,8 +93,10 @@ export class OrdersController {
     @Query("companyId") companyId?: string,
   ) {
     const scopedCompanyId = resolveCompanyId(user, companyId);
-    await this.ordersService.update(scopedCompanyId, id, dto);
-    return this.ordersService.getForRequester(scopedCompanyId, user, id);
+    const { stockWarnings } = await this.ordersService.update(scopedCompanyId, id, dto);
+    const order = await this.ordersService.getForRequester(scopedCompanyId, user, id);
+    // Lines whose stock couldn't move because their 3PL is no longer on the product.
+    return stockWarnings.length ? { ...order, stockWarnings } : order;
   }
 
   @Patch(":id/dropship-buy-price")

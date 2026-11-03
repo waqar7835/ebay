@@ -54,6 +54,7 @@ import { formatDate } from "@/lib/date";
 import { buildListQuery, pagingQuery, readPaging, useListUrl } from "@/lib/listQuery";
 import { productLabel, variationName } from "@/lib/productLabel";
 import { dropshipNetBuy } from "@/lib/orderProfit";
+import { takeStockWarnings } from "@/lib/stockWarnings";
 
 interface UserOption {
   id: string;
@@ -104,6 +105,9 @@ function OrdersList() {
   const [products, setProducts] = useState<ProductDto[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Stock that couldn't move because the order's 3PL is no longer on the product (also handed over by the edit page).
+  const [stockWarnings, setStockWarnings] = useState<string[]>([]);
+  useEffect(() => setStockWarnings(takeStockWarnings()), []);
   const [filter, setFilter] = useState<{
     accountHolderId: string;
     threePlId: string;
@@ -364,9 +368,11 @@ function OrdersList() {
     try {
       if (singleRefund) {
         const order = selectedOrders[0];
-        await updateOrderStatus(order.id, bulkStatus, bulkRefundAmount, restockFor(order, refundChoice));
+        const saved = await updateOrderStatus(order.id, bulkStatus, bulkRefundAmount, restockFor(order, refundChoice));
+        setStockWarnings(saved.stockWarnings ?? []);
       } else {
-        await bulkUpdateOrderStatus(selectedOrders.map((o) => o.id), bulkStatus);
+        const result = await bulkUpdateOrderStatus(selectedOrders.map((o) => o.id), bulkStatus);
+        setStockWarnings(result.stockWarnings ?? []);
       }
       setConfirmOpen(false);
       setSelectedIds([]);
@@ -387,7 +393,8 @@ function OrdersList() {
       return;
     }
     try {
-      await updateOrderStatus(order.id, status);
+      const saved = await updateOrderStatus(order.id, status);
+      setStockWarnings(saved.stockWarnings ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update the order");
     }
@@ -400,7 +407,8 @@ function OrdersList() {
     if (amount === null) return;
     setRefundSaving(true);
     try {
-      await updateOrderStatus(refundOrder.id, "REFUNDED" as OrderStatus, amount, restockFor(refundOrder, refundChoice));
+      const saved = await updateOrderStatus(refundOrder.id, "REFUNDED" as OrderStatus, amount, restockFor(refundOrder, refundChoice));
+      setStockWarnings(saved.stockWarnings ?? []);
       setRefundOrder(null);
       refresh();
     } catch (err) {
@@ -583,7 +591,8 @@ function OrdersList() {
                   <div className="text-xs text-slate-500">
                     {[product?.sku ?? "—", variationName(product), `×${item.quantity}`].filter(Boolean).join(" · ")}
                   </div>
-                  {isStockThreePl && product && (
+                  {/* Its own units (the API sends a 3PL only its own); hidden once it no longer holds the product. */}
+                  {isStockThreePl && product && product.stocks?.length > 0 && (
                     <div className={`text-xs ${product.stockQuantity <= 0 ? "text-red-600" : product.stockQuantity <= 5 ? "text-orange-500" : "text-slate-500"}`}>
                       {product.stockQuantity} left in stock
                     </div>
@@ -867,6 +876,22 @@ function OrdersList() {
         </div>
 
         {error && <Alert type="error" title={error} className="mt-4" showIcon />}
+        {stockWarnings.length > 0 && (
+          <Alert
+            type="warning"
+            showIcon
+            closable={{ onClose: () => setStockWarnings([]) }}
+            className="mt-4"
+            title="Some stock wasn't moved"
+            description={
+              <ul className="mb-0 list-disc pl-5">
+                {stockWarnings.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
+            }
+          />
+        )}
 
         <Card size="small" className="mt-4">
           <div className="flex flex-wrap items-end gap-3 text-xs">

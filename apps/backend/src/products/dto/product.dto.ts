@@ -2,9 +2,18 @@ import { Type } from "class-transformer";
 import { IsArray, IsEnum, IsInt, IsNumber, IsOptional, IsString, IsUUID, Min, ValidateIf, ValidateNested } from "class-validator";
 import { ProductFulfillmentType } from "@ebay-order-management/shared";
 
+/** Units of a STOCK product held at one 3PL. Not limited to ≥ 0: orders may take stock below zero. */
+export class ProductStockInputDto {
+  @IsUUID()
+  threePlId!: string;
+
+  @IsInt()
+  quantity!: number;
+}
+
 /**
- * One variation of a product (e.g. a color / size). Title, type, Stock Owner and 3PL come from the main product;
- * prices and stock only apply to STOCK products.
+ * One variation of a product (e.g. a color / size). Title, type, Stock Owner and the list of 3PLs come from the main
+ * product; prices and stock only apply to STOCK products.
  */
 export class ProductVariationDto {
   // Existing variation of this product to update; omitted for a new one.
@@ -38,10 +47,15 @@ export class ProductVariationDto {
   @Min(0)
   sellPrice?: number;
 
+  /**
+   * Its quantity at each of the main product's 3PLs. A 3PL left out keeps the variation's current quantity there (0 when
+   * new); 3PLs that aren't on the main product are refused.
+   */
   @IsOptional()
-  @IsInt()
-  @Min(0)
-  stockQuantity?: number;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductStockInputDto)
+  stocks?: ProductStockInputDto[];
 }
 
 export class CreateProductDto {
@@ -52,10 +66,6 @@ export class CreateProductDto {
 
   @IsEnum(ProductFulfillmentType)
   fulfillmentType!: ProductFulfillmentType;
-
-  @IsOptional()
-  @IsString()
-  threePlId?: string;
 
   @IsString()
   sku!: string;
@@ -86,10 +96,12 @@ export class CreateProductDto {
   @Min(0)
   sellPrice?: number;
 
+  /** STOCK: the 3PLs holding the product (at least one, each once) and the units at each. Not sent for DROPSHIP. */
   @ValidateIf((o) => o.fulfillmentType === ProductFulfillmentType.STOCK)
-  @IsInt()
-  @Min(0)
-  stockQuantity?: number;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductStockInputDto)
+  stocks?: ProductStockInputDto[];
 
   /**
    * The product's whole list of variations, in order: entries with an `id` update that variation, the rest are
@@ -108,7 +120,11 @@ export class SetProductImagesDto {
   layout!: string;
 }
 
+/** Sets the units of a product at one of its 3PLs. */
 export class UpdateStockDto {
+  @IsUUID()
+  threePlId!: string;
+
   @IsInt()
   stockQuantity!: number;
 }

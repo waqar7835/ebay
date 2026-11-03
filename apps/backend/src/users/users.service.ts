@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException, 
 import { ConfigService } from "@nestjs/config";
 import { InjectModel } from "@nestjs/sequelize";
 import * as bcrypt from "bcrypt";
-import { Op } from "sequelize";
+import { Op, Sequelize } from "sequelize";
 import { DEFAULT_CURRENCY, ProductFulfillmentType, Role, TokenPurpose, UserStatus } from "@ebay-order-management/shared";
 import { User } from "../database/models/user.model";
 import { Company } from "../database/models/company.model";
@@ -245,7 +245,15 @@ export class UsersService {
     const history =
       (await this.orderModel.unscoped().count({ where: { [Op.or]: [{ accountHolderId: userId }, { threePlId: userId }] } })) +
       (await this.orderItemModel.count({ where: { stockOwnerId: userId } })) +
-      (await this.productModel.count({ where: { [Op.or]: [{ stockOwnerId: userId }, { threePlId: userId }] } })) +
+      (await this.productModel.count({
+        where: {
+          [Op.or]: [
+            { stockOwnerId: userId },
+            // A 3PL holding stock of any product (product_stocks).
+            { id: { [Op.in]: Sequelize.literal(`(SELECT product_id FROM product_stocks WHERE three_pl_id = ${this.productModel.sequelize!.escape(userId)})`) } },
+          ],
+        },
+      })) +
       (await this.invoiceModel.count({ where: { [Op.or]: [{ userId }, { generatedByUserId: userId }] } }));
     if (history > 0) {
       throw new ConflictException("This user has orders, products or invoices, so they can't be deleted — disable them instead");

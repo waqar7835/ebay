@@ -3,6 +3,7 @@ import { ProductFulfillmentType } from "@ebay-order-management/shared";
 import { toNullableDecimal } from "../decimal.util";
 import { Company } from "./company.model";
 import { User } from "./user.model";
+import { ProductStock } from "./product-stock.model";
 
 @Table({ tableName: "products", underscored: true })
 export class Product extends Model {
@@ -20,7 +21,7 @@ export class Product extends Model {
   @BelongsTo(() => User, "stockOwnerId")
   declare stockOwner: User;
 
-  // Set on a variation: its main product. Title, type, Stock Owner and 3PL are kept in sync with the main product.
+  // Set on a variation: its main product. Title, type, Stock Owner and the list of 3PLs are kept in sync with the main product.
   @ForeignKey(() => Product)
   @Column({ type: DataType.UUID, allowNull: true, field: "parent_product_id" })
   declare parentProductId: string | null;
@@ -44,12 +45,10 @@ export class Product extends Model {
   })
   declare fulfillmentType: ProductFulfillmentType;
 
-  @ForeignKey(() => User)
-  @Column({ type: DataType.UUID, allowNull: true, field: "three_pl_id" })
-  declare threePlId: string | null;
-
-  @BelongsTo(() => User, "threePlId")
-  declare threePl: User | null;
+  // STOCK products: units held at each 3PL (one row per 3PL; at least one). A variation has the same 3PLs as its main
+  // product, with its own quantities. Empty for DROPSHIP.
+  @HasMany(() => ProductStock, "productId")
+  declare stocks: ProductStock[];
 
   @Column({ type: DataType.STRING, allowNull: false })
   declare sku: string;
@@ -103,6 +102,7 @@ export class Product extends Model {
   })
   declare sellPrice: number | null;
 
+  // Total over `stocks` (kept in sync whenever a row changes).
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0, field: "stock_quantity" })
   declare stockQuantity: number;
 }

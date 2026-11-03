@@ -112,20 +112,57 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
   const selected = rows.map((r) => (r?.productId ? productById.get(r.productId) : undefined));
   const chosen = selected.filter((p): p is ProductDto => !!p);
   const isDropship = mode === "DROPSHIP";
-  const warehouses = new Set(chosen.filter((p) => p.fulfillmentType === "STOCK").map((p) => p.threePlId).filter(Boolean));
-  const mixedWarehouses = warehouses.size > 1;
   const unitCount = rows.reduce((sum, r) => sum + (r?.quantity ?? 0), 0);
 
-  const eligibleThreePls = users.filter(
-    (u) => u.roles.includes("THREE_PL" as never) && u.threePlProfile?.fulfillmentType === mode,
-  );
   const userById = new Map(users.map((u) => [u.id, u]));
+  // --- Stock orders ship from one 3PL (decided 2026-11-03: products first, then a 3PL holding all of them). ---
+  const stockAt = (p: ProductDto, threePl: string) => p.stocks?.find((st) => st.threePlId === threePl);
+  const initialProductIds = new Set(initial?.items.map((i) => i.productId) ?? []);
+  /** Can the order ship from this 3PL? It must hold every product — on edit, products already on the order are kept as they are at the order's own 3PL. */
+  const canShipFrom = (threePl: string) =>
+    chosen.every((p) => !!stockAt(p, threePl) || (!!initial && threePl === initial.threePlId && initialProductIds.has(p.id)));
+  const eligibleThreePls = users.filter((u) => {
+    if (!u.roles.includes("THREE_PL" as never) || u.threePlProfile?.fulfillmentType !== mode) return false;
+    return isDropship || canShipFrom(u.id);
+  });
+  // Products picked but not all loaded yet: don't judge the 3PLs.
+  const productsReady = rows.every((r) => !r?.productId || productById.has(r.productId));
+  const noCommonThreePl = !isDropship && productsReady && chosen.length > 0 && eligibleThreePls.length === 0;
 
   // --- Currencies: each party's amounts are entered in their own currency, converted to PKR on save. ---
   // Created before currencies: plain PKR amounts, read as each party's current currency and converted on save.
   const legacy = !!initial && !initial.exchangeRates;
   const accountHolderId: string | undefined = Form.useWatch("accountHolderId", form) ?? initial?.accountHolderId;
   const threePlId: string | undefined = Form.useWatch("threePlId", form) ?? undefined;
+
+  // Stock: the 3PL follows the products — picked automatically when only one holds them all, cleared when the picked
+  // one no longer does.
+  const eligibleKey = isDropship ? "" : eligibleThreePls.map((u) => u.id).join(",");
+  useEffect(() => {
+    if (isDropship || !productsReady || chosen.length === 0 || users.length === 0) return;
+    const ids = eligibleKey ? eligibleKey.split(",") : [];
+    if (ids.length === 1 && threePlId !== ids[0]) form.setFieldValue("threePlId", ids[0]);
+    else if (threePlId && !ids.includes(threePlId)) form.setFieldValue("threePlId", undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eligibleKey, isDropship, productsReady, users.length]);
+
+  /**
+   * Units this line still takes from the picked 3PL, and what it has: on edit, units the order already holds there were
+   * taken when it was saved. Stock can go below zero (only a warning).
+   */
+  function stockShortfall(index: number): { name: string; available: number; after: number } | null {
+    const p = selected[index];
+    if (isDropship || !p || !threePlId) return null;
+    const row = stockAt(p, threePlId);
+    if (!row) return null;
+    const held =
+      initial && initial.threePlId === threePlId && !initial.restocked
+        ? (initial.items.find((i) => i.productId === p.id)?.quantity ?? 0)
+        : 0;
+    const needed = (rows[index]?.quantity ?? 0) - held;
+    if (needed <= 0 || needed <= row.quantity) return null;
+    return { name: row.threePlName || "This 3PL", available: row.quantity, after: row.quantity - needed };
+  }
   const accountHolderChanged = !!initial && accountHolderId !== initial.accountHolderId;
   const ahUserCurrency = accountHolderId ? userById.get(accountHolderId)?.currency : undefined;
   // Dropship buy totals are entered in the order's 3PL's currency.
@@ -261,17 +298,12 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
     );
   const addedProduct = !!initial && rows.some((r) => r?.productId && !initial.items.some((i) => i.productId === r.productId));
 
-  /** Options for one row: only products of the order's type; other rows' products are hidden; Stock products must share a 3PL. */
+  /** Options for one row: only products of the order's type; other rows' products are hidden. */
   function optionsFor(index: number) {
     const others = rows.map((r, i) => (i === index ? undefined : r?.productId)).filter(Boolean);
-    const otherProducts = others.map((id) => productById.get(id!)).filter((p): p is ProductDto => !!p);
-    const otherWarehouse = otherProducts.find((p) => p.fulfillmentType === "STOCK")?.threePlId;
     return products
       .filter((p) => p.fulfillmentType === mode && !others.includes(p.id))
-      .map((p) => {
-        const reason = !isDropship && otherWarehouse && p.threePlId !== otherWarehouse ? "at another 3PL" : null;
-        return { value: p.id, label: `${p.sku} — ${productLabel(p)}`, disabled: !!reason, reason, product: p };
-      });
+      .map((p) => ({ value: p.id, label: `${p.sku} — ${productLabel(p)}`, product: p }));
   }
 
   function handleModeChange(next: ProductFulfillmentType) {
@@ -279,15 +311,8 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
     form.setFieldsValue({ items: [{ quantity: 1 }], threePlId: undefined, supplierUrl: "" });
   }
 
-  function handleProductChange(index: number, productId: string) {
-    const next = rows.map((r, i) => (i === index ? { ...r, productId } : r));
-    const first = next.map((r) => (r?.productId ? productById.get(r.productId) : undefined)).find(Boolean);
-    // Dropship orders keep whichever 3PL was picked; a Stock order ships from its products' 3PL.
-    if (first?.fulfillmentType === "STOCK") form.setFieldValue("threePlId", first.threePlId ?? undefined);
-  }
-
   async function handleFinish(values: OrderFormValues) {
-    if (mixedWarehouses) return;
+    if (noCommonThreePl) return;
     if (missingRates.length) {
       setFormError(`Enter the PKR exchange rate for ${missingRates.join(", ")}`);
       return;
@@ -349,9 +374,11 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
         }
         rules={[{ required: !isDropship, message: "Select a 3PL" }]}
         extra={
-          eligibleThreePls.length === 0
-            ? `No 3PL users are set up for ${isDropship ? "Dropshipping" : "Stock"} fulfillment yet.`
-            : undefined
+          isDropship && eligibleThreePls.length === 0
+            ? "No 3PL users are set up for Dropshipping fulfillment yet."
+            : !isDropship && eligibleThreePls.length > 1
+              ? "These products are held at more than one 3PL — pick the one to ship from."
+              : undefined
         }
         className="mb-0"
       >
@@ -360,6 +387,24 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
           allowClear={isDropship}
           placeholder={isDropship ? "None" : "Select…"}
           options={userNameOptions(eligibleThreePls)}
+          // Stock: each 3PL with its units of every picked product.
+          optionRender={
+            isDropship
+              ? undefined
+              : (option) => (
+                  <div className="py-0.5">
+                    <div>{option.label}</div>
+                    <div className="text-xs text-slate-500">
+                      {chosen
+                        .map((p) => {
+                          const qty = stockAt(p, String(option.value))?.quantity;
+                          return `${chosen.length > 1 ? `${productLabel(p)}: ` : ""}${qty ?? "not held"}${qty != null && chosen.length === 1 ? " in stock" : ""}`;
+                        })
+                        .join(" · ")}
+                    </div>
+                  </div>
+                )
+          }
         />
       </Form.Item>
       {isDropship && (
@@ -436,7 +481,7 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
                 ? "An order's type can't be changed after it's created."
                 : isDropship
                   ? "Pick any dropship products. Both prices can be filled in later: the buy price (the 3PL can enter it too) is needed before the order ships, the client buying price before the client is invoiced."
-                  : "Stock products can be combined when they're held at the same 3PL."}
+                  : "Pick the products first, then the 3PL to ship from: it must hold all of them (picked for you when only one does)."}
             </p>
             {isDropship && threePlFields}
             <Form.List name="items">
@@ -458,7 +503,6 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
                                 showSearch={searchable}
                                 placeholder="Select a product…"
                                 options={optionsFor(index)}
-                                onChange={(id: string) => handleProductChange(index, id)}
                                 optionRender={(option) => {
                                   const p = option.data.product as ProductDto;
                                   return (
@@ -468,7 +512,6 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
                                         <div className="truncate">{option.data.label}</div>
                                         <div className="text-xs text-slate-500">
                                           {p.fulfillmentType === "DROPSHIP" ? "Dropshipping" : `Stock · ${p.stockQuantity} on hand`}
-                                          {option.data.reason ? ` · ${option.data.reason}` : ""}
                                         </div>
                                       </div>
                                     </div>
@@ -547,11 +590,25 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
                                 </Tag>
                               </span>
                               {product.size && <span>Size {product.size}</span>}
-                              {product.fulfillmentType === "STOCK" && <span>{product.stockQuantity} on hand</span>}
+                              {product.fulfillmentType === "STOCK" &&
+                                (threePlId && stockAt(product, threePlId) ? (
+                                  <span>
+                                    {stockAt(product, threePlId)!.quantity} at {stockAt(product, threePlId)!.threePlName || "the 3PL"}
+                                  </span>
+                                ) : (
+                                  <span>{product.stockQuantity} on hand in total</span>
+                                ))}
                               {product.sellPrice != null && <span>Sell {money(product.sellPrice, product.currency)} / unit</span>}
-                              {product.threePlId && <span>3PL: {userById.get(product.threePlId)?.name ?? userById.get(product.threePlId)?.email ?? "—"}</span>}
                             </div>
                           )}
+                          {(() => {
+                            const short = stockShortfall(index);
+                            return short ? (
+                              <div className="mt-1 text-xs text-orange-600">
+                                {`${short.name} has only ${short.available} in stock — saving takes it to ${short.after}.`}
+                              </div>
+                            ) : null;
+                          })()}
                         </div>
                       </div>
                     );
@@ -563,8 +620,8 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
               )}
             </Form.List>
 
-            {mixedWarehouses && (
-              <Alert type="error" showIcon className="mt-3" title="These products are held at different 3PLs — an order can only ship from one 3PL." />
+            {noCommonThreePl && (
+              <Alert type="error" showIcon className="mt-3" title="No single 3PL holds all these products — split them into separate orders." />
             )}
             {addedProduct && (
               <Alert
@@ -703,7 +760,7 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
 
           <Card>
             {formError && <Alert type="error" title={formError} className="mb-4" showIcon />}
-            <Button type="primary" htmlType="submit" loading={submitting} disabled={mixedWarehouses} block size="large">
+            <Button type="primary" htmlType="submit" loading={submitting} disabled={noCommonThreePl} block size="large">
               {submitting ? submittingLabel : submitLabel}
             </Button>
           </Card>

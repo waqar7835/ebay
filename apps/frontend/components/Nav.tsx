@@ -68,10 +68,12 @@ export default function Nav() {
   const isAdmin = user?.roles.includes("ADMIN" as Role) ?? false;
   const perms = user?.staffPermissions;
   const isStockOwner = user?.roles.includes("STOCK_OWNER" as Role) ?? false;
+  // 3PLs see the products they hold (their own stock, no prices).
+  const isThreePl = user?.roles.includes("THREE_PL" as Role) ?? false;
 
   const links = [
     { href: "/dashboard", label: "Dashboard", show: true, icon: <NavIcon icon={<DashboardOutlined />} bg="#dbeafe" fg="#2563eb" /> },
-    { href: "/products", label: "Products", show: isAdmin || !!perms?.canManageStock || isStockOwner, icon: <NavIcon icon={<AppstoreOutlined />} bg="#d1fae5" fg="#059669" /> },
+    { href: "/products", label: "Products", show: isAdmin || !!perms?.canManageStock || isStockOwner || isThreePl, icon: <NavIcon icon={<AppstoreOutlined />} bg="#d1fae5" fg="#059669" /> },
     { href: "/orders", label: "Orders", show: true, icon: <NavIcon icon={<ShoppingCartOutlined />} bg="#ede9fe" fg="#7c3aed" /> },
     { href: "/users", label: "Users", show: isAdmin || !!perms?.canManageUsers, icon: <NavIcon icon={<TeamOutlined />} bg="#e0f2fe" fg="#0284c7" /> },
     { href: "/invoices", label: "Invoices", show: true, icon: <NavIcon icon={<FileTextOutlined />} bg="#fce7f3" fg="#db2777" /> },

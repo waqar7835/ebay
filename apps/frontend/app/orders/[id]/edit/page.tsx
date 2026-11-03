@@ -9,6 +9,7 @@ import Nav from "@/components/Nav";
 import OrderForm from "@/components/OrderForm";
 import { isInvoiced } from "@/components/InvoiceStatusTags";
 import { getToken, listOrders, updateOrder, uploadOrderShippingLabel } from "@/lib/api";
+import { passStockWarnings } from "@/lib/stockWarnings";
 import { listHref } from "@/lib/listQuery";
 
 export default function EditOrderPage() {
@@ -57,7 +58,9 @@ export default function EditOrderPage() {
             submitLabel="Save changes"
             submittingLabel="Saving..."
             onSubmit={async (payload, shippingLabel) => {
-              await updateOrder(orderId, payload);
+              const saved = await updateOrder(orderId, payload);
+              // Shown on the orders list: stock that couldn't move because its 3PL is no longer on the product.
+              passStockWarnings(saved.stockWarnings);
               if (shippingLabel) await uploadOrderShippingLabel(orderId, shippingLabel);
               router.push(listHref("/orders"));
             }}

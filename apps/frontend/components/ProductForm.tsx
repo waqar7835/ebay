@@ -4,6 +4,7 @@ import type { ProductDto, ProductFulfillmentType, UserDto } from "@ebay-order-ma
 import { Alert, Button, Card, Form, Input, InputNumber, Select, Tag } from "antd";
 import { useEffect, useState } from "react";
 import ProductImagesUpload, { productImageItems, type ProductImageItem } from "@/components/ProductImagesUpload";
+import ProductStockRows, { stockFormValues, stockPayloads, stockThreePls, type StockRowValues } from "@/components/ProductStockRows";
 import ProductVariations, { variationFormValues, variationPayloads, type VariationFormValues } from "@/components/ProductVariations";
 import { listUsers, type CreateProductPayload } from "@/lib/api";
 import { currencySymbol } from "@/lib/currency";
@@ -30,11 +31,11 @@ interface ProductFormValues {
   size?: string;
   fulfillmentType: ProductFulfillmentType;
   stockOwnerId?: string;
-  threePlId?: string;
+  /** The 3PLs holding the product and the units at each (Stock only). */
+  stocks: StockRowValues[];
   stockOwnerCost?: number;
   buyPrice?: number;
   sellPrice?: number;
-  stockQuantity?: number;
   variations: VariationFormValues[];
 }
 
@@ -51,7 +52,8 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
   }, []);
 
   const stockOwners = users.filter((u) => u.roles.includes("STOCK_OWNER" as never));
-  const threePls = users.filter((u) => u.roles.includes("THREE_PL" as never));
+  // Active Stock 3PLs, plus any already holding this product.
+  const threePls = stockThreePls(users, (initial?.stocks ?? []).map((s) => s.threePlId));
 
   const fulfillmentType = Form.useWatch("fulfillmentType", form) ?? initial?.fulfillmentType ?? "STOCK";
   const isStock = fulfillmentType === ("STOCK" as ProductFulfillmentType);
@@ -68,6 +70,7 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
     }
     // Read from the store: it also holds each row's id / auto-SKU flag.
     const variations: VariationFormValues[] = form.getFieldValue("variations") ?? [];
+    const stocks = stockPayloads(values.stocks ?? []);
     setFormError(null);
     setSubmitting(true);
     try {
@@ -75,7 +78,6 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
         {
           stockOwnerId: isStock ? values.stockOwnerId : undefined,
           fulfillmentType: values.fulfillmentType,
-          threePlId: isStock ? values.threePlId : undefined,
           sku: values.sku,
           title: values.title,
           color: values.color?.trim() || undefined,
@@ -83,8 +85,8 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
           stockOwnerCost: isStock ? Number(values.stockOwnerCost ?? 0) : undefined,
           buyPrice: isStock ? Number(values.buyPrice ?? 0) : undefined,
           sellPrice: isStock ? Number(values.sellPrice ?? 0) : undefined,
-          stockQuantity: isStock ? Number(values.stockQuantity ?? 0) : undefined,
-          variations: variationPayloads(variations, isStock),
+          stocks: isStock ? stocks : undefined,
+          variations: variationPayloads(variations, isStock, stocks.map((s) => s.threePlId)),
         },
         images.map((i) => i.file ?? i.existingUrl!),
         variations.map((v) => (v.images ?? []).map((i) => i.file ?? i.existingUrl!)),
@@ -108,11 +110,10 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
         size: initial?.size ?? "",
         fulfillmentType: initial?.fulfillmentType ?? ("STOCK" as ProductFulfillmentType),
         stockOwnerId: initial?.stockOwnerId ?? undefined,
-        threePlId: initial?.threePlId ?? undefined,
+        stocks: stockFormValues(initial?.stocks),
         stockOwnerCost: initial?.stockOwnerCost ?? 0,
         buyPrice: initial?.buyPrice ?? 0,
         sellPrice: initial?.sellPrice ?? 0,
-        stockQuantity: initial?.stockQuantity ?? 0,
         variations: variationFormValues(initial?.variations),
       }}
     >
@@ -161,21 +162,19 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
           </Card>
 
           {isStock && (
-            <Card title="Stock Owner & warehouse">
+            <Card title="Stock Owner & warehouses">
               <div className="grid gap-x-4 sm:grid-cols-2">
-                <Form.Item name="stockOwnerId" label="Stock Owner" rules={[{ required: true, message: "Select a Stock Owner" }]} className="mb-0">
+                <Form.Item name="stockOwnerId" label="Stock Owner" rules={[{ required: true, message: "Select a Stock Owner" }]}>
                   <Select showSearch={searchable} placeholder="Select…" options={userNameOptions(stockOwners)} />
                 </Form.Item>
-                <Form.Item name="threePlId" label="3PL warehouse" rules={[{ required: true, message: "Select a 3PL warehouse" }]} className="mb-0">
-                  <Select showSearch={searchable} placeholder="Select…" options={userNameOptions(threePls)} />
-                </Form.Item>
               </div>
+              <ProductStockRows threePls={threePls} disabled={submitting} />
             </Card>
           )}
 
           {isStock && (
-            <Card title={priceCurrency ? `Pricing & stock (${priceCurrency})` : "Pricing & stock"}>
-              <div className="grid gap-x-4 sm:grid-cols-2 xl:grid-cols-4">
+            <Card title={priceCurrency ? `Pricing (${priceCurrency})` : "Pricing"}>
+              <div className="grid gap-x-4 sm:grid-cols-3">
                 <Form.Item name="stockOwnerCost" label="Stock Owner cost" tooltip="What the item costs the Stock Owner" className="mb-0">
                   <InputNumber prefix={pricePrefix} min={0} step={0.01} className="w-full" />
                 </Form.Item>
@@ -185,14 +184,11 @@ export default function ProductForm({ initial, submitLabel, submittingLabel, onS
                 <Form.Item name="sellPrice" label="Sell price" tooltip="Charged to the Account Holder per unit" className="mb-0">
                   <InputNumber prefix={pricePrefix} min={0} step={0.01} className="w-full" />
                 </Form.Item>
-                <Form.Item name="stockQuantity" label="Stock quantity" className="mb-0">
-                  <InputNumber min={0} precision={0} className="w-full" />
-                </Form.Item>
               </div>
             </Card>
           )}
 
-          <ProductVariations isStock={isStock} pricePrefix={pricePrefix} disabled={submitting} />
+          <ProductVariations isStock={isStock} pricePrefix={pricePrefix} disabled={submitting} threePls={threePls} />
         </div>
 
         <div className="flex flex-col gap-6">

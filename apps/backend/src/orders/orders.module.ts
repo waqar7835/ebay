@@ -4,6 +4,7 @@ import { Order } from "../database/models/order.model";
 import { OrderItem } from "../database/models/order-item.model";
 import { Company } from "../database/models/company.model";
 import { Product } from "../database/models/product.model";
+import { ProductStock } from "../database/models/product-stock.model";
 import { AccountHolderProfile } from "../database/models/account-holder-profile.model";
 import { StockOwnerProfile } from "../database/models/stock-owner-profile.model";
 import { ThreePlProfile } from "../database/models/three-pl-profile.model";
@@ -24,6 +25,7 @@ import { OrdersScheduler } from "./orders.scheduler";
       OrderItem,
       Company,
       Product,
+      ProductStock,
       AccountHolderProfile,
       StockOwnerProfile,
       ThreePlProfile,

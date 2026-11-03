@@ -5,6 +5,7 @@ import {
   Role,
   type Currency,
   type ProductFulfillmentType,
+  type ProductStockDto,
   type UserDto,
 } from "@ebay-order-management/shared";
 import { Alert, Badge, Button, Card, Image, Input, Select, Table, Tag, type TableColumnsType } from "antd";
@@ -12,6 +13,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Nav from "@/components/Nav";
 import { EditAction } from "@/components/RowActions";
+import StockLevel, { StockQty } from "@/components/StockLevel";
 import { getStoredUser, getToken, listProductsPage, listUsers, mediaUrl } from "@/lib/api";
 import { money } from "@/lib/currency";
 import { buildListQuery, pagingQuery, readPaging, useListUrl } from "@/lib/listQuery";
@@ -28,7 +30,8 @@ interface ProductRow {
   fulfillmentType: ProductFulfillmentType;
   stockOwnerId: string | null;
   stockOwnerName?: string | null;
-  threePlId: string | null;
+  /** Units per 3PL (a 3PL only gets its own row; an Account Holder none). */
+  stocks: ProductStockDto[];
   currency: Currency | null;
   stockOwnerCost: number | null;
   buyPrice: number | null;
@@ -47,6 +50,7 @@ interface ProductFilter {
   fulfillmentType: string;
   title: string;
   sku: string;
+  threePlId: string;
 }
 
 export default function ProductsPage() {
@@ -69,12 +73,14 @@ function ProductsList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stockOwners, setStockOwners] = useState<UserDto[]>([]);
+  const [threePls, setThreePls] = useState<UserDto[]>([]);
   // Applied filters; the title / SKU boxes are copied in after a short pause so each keystroke isn't a request.
   const [filter, setFilter] = useState<ProductFilter>(() => ({
     stockOwnerId: params.get("stockOwnerId") ?? "",
     fulfillmentType: params.get("fulfillmentType") ?? "",
     title: params.get("title") ?? "",
     sku: params.get("sku") ?? "",
+    threePlId: params.get("threePlId") ?? "",
   }));
   const [titleInput, setTitleInput] = useState(filter.title);
   const [skuInput, setSkuInput] = useState(filter.sku);
@@ -83,15 +89,23 @@ function ProductsList() {
   const roles = getStoredUser()?.roles ?? [];
   const isStockOwnerView =
     roles.includes(Role.STOCK_OWNER) && !roles.some((r) => r === Role.ADMIN || r === Role.STAFF || r === Role.ACCOUNT_HOLDER);
+  // A 3PL gets a read-only list of the products it holds, with its own stock and no prices (same test as the backend).
+  const isThreePlView =
+    roles.includes(Role.THREE_PL) &&
+    !roles.some((r) => r === Role.ADMIN || r === Role.STAFF || r === Role.ACCOUNT_HOLDER || r === Role.STOCK_OWNER);
+  const isManagerView = roles.some((r) => r === Role.ADMIN || r === Role.STAFF);
 
   useEffect(() => {
     if (!getToken()) {
       router.push("/login");
       return;
     }
-    if (!isStockOwnerView)
+    if (!isStockOwnerView && !isThreePlView)
       listUsers()
-        .then((users) => setStockOwners(users.filter((u) => u.roles.includes(Role.STOCK_OWNER))))
+        .then((users) => {
+          setStockOwners(users.filter((u) => u.roles.includes(Role.STOCK_OWNER)));
+          setThreePls(users.filter((u) => u.roles.includes(Role.THREE_PL) && u.threePlProfile?.fulfillmentType === "STOCK"));
+        })
         .catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
@@ -107,6 +121,7 @@ function ProductsList() {
         fulfillmentType: (filter.fulfillmentType || undefined) as ProductFulfillmentType | undefined,
         title: filter.title || undefined,
         sku: filter.sku || undefined,
+        threePlId: (isManagerView && filter.threePlId) || undefined,
       },
       page,
       pageSize,
@@ -157,7 +172,12 @@ function ProductsList() {
     // In the Stock Owner's currency.
     { title: "Buy", dataIndex: "buyPrice", render: (v: number | null, p) => money(v, p.currency) },
     { title: "Sell", dataIndex: "sellPrice", render: (v: number | null, p) => money(v, p.currency) },
-    { title: "Stock", key: "stock", render: (_, p) => (p.fulfillmentType === "DROPSHIP" ? "—" : p.stockQuantity) },
+    // Managers: total + per-3PL breakdown on hover. Account Holders get no breakdown (just the total).
+    {
+      title: "Stock",
+      key: "stock",
+      render: (_, p) => (p.fulfillmentType === "DROPSHIP" ? "—" : <StockLevel total={p.stockQuantity} stocks={p.stocks ?? []} mode="tooltip" />),
+    },
     {
       key: "actions",
       // Variations are edited on their main product's page.
@@ -172,9 +192,15 @@ function ProductsList() {
     {
       title: "Stock",
       key: "stock",
-      render: (_, p) => (p.fulfillmentType === "DROPSHIP" ? "—" : <StockLevel qty={p.stockQuantity} />),
+      // Total with each 3PL's units listed under it.
+      render: (_, p) => (p.fulfillmentType === "DROPSHIP" ? "—" : <StockLevel total={p.stockQuantity} stocks={p.stocks ?? []} mode="list" />),
     },
     { title: "Sold", dataIndex: "unitsSold", render: (v?: number) => v ?? 0 },
+  ];
+
+  // A 3PL: its own units only, no prices.
+  const threePlColumns: TableColumnsType<ProductRow> = [
+    { title: "Your stock", key: "stock", render: (_, p) => <StockQty qty={p.stockQuantity} /> },
   ];
 
   const columns: TableColumnsType<ProductRow> = [
@@ -207,7 +233,7 @@ function ProductsList() {
       // The main product counts as one of them.
       render: (_, p) => (p.parentProductId ? null : p.variations ? <Tag className="mr-0">{p.variations.length + 1}</Tag> : "—"),
     },
-    ...(isStockOwnerView ? stockOwnerColumns : adminColumns),
+    ...(isStockOwnerView ? stockOwnerColumns : isThreePlView ? threePlColumns : adminColumns),
   ];
 
   return (
@@ -216,7 +242,7 @@ function ProductsList() {
       <main className="ml-56 p-8">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Products</h1>
-          {!isStockOwnerView && (
+          {!isStockOwnerView && !isThreePlView && (
             <Button type="primary" onClick={() => router.push("/products/add")}>
               Add product
             </Button>
@@ -247,7 +273,21 @@ function ProductsList() {
                 className="mt-1 flex w-44"
               />
             </label>
-            {!isStockOwnerView && (
+            {isManagerView && (
+              <label>
+                3PL
+                <Select
+                  showSearch={searchable}
+                  allowClear
+                  placeholder="All"
+                  value={filter.threePlId || undefined}
+                  onChange={(v) => updateFilter({ threePlId: v ?? "" })}
+                  options={userNameOptions(threePls)}
+                  className="mt-1 flex w-56"
+                />
+              </label>
+            )}
+            {!isStockOwnerView && !isThreePlView && (
               <label>
                 Product owner
                 <Select
@@ -303,11 +343,4 @@ function ProductsList() {
       </main>
     </>
   );
-}
-
-/** Remaining stock: red at 0, orange when running low (1–5), a plain number otherwise. */
-function StockLevel({ qty }: { qty: number }) {
-  if (qty <= 0) return <Tag color="red">Out of stock</Tag>;
-  if (qty <= 5) return <Tag color="orange">{qty} left</Tag>;
-  return <>{qty}</>;
 }

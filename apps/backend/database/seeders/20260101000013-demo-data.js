@@ -114,7 +114,6 @@ module.exports = {
         company_id: companyId,
         stock_owner_id: stockOwnerId,
         fulfillment_type: "STOCK",
-        three_pl_id: threePlId,
         sku: "DEMO-SKU-1",
         title: "Demo Product",
         image_url: null,
@@ -125,6 +124,11 @@ module.exports = {
         created_at: now,
         updated_at: now,
       },
+    ]);
+
+    // Stock per 3PL (the product's total above is the sum of these rows).
+    await queryInterface.bulkInsert("product_stocks", [
+      { id: randomUUID(), product_id: productId, three_pl_id: threePlId, quantity: 50, created_at: now, updated_at: now },
     ]);
 
     console.log("Seeded demo company. Login with admin@example.com / accountholder@example.com / stockowner@example.com / threepl@example.com, password: changeme123");

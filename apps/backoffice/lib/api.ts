@@ -17,6 +17,7 @@ import type {
   PlatformSettingsDto,
   PublicSiteDto,
   ProductDto,
+  ProductStockInput,
   ProductFulfillmentType,
   Role,
   StaffPermissionsDto,
@@ -262,6 +263,8 @@ export interface ProductListFilters {
   fulfillmentType?: ProductFulfillmentType;
   title?: string;
   sku?: string;
+  /** Products held at this 3PL. */
+  threePlId?: string;
 }
 
 /** One page of the Products list (page is 1-based), filtered on the server. */
@@ -271,13 +274,13 @@ export function listProductsPage(filters: ProductListFilters, page: number, page
   if (filters.fulfillmentType) params.set("fulfillmentType", filters.fulfillmentType);
   if (filters.title?.trim()) params.set("title", filters.title.trim());
   if (filters.sku?.trim()) params.set("sku", filters.sku.trim());
+  if (filters.threePlId) params.set("threePlId", filters.threePlId);
   return request<PaginatedResult<ProductDto>>(`/products?${params}`);
 }
 
 export interface CreateProductPayload {
   stockOwnerId?: string;
   fulfillmentType: ProductFulfillmentType;
-  threePlId?: string;
   sku: string;
   title: string;
   color?: string;
@@ -285,7 +288,8 @@ export interface CreateProductPayload {
   stockOwnerCost?: number;
   buyPrice?: number;
   sellPrice?: number;
-  stockQuantity?: number;
+  /** STOCK: the 3PLs holding it (at least one, each once) and the units at each. */
+  stocks?: ProductStockInput[];
   /** The product's whole list of variations (omit to keep them as they are); ones without an id are created. */
   variations?: ProductVariationPayload[];
 }
@@ -299,7 +303,8 @@ export interface ProductVariationPayload {
   stockOwnerCost?: number;
   buyPrice?: number;
   sellPrice?: number;
-  stockQuantity?: number;
+  /** Its units at each of the main product's 3PLs. */
+  stocks?: ProductStockInput[];
 }
 
 export function createProduct(payload: CreateProductPayload) {
@@ -311,8 +316,9 @@ export function updateProduct(productId: string, payload: CreateProductPayload) 
   return request<ProductDto>(`/products/${productId}`, { method: "PATCH", body: JSON.stringify(payload) });
 }
 
-export function updateStock(productId: string, stockQuantity: number) {
-  return request<ProductDto>(`/products/${productId}/stock`, { method: "PATCH", body: JSON.stringify({ stockQuantity }) });
+/** Sets the units of a product at one of its 3PLs. */
+export function updateStock(productId: string, threePlId: string, stockQuantity: number) {
+  return request<ProductDto>(`/products/${productId}/stock`, { method: "PATCH", body: JSON.stringify({ threePlId, stockQuantity }) });
 }
 
 /**

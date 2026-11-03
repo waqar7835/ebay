@@ -153,16 +153,32 @@ export interface UserDto {
 
 export const PRODUCT_MAX_IMAGES = 4;
 
+/**
+ * Units of a STOCK product held at one 3PL (decided 2026-11-03: a product can be at several 3PLs, each with its own
+ * quantity; variations share their main product's 3PLs). Can be negative (orders may go past the stock on hand).
+ */
+export interface ProductStockDto {
+  threePlId: string;
+  /** The 3PL's name (email when unnamed). */
+  threePlName: string;
+  quantity: number;
+}
+
+/** One 3PL row as sent when creating / editing a STOCK product. */
+export interface ProductStockInput {
+  threePlId: string;
+  quantity: number;
+}
+
 export interface ProductDto {
   id: string;
   companyId: string;
   // Null for DROPSHIP products: no Stock Owner, no prices, no stock held.
   stockOwnerId: string | null;
   fulfillmentType: ProductFulfillmentType;
-  threePlId: string | null;
   sku: string;
   title: string;
-  /** Set on a variation: its main product (title, type, Stock Owner and 3PL always match it). */
+  /** Set on a variation: its main product (title, type, Stock Owner and list of 3PLs always match it). */
   parentProductId: string | null;
   /** Order among the main product's variations. */
   position: number;
@@ -184,7 +200,16 @@ export interface ProductDto {
   stockOwnerCost: number | null;
   buyPrice: number | null;
   sellPrice: number | null;
+  /**
+   * Total over `stocks`. For a 3PL viewer it's that 3PL's own quantity only (they only receive products held with
+   * them, without prices).
+   */
   stockQuantity: number;
+  /**
+   * STOCK products: units per 3PL, in the order they were added. Managers and Stock Owners get every row, a 3PL only
+   * its own, Account Holders none (they see the total only). Empty for DROPSHIP.
+   */
+  stocks: ProductStockDto[];
   createdAt: string;
   updatedAt: string;
 }
@@ -297,6 +322,13 @@ export interface OrderDto {
    */
   exchangeRates: ExchangeRates | null;
   exchangeRatesAt: string | null;
+  /**
+   * Only on the response to a save / status change that should have moved stock at a 3PL that's no longer on the
+   * product (decided 2026-11-03): no stock moved for those lines, and each message asks the admin to adjust it by hand.
+   */
+  stockWarnings?: string[];
+  /** Its units are back in stock (cancelled, or refunded with the product coming back), so it holds none. */
+  restocked: boolean;
   createdAt: string;
   updatedAt: string;
   deliveredAt: string | null;
