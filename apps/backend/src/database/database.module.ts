@@ -23,6 +23,9 @@ import { SubscriptionPayment } from "./models/subscription-payment.model";
 import { ExchangeRate } from "./models/exchange-rate.model";
 import { InvoiceTemplate } from "./models/invoice-template.model";
 import { PlatformSetting } from "./models/platform-setting.model";
+import { ExpenseCategory } from "./models/expense-category.model";
+import { Expense } from "./models/expense.model";
+import { ProfitStatement } from "./models/profit-statement.model";
 
 export const ALL_MODELS = [
   Company,
@@ -47,6 +50,9 @@ export const ALL_MODELS = [
   SubscriptionPayment,
   ExchangeRate,
   PlatformSetting,
+  ExpenseCategory,
+  Expense,
+  ProfitStatement,
 ];
 
 @Module({

@@ -67,11 +67,67 @@ export class FinanceService {
     return round2((item.buyPriceSnapshot ?? 0) * item.quantity - itemShareCut(item));
   }
 
+  /**
+   * Where an order's company profit comes from (profit statements, 2026-11-05), PKR: the company's share of the Account
+   * Holder profit, product markup + PROFIT_SHARE cut per Stock Owner (dropship lines have no Stock Owner: key null), and
+   * the 3PL markup. Same figures as `companyProfit`, split up.
+   */
+  companyProfitBreakdown(order: Order): CompanyProfitBreakdown {
+    const f = this.compute(order);
+    const bySource = new Map<string | null, { markup: number; cut: number }>();
+    for (const item of order.items ?? []) {
+      const key = item.stockOwnerId ?? null;
+      const entry = bySource.get(key) ?? { markup: 0, cut: 0 };
+      const buy =
+        item.buyTotalSnapshot != null
+          ? dropshipNetBuy(item.buyTotalSnapshot, order.threePlDiscountPercent)
+          : (item.buyPriceSnapshot ?? 0) * item.quantity;
+      entry.markup += lineSellTotal(item) - buy;
+      entry.cut += itemShareCut(item);
+      bySource.set(key, entry);
+    }
+    const sources = [...bySource].map(([stockOwnerId, v]) => ({
+      stockOwnerId,
+      markup: round2(v.markup),
+      cut: round2(v.cut),
+    }));
+    // The order's totals are compute()'s (rounded once), so `total` always equals companyProfit(); any paisa lost by
+    // rounding each source goes to the largest one, so the sources still add up to those totals.
+    const productMarkup = round2(f.productMarkup);
+    const stockOwnerCut = round2(f.stockOwnerShareCut);
+    if (sources.length) {
+      const largest = (pick: (s: (typeof sources)[number]) => number) =>
+        sources.reduce((a, b) => (Math.abs(pick(b)) > Math.abs(pick(a)) ? b : a));
+      const markupGap = round2(productMarkup - sources.reduce((sum, x) => sum + x.markup, 0));
+      if (markupGap) largest((x) => x.markup).markup = round2(largest((x) => x.markup).markup + markupGap);
+      const cutGap = round2(stockOwnerCut - sources.reduce((sum, x) => sum + x.cut, 0));
+      if (cutGap) largest((x) => x.cut).cut = round2(largest((x) => x.cut).cut + cutGap);
+    }
+    return {
+      accountHolderShare: f.companyRemainderFromOrder,
+      productMarkup,
+      stockOwnerCut,
+      threePlMarkup: f.threePlMarkup,
+      sources,
+      total: this.companyProfit(order),
+    };
+  }
+
   /** Total company profit contribution from a single order (all four sources). */
   companyProfit(order: Order): number {
     const f = this.compute(order);
     return round2(f.productMarkup + f.threePlMarkup + f.companyRemainderFromOrder + f.stockOwnerShareCut);
   }
+}
+
+export interface CompanyProfitBreakdown {
+  accountHolderShare: number;
+  productMarkup: number;
+  stockOwnerCut: number;
+  threePlMarkup: number;
+  /** Per Stock Owner (null = dropship lines): product markup + PROFIT_SHARE cut. */
+  sources: { stockOwnerId: string | null; markup: number; cut: number }[];
+  total: number;
 }
 
 /**

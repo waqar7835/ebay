@@ -65,4 +65,8 @@ export class InvoiceLineItem extends Model {
   /** Breakdown the PDF is drawn from, snapshotted at approval (null on MISC lines). */
   @Column({ type: DataType.JSONB, allowNull: true })
   declare details: InvoiceLineDetails | null;
+
+  /** MISC lines: the profit statement that counted this line (null = not counted yet). */
+  @Column({ type: DataType.UUID, allowNull: true, field: "profit_statement_id" })
+  declare profitStatementId: string | null;
 }

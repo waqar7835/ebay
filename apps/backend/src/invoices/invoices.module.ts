@@ -36,6 +36,6 @@ import { InvoiceTemplatesService } from "./templates/invoice-templates.service";
   ],
   controllers: [InvoicesController, InvoiceTemplatesController],
   providers: [InvoicesService, InvoiceTemplatesService],
-  exports: [InvoicesService],
+  exports: [InvoicesService, InvoiceTemplatesService],
 })
 export class InvoicesModule {}

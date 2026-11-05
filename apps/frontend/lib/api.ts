@@ -3,6 +3,13 @@ import type {
   BillingPeriodDto,
   CompanyDto,
   ContactMessageInput,
+  ExpenseCategoryDto,
+  ExpenseDto,
+  ExpenseInput,
+  ProfitCycleDto,
+  ProfitOverviewDto,
+  ProfitSplitSettingsDto,
+  ProfitSplitSettingsInput,
   CompanySubscriptionDto,
   Currency,
   ExchangeRateDto,
@@ -113,6 +120,15 @@ export function getStoredUser(): StoredUser | null {
   if (typeof window === "undefined") return null;
   const raw = sessionStore().getItem("user");
   return raw ? JSON.parse(raw) : null;
+}
+
+/** Refreshes the stored login's staff permissions (e.g. after the Admin makes this Staff account a partner). */
+export function updateStoredStaffPermissions(staffPermissions: StaffPermissionsDto | null) {
+  if (typeof window === "undefined") return;
+  const store = sessionStore();
+  const raw = store.getItem("user");
+  if (!raw) return;
+  store.setItem("user", JSON.stringify({ ...JSON.parse(raw), staffPermissions }));
 }
 
 function authHeaders(): Record<string, string> {
@@ -939,4 +955,72 @@ export function subscriptionPrice(plan: Pick<SubscriptionPlanDto, "pricePerMonth
   const subtotal = Math.round(plan.pricePerMonth * period.months * 100) / 100;
   const total = Math.round(subtotal * (1 - period.discountPercent / 100) * 100) / 100;
   return { subtotal, total, perMonth: Math.round((total / period.months) * 100) / 100 };
+}
+
+// --- Profit split, expenses & profit statements (Admin + partners only) ---
+
+export function getProfitSplit() {
+  return request<ProfitSplitSettingsDto>("/profit/split");
+}
+
+export function updateProfitSplit(input: ProfitSplitSettingsInput) {
+  return request<ProfitSplitSettingsDto>("/profit/split", { method: "PUT", body: JSON.stringify(input) });
+}
+
+export function getProfitOverview() {
+  return request<ProfitOverviewDto>("/profit/cycles");
+}
+
+export function getProfitCycle(cycleStart: string) {
+  return request<ProfitCycleDto>(`/profit/cycles/${cycleStart}`);
+}
+
+export function getCurrentProfitCycle() {
+  return request<{ cycle: ProfitCycleDto | null }>("/profit/current");
+}
+
+/** A cycle's PDF: the statement once generated, otherwise a DRAFT. `userId` = that person's statement. */
+export function downloadProfitCyclePdf(cycleStart: string, userId?: string) {
+  return requestBlob(`/profit/cycles/${cycleStart}/pdf${userId ? `?userId=${userId}` : ""}`);
+}
+
+export function generateProfitStatement(cycleStart: string) {
+  return request<ProfitCycleDto>("/profit-statements", { method: "POST", body: JSON.stringify({ cycleStart }) });
+}
+
+export function deleteProfitStatement(id: string) {
+  return request<{ id: string; deleted: boolean }>(`/profit-statements/${id}`, { method: "DELETE" });
+}
+
+export function listExpenses(from?: string, to?: string) {
+  const query = from && to ? `?from=${from}&to=${to}` : "";
+  return request<ExpenseDto[]>(`/expenses${query}`);
+}
+
+export function createExpense(input: ExpenseInput) {
+  return request<ExpenseDto>("/expenses", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateExpense(id: string, input: ExpenseInput) {
+  return request<ExpenseDto>(`/expenses/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function deleteExpense(id: string) {
+  return request<{ id: string; deleted: boolean }>(`/expenses/${id}`, { method: "DELETE" });
+}
+
+export function listExpenseCategories() {
+  return request<ExpenseCategoryDto[]>("/expense-categories");
+}
+
+export function createExpenseCategory(name: string) {
+  return request<ExpenseCategoryDto[]>("/expense-categories", { method: "POST", body: JSON.stringify({ name }) });
+}
+
+export function renameExpenseCategory(id: string, name: string) {
+  return request<ExpenseCategoryDto[]>(`/expense-categories/${id}`, { method: "PATCH", body: JSON.stringify({ name }) });
+}
+
+export function deleteExpenseCategory(id: string) {
+  return request<ExpenseCategoryDto[]>(`/expense-categories/${id}`, { method: "DELETE" });
 }

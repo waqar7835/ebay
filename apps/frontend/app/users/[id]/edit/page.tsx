@@ -21,6 +21,7 @@ import {
   recomputeOrdersCurrency,
   type OrdersOffCurrency,
   uploadUserAvatar,
+  getStoredUser,
 } from "@/lib/api";
 import AvatarUpload from "@/components/AvatarUpload";
 import { currencyOptions, currencySymbol } from "@/lib/currency";
@@ -45,6 +46,9 @@ type StaffPermissionsState = Record<StaffPermissionKey, boolean>;
 
 export default function EditUserPage() {
   const router = useRouter();
+  // Read after mount: the stored login only exists in the browser, so reading it during render breaks hydration.
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => setIsAdmin(getStoredUser()?.roles.includes("ADMIN" as never) ?? false), []);
   const params = useParams<{ id: string }>();
   const userId = params.id;
 
@@ -72,8 +76,10 @@ export default function EditUserPage() {
     canGenerateInvoices: false,
     canViewFinancials: false,
   });
-  const [hasRevenueShare, setHasRevenueShare] = useState(false);
-  const [staffSharePercent, setStaffSharePercent] = useState("0");
+  // Partner (replaces "Revenue share", 2026-11-05) — only the company Admin can change it.
+  const [isPartner, setIsPartner] = useState(false);
+  const [partnerPercent, setPartnerPercent] = useState("0");
+  const [canManageProfitStatements, setCanManageProfitStatements] = useState(false);
 
   const [ahSharePercent, setAhSharePercent] = useState("0");
   const [ahThreePlPriceCharged, setAhThreePlPriceCharged] = useState("");
@@ -111,8 +117,9 @@ export default function EditUserPage() {
             canGenerateInvoices: u.staffProfile.canGenerateInvoices,
             canViewFinancials: u.staffProfile.canViewFinancials,
           });
-          setHasRevenueShare(u.staffProfile.hasRevenueShare);
-          setStaffSharePercent(String(u.staffProfile.sharePercent ?? 0));
+          setIsPartner(u.staffProfile.isPartner);
+          setPartnerPercent(String(u.staffProfile.partnerPercent ?? 0));
+          setCanManageProfitStatements(u.staffProfile.canManageProfitStatements);
         }
         if (u.accountHolderProfile) {
           setAhSharePercent(String(u.accountHolderProfile.sharePercent));
@@ -154,8 +161,9 @@ export default function EditUserPage() {
       if (user.staffProfile) {
         await updateStaffPermissions(userId, {
           ...staffPermissions,
-          hasRevenueShare,
-          sharePercent: hasRevenueShare ? Number(staffSharePercent) : null,
+          isPartner,
+          partnerPercent: isPartner ? Number(partnerPercent) : null,
+          canManageProfitStatements: isPartner && canManageProfitStatements,
         });
       }
       if (user.accountHolderProfile) {
@@ -315,18 +323,33 @@ export default function EditUserPage() {
                           />
                         </label>
                       ))}
-                      <div className="flex items-center justify-between gap-4 pt-3">
-                        <label className="cursor-pointer" htmlFor="revenue-share">
-                          <span className="block font-medium text-slate-800">Revenue share</span>
-                          <span className="block text-xs text-slate-500">Earns a percentage of total company profit</span>
-                        </label>
-                        <div className="flex items-center gap-3">
-                          {hasRevenueShare && (
-                            <InputNumber suffix="%" min={0} max={100} className="w-28" {...numProps(staffSharePercent, setStaffSharePercent)} />
+                      {isAdmin && (
+                        <div className="pb-0 pt-3">
+                          <div className="flex items-center justify-between gap-4">
+                            <label className="cursor-pointer" htmlFor="partner">
+                              <span className="block font-medium text-slate-800">Partner</span>
+                              <span className="block text-xs text-slate-500">
+                                Takes a % of each billing cycle&apos;s company profit and can add expenses (Profit &amp; Expenses page)
+                              </span>
+                            </label>
+                            <div className="flex items-center gap-3">
+                              {isPartner && (
+                                <InputNumber suffix="%" min={0} max={100} className="w-28" {...numProps(partnerPercent, setPartnerPercent)} />
+                              )}
+                              <Switch id="partner" checked={isPartner} onChange={setIsPartner} />
+                            </div>
+                          </div>
+                          {isPartner && (
+                            <label className="mt-3 flex cursor-pointer items-center justify-between gap-4">
+                              <span>
+                                <span className="block font-medium text-slate-800">Manage profit statements</span>
+                                <span className="block text-xs text-slate-500">Generate and delete the cycle&apos;s profit statements</span>
+                              </span>
+                              <Switch checked={canManageProfitStatements} onChange={setCanManageProfitStatements} />
+                            </label>
                           )}
-                          <Switch id="revenue-share" checked={hasRevenueShare} onChange={setHasRevenueShare} />
                         </div>
-                      </div>
+                      )}
                     </div>
                   </Card>
                 )}

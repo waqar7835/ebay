@@ -161,6 +161,9 @@ export class AuthService {
               canManageUsers: user.staffProfile.canManageUsers,
               canGenerateInvoices: user.staffProfile.canGenerateInvoices,
               canViewFinancials: user.staffProfile.canViewFinancials,
+              isPartner: user.staffProfile.isPartner,
+              partnerPercent: user.staffProfile.partnerPercent,
+              canManageProfitStatements: user.staffProfile.canManageProfitStatements,
             }
           : null,
       },

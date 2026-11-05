@@ -104,6 +104,8 @@ interface Draft {
   totalAmount: number;
   claimIds: string[];
   refundClaimIds: string[];
+  /** PKR per unit of `currency` today — converts the invoice's misc lines for profit statements. */
+  pkrRate: number | null;
 }
 
 @Injectable()
@@ -214,6 +216,7 @@ export class InvoicesService {
           generatedByUserId: requester.sub,
           generatedAt: now,
           template,
+          pkrRate: draft.pkrRate,
         },
         { transaction },
       );
@@ -267,14 +270,28 @@ export class InvoicesService {
         );
       }
       await this.release(invoice, transaction);
+      // Misc lines a profit statement already counted keep that claim when they come back unchanged (same title and
+      // amount); new or changed ones are counted in the next open profit cycle.
+      const claimed = await this.lineItemModel.findAll({
+        where: { invoiceId, kind: InvoiceLineKind.MISC, profitStatementId: { [Op.ne]: null } },
+        transaction,
+      });
       await this.lineItemModel.destroy({ where: { invoiceId }, transaction });
       await this.lineItemModel.bulkCreate(
-        draft.lines.map((line, position) => ({ ...line, position, invoiceId })),
+        draft.lines.map((line, position) => {
+          let profitStatementId: string | null = null;
+          if (line.kind === InvoiceLineKind.MISC) {
+            const i = claimed.findIndex((c) => c.description === line.description && c.netAmount === line.netAmount);
+            if (i !== -1) profitStatementId = claimed.splice(i, 1)[0].profitStatementId;
+          }
+          return { ...line, position, invoiceId, profitStatementId };
+        }),
         { transaction },
       );
       invoice.currency = draft.currency;
       invoice.totalAmount = draft.totalAmount;
       invoice.template = template;
+      invoice.pkrRate = draft.pkrRate;
       await invoice.save({ transaction });
       await this.claim(draft, invoiceId, transaction);
     });
@@ -447,7 +464,31 @@ export class InvoicesService {
       totalAmount: round2(lines.reduce((sum, line) => sum + line.netAmount, 0)),
       claimIds: picked.flatMap((c) => c.claimIds),
       refundClaimIds: [...picked, ...pickedRefunds].flatMap((c) => c.refundClaimIds),
+      pkrRate: await this.invoicePkrRate(
+        currency,
+        picked.map((c) => c.order),
+      ),
     };
+  }
+
+  /**
+   * PKR per unit of the invoice currency (profit statements convert an Account Holder invoice's misc lines with it).
+   * Never blocks the invoice: today's rate, else the average rate locked on the invoice's own orders, else the last
+   * saved rate however old; null only when none of those exist.
+   */
+  private async invoicePkrRate(currency: string, orders: Order[]): Promise<number | null> {
+    if (currency === PKR) return 1;
+    try {
+      const rate = (await this.exchangeRates.resolve([currency as Currency]))[currency as Currency];
+      if (rate) return rate;
+    } catch {
+      // The rate service is down and no recent saved rate — fall back below.
+    }
+    const locked = orders
+      .map((o) => o.exchangeRates?.[currency as Currency])
+      .filter((r): r is number => typeof r === "number" && r > 0);
+    if (locked.length) return Math.round((locked.reduce((a, b) => a + b, 0) / locked.length) * 1e6) / 1e6;
+    return this.exchangeRates.lastSaved(currency as Currency);
   }
 
   /** Open orders and pending refund adjustments for this user+role, keyed by order id. */

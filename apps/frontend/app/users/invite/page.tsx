@@ -9,7 +9,7 @@ import { useRouter } from "next/navigation";
 import AutoDeliveryFields from "@/components/AutoDeliveryFields";
 import BackLink from "@/components/BackLink";
 import Nav from "@/components/Nav";
-import { getMyCompany, getSubscription, getToken, inviteUser } from "@/lib/api";
+import { getMyCompany, getStoredUser, getSubscription, getToken, inviteUser } from "@/lib/api";
 import { currencyOptions, currencySymbol } from "@/lib/currency";
 
 // Every type counts against the company's subscription plan limits. Only the non-Staff types have a currency of their own.
@@ -65,6 +65,9 @@ const DEFAULT_STAFF_PERMISSIONS: StaffPermissionsState = {
 
 export default function InviteUserPage() {
   const router = useRouter();
+  // Read after mount: the stored login only exists in the browser, so reading it during render breaks hydration.
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => setIsAdmin(getStoredUser()?.roles.includes("ADMIN" as Role) ?? false), []);
   const [activeType, setActiveType] = useState<Role>("STAFF" as Role);
 
   const [name, setName] = useState("");
@@ -82,8 +85,10 @@ export default function InviteUserPage() {
   const [deliveryDays, setDeliveryDays] = useState<number | null>(null);
   const [billingCycleStartDay, setBillingCycleStartDay] = useState("1");
   const [staffPermissions, setStaffPermissions] = useState<StaffPermissionsState>(DEFAULT_STAFF_PERMISSIONS);
-  const [hasRevenueShare, setHasRevenueShare] = useState(false);
-  const [staffSharePercent, setStaffSharePercent] = useState("0");
+  // Partner (replaces "Revenue share", 2026-11-05) — only the company Admin can set it.
+  const [isPartner, setIsPartner] = useState(false);
+  const [partnerPercent, setPartnerPercent] = useState("0");
+  const [canManageProfitStatements, setCanManageProfitStatements] = useState(false);
 
   const [formError, setFormError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -135,8 +140,9 @@ export default function InviteUserPage() {
           activeType === ("STAFF" as Role)
             ? {
                 ...staffPermissions,
-                hasRevenueShare,
-                sharePercent: hasRevenueShare ? Number(staffSharePercent) : null,
+                isPartner,
+                partnerPercent: isPartner ? Number(partnerPercent) : null,
+                canManageProfitStatements: isPartner && canManageProfitStatements,
               }
             : undefined,
         accountHolderProfile:
@@ -280,18 +286,33 @@ export default function InviteUserPage() {
                         />
                       </label>
                     ))}
-                    <div className="flex items-center justify-between gap-4 pb-0 pt-3">
-                      <label className="cursor-pointer" htmlFor="revenue-share">
-                        <span className="block font-medium text-slate-800">Revenue share</span>
-                        <span className="block text-xs text-slate-500">Earns a percentage of total company profit</span>
-                      </label>
-                      <div className="flex items-center gap-3">
-                        {hasRevenueShare && (
-                          <InputNumber suffix="%" min={0} max={100} className="w-28" {...numProps(staffSharePercent, setStaffSharePercent)} />
+                    {isAdmin && (
+                      <div className="pb-0 pt-3">
+                        <div className="flex items-center justify-between gap-4">
+                          <label className="cursor-pointer" htmlFor="partner">
+                            <span className="block font-medium text-slate-800">Partner</span>
+                            <span className="block text-xs text-slate-500">
+                              Takes a % of each billing cycle&apos;s company profit and can add expenses (Profit &amp; Expenses page)
+                            </span>
+                          </label>
+                          <div className="flex items-center gap-3">
+                            {isPartner && (
+                              <InputNumber suffix="%" min={0} max={100} className="w-28" {...numProps(partnerPercent, setPartnerPercent)} />
+                            )}
+                            <Switch id="partner" checked={isPartner} onChange={setIsPartner} />
+                          </div>
+                        </div>
+                        {isPartner && (
+                          <label className="mt-3 flex cursor-pointer items-center justify-between gap-4">
+                            <span>
+                              <span className="block font-medium text-slate-800">Manage profit statements</span>
+                              <span className="block text-xs text-slate-500">Generate and delete the cycle&apos;s profit statements</span>
+                            </span>
+                            <Switch checked={canManageProfitStatements} onChange={setCanManageProfitStatements} />
+                          </label>
                         )}
-                        <Switch id="revenue-share" checked={hasRevenueShare} onChange={setHasRevenueShare} />
                       </div>
-                    </div>
+                    )}
                   </div>
                 </Card>
               )}

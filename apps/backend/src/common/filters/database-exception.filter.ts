@@ -12,6 +12,8 @@ const UNIQUE_MESSAGES: Record<string, string> = {
   invoice_templates_company_predefined_key: "This template was already customised. Refresh the page and try again.",
   subscription_billing_periods_months_key: "A billing duration with this number of months already exists.",
   backoffice_users_email_key: "An account with this email already exists.",
+  expense_categories_company_name_unique: "A category with this name already exists.",
+  profit_statements_company_cycle_unique: "This billing cycle already has a profit statement. Refresh the page.",
 };
 
 const FIELD_LABELS: Record<string, string> = {

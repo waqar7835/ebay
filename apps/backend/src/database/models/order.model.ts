@@ -223,6 +223,13 @@ export class Order extends Model {
   @Column({ type: DataType.UUID, allowNull: true, field: "three_pl_refund_invoice_id" })
   declare threePlRefundInvoiceId: string | null;
 
+  /** Profit statements that counted this order's company profit / its refund effect (null = not counted yet). */
+  @Column({ type: DataType.UUID, allowNull: true, field: "profit_statement_id" })
+  declare profitStatementId: string | null;
+
+  @Column({ type: DataType.UUID, allowNull: true, field: "refund_profit_statement_id" })
+  declare refundProfitStatementId: string | null;
+
   @Column({ type: DataType.STRING, allowNull: true, field: "supplier_url" })
   declare supplierUrl: string | null;
 

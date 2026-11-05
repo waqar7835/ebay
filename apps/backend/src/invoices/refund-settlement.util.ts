@@ -1,5 +1,5 @@
 import { Order } from "../database/models/order.model";
-import { itemShareCut, lineSellTotal } from "../finance/finance.service";
+import { isDropshipOrder, itemShareCut, lineSellTotal } from "../finance/finance.service";
 
 /**
  * Who gives back what when a shipped STOCK order is refunded (decided 2026-10-12). Pure, over the order's snapshots,
@@ -90,6 +90,49 @@ export function stockRefundSettlement(order: Order): StockRefundSettlement {
  */
 export function accountHolderFullCredit(lineNet: number, threePl: number, shipping: number): number {
   return Math.max(0, round2(lineNet - threePl - shipping));
+}
+
+/**
+ * A refunded order's whole effect on company profit (profit statements, 2026-11-05), PKR from the order's snapshots:
+ * the company credits the Account Holder (−), the Stock Owners give back what `stockRefundSettlement` says or are never
+ * paid it (+), a dropship 3PL pays back its payout or is never paid it (+). Mirrors the invoice refund lines, so a full
+ * STOCK refund leaves the company only its 3PL markup and a dropship refund nets to zero.
+ */
+export interface RefundCompanyImpact {
+  accountHolderCredit: number;
+  stockOwnerReturn: number;
+  threePlPayback: number;
+  net: number;
+}
+
+export function refundCompanyImpact(order: Order, companyShare: number): RefundCompanyImpact {
+  const items = order.items ?? [];
+  const sellTotal = sum(items.map(lineSellTotal));
+  // What the AH pays on its order line (company share + buying + 3PL charge + shipping), PKR.
+  const threePlCharge = order.threePlPriceChargedSnapshot ?? 0;
+  const lineNet = companyShare + sellTotal + threePlCharge + order.shippingCost;
+  let accountHolderCredit: number;
+  let stockOwnerReturn = 0;
+  let threePlPayback = 0;
+  if (isDropshipOrder(order)) {
+    accountHolderCredit = accountHolderFullCredit(lineNet, threePlCharge, order.shippingCost);
+    threePlPayback = order.threePlPayoutSnapshot ?? 0;
+  } else {
+    const settlement = stockRefundSettlement(order);
+    stockOwnerReturn = sum([...settlement.stockOwnerReturns.values()]);
+    accountHolderCredit = settlement.full
+      ? accountHolderFullCredit(lineNet, threePlCharge, order.shippingCost)
+      : Math.min(Math.max(0, lineNet), settlement.accountHolderCredit);
+  }
+  accountHolderCredit = round2(accountHolderCredit);
+  stockOwnerReturn = round2(stockOwnerReturn);
+  threePlPayback = round2(threePlPayback);
+  return {
+    accountHolderCredit,
+    stockOwnerReturn,
+    threePlPayback,
+    net: round2(stockOwnerReturn + threePlPayback - accountHolderCredit),
+  };
 }
 
 /** Splits `total` across `weights`, rounded to 2 decimals, with the rounding remainder on the last non-zero weight. */

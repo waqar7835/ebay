@@ -5,6 +5,8 @@ import {
   InvoiceTemplateColors,
   InvoiceWatermark,
   ProductFulfillmentType,
+  ProfitCycleDto,
+  ProfitShareRowDto,
   Role,
 } from "@ebay-order-management/shared";
 import {
@@ -512,6 +514,308 @@ function accountHolderModel(input: TemplatedPdfInput): Model {
     footer: {
       thanks: company.toUpperCase(),
       note: `${company} Operations & Management • Official Invoice Generated for ${input.partnerName}`,
+    },
+    status: input.status,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Profit statements (2026-11-05): the company's statement for one billing cycle, or one person's (Admin / partner).
+// Same layouts, colors, logo and watermark as invoices; all amounts PKR.
+
+export interface ProfitStatementPdfInput {
+  companyName: string;
+  cycle: ProfitCycleDto;
+  number: string;
+  date: Date;
+  /** "Draft — not issued" draws DRAFT over the page (unless the template's watermark is on). */
+  status: string;
+  /** Null = the company statement; a user id = that person's statement. */
+  personUserId: string | null;
+  layout: InvoiceLayout;
+  colors: InvoiceTemplateColors;
+  logo: Buffer | null;
+  watermark?: InvoiceWatermark | null;
+}
+
+export function renderProfitStatementPdf(input: ProfitStatementPdfInput): Promise<Buffer> {
+  const person = input.personUserId ? input.cycle.shares.find((s) => s.userId === input.personUserId) : null;
+  const model = person ? personStatementModel(input, person) : companyStatementModel(input);
+  const watermark = input.watermark?.enabled && input.watermark.text.trim() ? input.watermark : null;
+  return draw(model, input.layout, input.colors, input.logo, input.number, watermark);
+}
+
+const PKR_CUR = "PKR";
+const pkr = (v: number) => formatMoney(v, PKR_CUR);
+const pkrPlain = (v: number) => plain(v, PKR_CUR);
+
+function profitMeta(input: ProfitStatementPdfInput): [string, string][] {
+  const { cycle } = input;
+  return [
+    ["Statement #:", input.number],
+    ["Date:", formatDate(input.date)],
+    ["Billing Cycle:", `${shortDate(cycle.cycleStart)} – ${shortDate(cycle.cycleEnd)}`],
+  ];
+}
+
+function shareLabel(row: ProfitShareRowDto) {
+  return row.kind === "COMPANY" ? "Company" : row.kind === "ADMIN" ? "Admin" : "Partner";
+}
+
+/** Where the profit came from: per Account Holder, Stock Owner, 3PL, then refunds and invoice misc lines. */
+function profitSourceBlocks(cycle: ProfitCycleDto, startAt: number): { blocks: Block[]; next: number } {
+  const blocks: Block[] = [];
+  let section = startAt;
+  const groupTable = (title: string, who: string, groups: ProfitCycleDto["byAccountHolder"], note?: string) => {
+    if (!groups.length) return;
+    blocks.push({ type: "section", title: `${section++}. ${title}`, note });
+    blocks.push({
+      type: "table",
+      columns: columns([
+        [who, 260, "left"],
+        ["ORDERS", 70, "right"],
+        ["COMPANY PROFIT", 120, "right"],
+      ]),
+      rows: [
+        ...groups.map((g) => [g.name, String(g.orderCount), pkrPlain(g.amount)]),
+        ["Total", String(sum(groups.map((g) => g.orderCount))), pkrPlain(sum(groups.map((g) => g.amount)))],
+      ],
+      boldLastRow: true,
+    });
+  };
+  groupTable("PROFIT FROM ACCOUNT HOLDERS", "ACCOUNT HOLDER", cycle.byAccountHolder, "Company share of each Account Holder's profit · PKR");
+  groupTable("PROFIT FROM STOCK", "STOCK OWNER", cycle.byStockOwner, "Product markup + profit-share cut · PKR");
+  groupTable("3PL MARKUP", "3PL", cycle.byThreePl, "3PL charge minus 3PL fee · PKR");
+
+  if (cycle.orders.length) {
+    blocks.push({ type: "section", title: `${section++}. ORDERS COUNTED`, note: "Account Holder invoice approved in this cycle · PKR" });
+    blocks.push({
+      type: "table",
+      columns: columns([
+        ["ORDER #", 96, "left"],
+        ["INVOICE #", 80, "left"],
+        ["AH SHARE", 64, "right"],
+        ["MARKUP", 60, "right"],
+        ["SO CUT", 58, "right"],
+        ["3PL", 52, "right"],
+        ["TOTAL", 66, "right"],
+      ]),
+      rows: [
+        ...cycle.orders.map((o) => [
+          `${o.ebayOrderRef}${o.late ? " *" : ""}`,
+          o.invoiceNumber ?? "",
+          pkrPlain(o.accountHolderShare),
+          pkrPlain(o.productMarkup),
+          pkrPlain(o.stockOwnerCut),
+          pkrPlain(o.threePlMarkup),
+          pkrPlain(o.total),
+        ]),
+        [
+          "Total",
+          "",
+          pkrPlain(cycle.totals.accountHolderShare),
+          pkrPlain(cycle.totals.productMarkup),
+          pkrPlain(cycle.totals.stockOwnerCut),
+          pkrPlain(cycle.totals.threePlMarkup),
+          pkrPlain(cycle.totals.orders),
+        ],
+      ],
+      boldLastRow: true,
+    });
+  }
+
+  if (cycle.refunds.length) {
+    blocks.push({
+      type: "section",
+      title: `${section++}. REFUNDS`,
+      note: "AH credited back, Stock Owner returns, 3PL pays back · PKR",
+    });
+    blocks.push({
+      type: "table",
+      columns: columns([
+        ["ORDER #", 96, "left"],
+        ["REFUND", 100, "left"],
+        ["AH CREDIT", 70, "right"],
+        ["SO RETURNS", 70, "right"],
+        ["3PL PAYS BACK", 70, "right"],
+        ["NET", 70, "right"],
+      ]),
+      rows: [
+        ...cycle.refunds.map((r) => [
+          `${r.ebayOrderRef}${r.late ? " *" : ""}`,
+          r.note,
+          pkrPlain(-r.accountHolderCredit),
+          pkrPlain(r.stockOwnerReturn),
+          pkrPlain(r.threePlPayback),
+          pkrPlain(r.net),
+        ]),
+        ["Total", "", "", "", "", pkrPlain(cycle.totals.refunds)],
+      ],
+      boldLastRow: true,
+    });
+  }
+
+  if (cycle.misc.length) {
+    blocks.push({ type: "section", title: `${section++}. INVOICE EXTRA LINES`, note: "Account Holder invoices = in, Stock Owner / 3PL = out · PKR" });
+    blocks.push({
+      type: "table",
+      columns: columns([
+        ["INVOICE #", 84, "left"],
+        ["PARTY", 110, "left"],
+        ["DESCRIPTION", 150, "left"],
+        ["AS INVOICED", 80, "right"],
+        ["PKR", 70, "right"],
+      ]),
+      rows: [
+        ...cycle.misc.map((m) => [
+          `${m.invoiceNumber}${m.late ? " *" : ""}`,
+          m.partyName,
+          m.title,
+          formatMoney(m.amountOriginal, m.currency),
+          pkrPlain(m.amount),
+        ]),
+        ["Total", "", "", "", pkrPlain(cycle.totals.misc)],
+      ],
+      boldLastRow: true,
+    });
+  }
+  return { blocks, next: section };
+}
+
+function expenseTable(lines: ProfitShareRowDto["expenseLines"], withTotal: boolean): Block {
+  return {
+    type: "table",
+    columns: columns([
+      ["DATE", 76, "left"],
+      ["EXPENSE", 170, "left"],
+      ["CATEGORY", 100, "left"],
+      ["ADDED BY", 90, "left"],
+      ["AMOUNT", 80, "right"],
+    ]),
+    rows: [
+      ...lines.map((l) => [shortDate(l.expenseDate), l.notes ? `${l.title}\n${l.notes}` : l.title, l.categoryName ?? "", l.createdByName, pkrPlain(l.amount)]),
+      ...(withTotal ? [["Total", "", "", "", pkrPlain(sum(lines.map((l) => l.amount)))]] : []),
+    ],
+    boldLastRow: withTotal,
+  };
+}
+
+function companyStatementModel(input: ProfitStatementPdfInput): Model {
+  const { cycle } = input;
+  const company = input.companyName;
+  const companyRow = cycle.shares.find((s) => s.kind === "COMPANY")!;
+  const { blocks, next } = profitSourceBlocks(cycle, 1);
+  let section = next;
+  if (cycle.orders.some((o) => o.late) || cycle.refunds.some((r) => r.late) || cycle.misc.some((m) => m.late)) {
+    blocks.push({ type: "section", title: "* Approved in an earlier cycle but missed by its statement — counted here." });
+  }
+
+  blocks.push({ type: "section", title: `${section++}. PROFIT SPLIT & NET IN HAND`, note: "PKR" });
+  blocks.push({
+    type: "table",
+    columns: columns([
+      ["NAME", 140, "left"],
+      ["ROLE", 60, "left"],
+      ["%", 46, "right"],
+      ["PROFIT SHARE", 76, "right"],
+      ["EXPENSES", 70, "right"],
+      ["BROUGHT FWD", 70, "right"],
+      ["NET IN HAND", 76, "right"],
+    ]),
+    rows: cycle.shares.map((s) => [
+      s.name,
+      shareLabel(s),
+      `${s.percent}%`,
+      pkrPlain(s.share),
+      pkrPlain(-s.expenses),
+      s.broughtForward === null ? "—" : pkrPlain(s.broughtForward),
+      pkrPlain(s.netInHand),
+    ]),
+  });
+
+  for (const s of cycle.shares) {
+    if (!s.expenseLines.length) continue;
+    blocks.push({ type: "section", title: `${section++}. EXPENSES — ${s.name.toUpperCase()}`, note: "PKR" });
+    blocks.push(expenseTable(s.expenseLines, true));
+  }
+
+  return {
+    title: "PROFIT STATEMENT",
+    subtitle: "Company profit, split & expenses",
+    companyName: company,
+    meta: profitMeta(input),
+    parties: [
+      { title: "COMPANY", headline: company, lines: ["Profit statement for one billing cycle", "All amounts in PKR (Rs.)"] },
+      {
+        title: "PROFIT SPLIT",
+        headline: pkr(cycle.totals.profit),
+        lines: cycle.shares.map((s) => `${s.name}: ${s.percent}%`),
+      },
+    ],
+    blocks,
+    box: {
+      title: `${section}. CYCLE SUMMARY`,
+      rows: [
+        { label: "Profit from orders", value: pkr(cycle.totals.orders) },
+        { label: "Refunds", value: pkr(cycle.totals.refunds), indent: true },
+        { label: "Invoice extra lines", value: pkr(cycle.totals.misc), indent: true },
+        { label: "Total profit", value: pkr(cycle.totals.profit), bold: true, color: FIXED.green },
+        { label: `Company share (${companyRow.percent}%)`, value: pkr(companyRow.share) },
+        { label: "Company expenses", value: pkr(-companyRow.expenses), indent: true },
+        { label: "Brought forward", value: pkr(companyRow.broughtForward ?? 0), indent: true },
+      ],
+      totalLabel: "COMPANY NET IN HAND:",
+      totalValue: pkr(cycle.companyClosingBalance),
+    },
+    footer: {
+      thanks: company.toUpperCase(),
+      note: `${company} • Profit statement ${input.number}`,
+    },
+    status: input.status,
+  };
+}
+
+function personStatementModel(input: ProfitStatementPdfInput, person: ProfitShareRowDto): Model {
+  const { cycle } = input;
+  const company = input.companyName;
+  const blocks: Block[] = [
+    { type: "section", title: "1. CYCLE PROFIT", note: "PKR" },
+    {
+      type: "summary",
+      rows: [
+        { label: "Profit from orders", value: pkr(cycle.totals.orders) },
+        { label: "Refunds", value: pkr(cycle.totals.refunds), indent: true },
+        { label: "Invoice extra lines", value: pkr(cycle.totals.misc), indent: true },
+        { label: "Total company profit", value: pkr(cycle.totals.profit), bold: true, color: FIXED.green },
+      ],
+    },
+    { type: "section", title: "2. YOUR EXPENSES", note: person.expenseLines.length ? "PKR" : undefined },
+    person.expenseLines.length
+      ? expenseTable(person.expenseLines, true)
+      : { type: "summary", rows: [{ label: "No expenses charged to you this cycle", value: pkr(0) }] },
+  ];
+  return {
+    title: person.kind === "ADMIN" ? "ADMIN STATEMENT" : "PARTNER STATEMENT",
+    subtitle: "Profit share & expenses",
+    companyName: company,
+    meta: profitMeta(input),
+    parties: [
+      { title: "FROM", headline: company, lines: ["Profit statement for one billing cycle", "All amounts in PKR (Rs.)"] },
+      { title: "FOR", headline: person.name, lines: [`${shareLabel(person)} · ${person.percent}% of company profit`] },
+    ],
+    blocks,
+    box: {
+      title: "3. NET IN HAND",
+      rows: [
+        { label: `Profit share (${person.percent}% of ${pkr(cycle.totals.profit)})`, value: pkr(person.share), color: FIXED.green },
+        { label: "Expenses", value: pkr(-person.expenses), indent: true },
+      ],
+      totalLabel: "NET IN HAND:",
+      totalValue: pkr(person.netInHand),
+    },
+    footer: {
+      thanks: company.toUpperCase(),
+      note: `${company} • Profit statement ${input.number} • ${person.name}`,
     },
     status: input.status,
   };

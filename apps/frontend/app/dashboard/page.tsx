@@ -1,7 +1,8 @@
 "use client";
 
-import type { ProductDto } from "@ebay-order-management/shared";
-import { Alert, Card, Result, Statistic, Tag } from "antd";
+import type { ProductDto, ProfitCycleDto } from "@ebay-order-management/shared";
+import { Alert, Button, Card, Result, Statistic, Tag } from "antd";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -31,6 +32,7 @@ import {
   getToken,
   listProducts,
   accountStatus,
+  getCurrentProfitCycle,
   staffDashboard,
   stockOwnerDashboard,
   threePlDashboard,
@@ -39,6 +41,8 @@ import {
 import { pkr } from "@/lib/currency";
 import StatusCounts from "@/components/StatusCounts";
 import { productLabel } from "@/lib/productLabel";
+import ProfitShareTable from "@/components/ProfitShareTable";
+import { formatDate } from "@/lib/date";
 
 const STATUS_OPTIONS = ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "REFUNDED"];
 const STATUS_COLORS: Record<string, string> = {
@@ -127,6 +131,51 @@ function UninvoicedCounts({ data, statuses = STATUS_OPTIONS }: { data: Uninvoice
 }
 
 // Order lists live on the Orders page; the dashboard only shows totals, charts and the not-invoiced counts.
+/** Admin / partners: this cycle's profit, the split and everyone's net in hand (details on the Profit & Expenses page). */
+function ProfitSplitCard({ cycle }: { cycle: ProfitCycleDto | null }) {
+  return (
+    <Card
+      size="small"
+      className="mt-3"
+      title={
+        <span className="text-xs font-medium text-gray-500">
+          Profit split — this cycle{cycle ? ` (${formatDate(cycle.cycleStart)} – ${formatDate(cycle.cycleEnd)})` : ""}
+        </span>
+      }
+      extra={
+        <Link href="/profit">
+          <Button size="small" type="link" className="px-0">
+            Profit &amp; Expenses →
+          </Button>
+        </Link>
+      }
+    >
+      {!cycle ? (
+        <p className="m-0 text-sm text-gray-500">
+          The profit split isn&apos;t set up yet. The company Admin sets it on the Profit &amp; Expenses page.
+        </p>
+      ) : (
+        <>
+          <div className="mb-3 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+            <span>
+              Invoiced profit <span className="font-semibold">{pkr(cycle.totals.profit)}</span>
+            </span>
+            <span>
+              Expenses <span className="font-semibold">{pkr(cycle.totals.expenses)}</span>
+            </span>
+            {cycle.estimate && (
+              <span className="text-gray-500">
+                ≈ {pkr(cycle.estimate.profit)} more from {cycle.estimate.orderCount} orders not invoiced yet
+              </span>
+            )}
+          </div>
+          <ProfitShareTable shares={cycle.shares} compact />
+        </>
+      )}
+    </Card>
+  );
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const user = getStoredUser();
@@ -136,6 +185,9 @@ export default function DashboardPage() {
   const [so, setSo] = useState<StockOwnerDashboard | null>(null);
   const [tp, setTp] = useState<ThreePlDashboard | null>(null);
   const [staff, setStaff] = useState<StaffDashboard | null>(null);
+  // Admin / partners: this cycle's profit split (undefined = not loaded or not allowed; null = not set up yet).
+  const [profitCycle, setProfitCycle] = useState<ProfitCycleDto | null | undefined>(undefined);
+  const canSeeProfit = !!user?.roles.includes("ADMIN" as never) || !!user?.staffPermissions?.isPartner;
   const [error, setError] = useState<string | null>(null);
 
   const productById = new Map(products.map((p) => [p.id, p]));
@@ -161,6 +213,7 @@ export default function DashboardPage() {
     if (user?.roles.includes("STOCK_OWNER" as never)) stockOwnerDashboard().then(setSo).catch(onError);
     if (user?.roles.includes("THREE_PL" as never)) threePlDashboard().then(setTp).catch(onError);
     if (isStaffViewer) staffDashboard().then(setStaff).catch(onError);
+    if (canSeeProfit) getCurrentProfitCycle().then((r) => setProfitCycle(r.cycle)).catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
@@ -211,6 +264,8 @@ export default function DashboardPage() {
                 <Statistic title="Aging orders" value={staff.agingOrders.length} styles={{ content: { color: "#dc2626" } }} />
               </Card>
             </div>
+
+            {profitCycle !== undefined && <ProfitSplitCard cycle={profitCycle} />}
 
             <Card size="small" className="mt-3" title={<span className="text-xs font-medium text-gray-500">Users per role</span>}>
               <div className="flex flex-wrap gap-2 text-xs">

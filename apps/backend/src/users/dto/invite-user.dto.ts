@@ -22,8 +22,10 @@ export class StaffPermissionsInput {
   @IsBoolean() canManageUsers!: boolean;
   @IsBoolean() canGenerateInvoices!: boolean;
   @IsBoolean() canViewFinancials!: boolean;
-  @IsBoolean() hasRevenueShare!: boolean;
-  @IsOptional() @IsNumber() sharePercent?: number;
+  /** Partner: takes partnerPercent% of each billing cycle's company profit (replaces "Revenue share", 2026-11-05). */
+  @IsBoolean() isPartner!: boolean;
+  @IsOptional() @IsNumber() @Min(0) @Max(100) partnerPercent?: number | null;
+  @IsOptional() @IsBoolean() canManageProfitStatements?: boolean;
 }
 
 export class AccountHolderProfileInput {

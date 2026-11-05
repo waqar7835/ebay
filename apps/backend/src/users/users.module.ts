@@ -12,6 +12,8 @@ import { Order } from "../database/models/order.model";
 import { OrderItem } from "../database/models/order-item.model";
 import { Product } from "../database/models/product.model";
 import { Invoice } from "../database/models/invoice.model";
+import { Expense } from "../database/models/expense.model";
+import { ProfitStatement } from "../database/models/profit-statement.model";
 import { TokensModule } from "../tokens/tokens.module";
 import { SubscriptionsModule } from "../subscriptions/subscriptions.module";
 import { OrdersModule } from "../orders/orders.module";
@@ -33,6 +35,8 @@ import { UsersService } from "./users.service";
       OrderItem,
       Product,
       Invoice,
+      Expense,
+      ProfitStatement,
     ]),
     TokensModule,
     SubscriptionsModule,

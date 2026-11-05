@@ -1,6 +1,6 @@
 import { BelongsTo, Column, DataType, ForeignKey, HasMany, Model, Table } from "sequelize-typescript";
 import { InvoiceStatus, InvoiceTemplateSnapshot, Role } from "@ebay-order-management/shared";
-import { toDecimal } from "../decimal.util";
+import { toDecimal, toNullableDecimal } from "../decimal.util";
 import { Company } from "./company.model";
 import { User } from "./user.model";
 import { InvoiceLineItem } from "./invoice-line-item.model";
@@ -70,6 +70,17 @@ export class Invoice extends Model {
   /** Style frozen at approval so the PDF never changes; null = issued before templates (original style). */
   @Column({ type: DataType.JSONB, allowNull: true })
   declare template: InvoiceTemplateSnapshot | null;
+
+  /** PKR per unit of `currency` on approval (Account Holder invoices) — converts its misc lines for profit statements. */
+  @Column({
+    type: DataType.DECIMAL(18, 6),
+    allowNull: true,
+    field: "pkr_rate",
+    get(this: Invoice) {
+      return toNullableDecimal(this.getDataValue("pkrRate" as keyof Invoice));
+    },
+  })
+  declare pkrRate: number | null;
 
   @HasMany(() => InvoiceLineItem)
   declare lineItems: InvoiceLineItem[];

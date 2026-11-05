@@ -26,16 +26,21 @@ export class StaffProfile extends Model {
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false, field: "can_view_financials" })
   declare canViewFinancials: boolean;
 
-  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false, field: "has_revenue_share" })
-  declare hasRevenueShare: boolean;
+  /** Can generate / delete profit statements (Admin always can). Only meaningful for partners. */
+  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false, field: "can_manage_profit_statements" })
+  declare canManageProfitStatements: boolean;
+
+  /** A partner takes `partnerPercent`% of the company's profit each billing cycle (replaces "Revenue share", 2026-11-05). */
+  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false, field: "is_partner" })
+  declare isPartner: boolean;
 
   @Column({
     type: DataType.DECIMAL(5, 2),
     allowNull: true,
-    field: "share_percent",
+    field: "partner_percent",
     get(this: StaffProfile) {
-      return toNullableDecimal(this.getDataValue("sharePercent" as keyof StaffProfile));
+      return toNullableDecimal(this.getDataValue("partnerPercent" as keyof StaffProfile));
     },
   })
-  declare sharePercent: number | null;
+  declare partnerPercent: number | null;
 }

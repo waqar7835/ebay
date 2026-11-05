@@ -278,8 +278,8 @@ export default function ProfilePage() {
                   <Descriptions.Item label="Manage users">{yesNo(user.staffProfile.canManageUsers)}</Descriptions.Item>
                   <Descriptions.Item label="Generate invoices">{yesNo(user.staffProfile.canGenerateInvoices)}</Descriptions.Item>
                   <Descriptions.Item label="View financials">{yesNo(user.staffProfile.canViewFinancials)}</Descriptions.Item>
-                  <Descriptions.Item label="Revenue share">
-                    {user.staffProfile.hasRevenueShare ? percent(user.staffProfile.sharePercent ?? 0) : "No"}
+                  <Descriptions.Item label="Partner">
+                    {user.staffProfile.isPartner ? `${percent(user.staffProfile.partnerPercent ?? 0)} of company profit` : "No"}
                   </Descriptions.Item>
                 </Descriptions>
               </Card>

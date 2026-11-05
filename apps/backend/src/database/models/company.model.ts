@@ -2,6 +2,7 @@ import { BelongsTo, Column, DataType, ForeignKey, HasMany, Model, Table } from "
 import { Currency, DEFAULT_CURRENCY } from "@ebay-order-management/shared";
 import { User } from "./user.model";
 import { SubscriptionPlan } from "./subscription-plan.model";
+import { toDecimal, toNullableDecimal } from "../decimal.util";
 
 @Table({ tableName: "companies", underscored: true })
 export class Company extends Model {
@@ -32,6 +33,35 @@ export class Company extends Model {
   declare lastInvoiceSequence: number;
 
   /** Template the invoice wizard preselects: a predefined key or a custom template id; null = "classic". */
+  /** The company Admin's own % of each cycle's profit; the company keeps 100 − Admin − partners (2026-11-05). */
+  @Column({
+    type: DataType.DECIMAL(5, 2),
+    allowNull: false,
+    defaultValue: 0,
+    field: "admin_profit_percent",
+    get(this: Company) {
+      return toDecimal(this.getDataValue("adminProfitPercent" as keyof Company));
+    },
+  })
+  declare adminProfitPercent: number;
+
+  /** The company's net in hand before its first profit statement cycle (PKR), and that cycle's start date. */
+  @Column({
+    type: DataType.DECIMAL(14, 2),
+    allowNull: true,
+    field: "profit_opening_balance",
+    get(this: Company) {
+      return toNullableDecimal(this.getDataValue("profitOpeningBalance" as keyof Company));
+    },
+  })
+  declare profitOpeningBalance: number | null;
+
+  @Column({ type: DataType.DATEONLY, allowNull: true, field: "profit_opening_cycle_start" })
+  declare profitOpeningCycleStart: string | null;
+
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0, field: "last_profit_statement_sequence" })
+  declare lastProfitStatementSequence: number;
+
   @Column({ type: DataType.STRING(64), allowNull: true, field: "default_invoice_template_id" })
   declare defaultInvoiceTemplateId: string | null;
 

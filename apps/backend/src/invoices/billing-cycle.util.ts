@@ -18,6 +18,12 @@ export function formatLocalDate(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+/** YYYY-MM-DD → local midnight (the counterpart of formatLocalDate; billing cycles use server-local dates). */
+export function parseLocalDate(value: string): Date {
+  const [y, m, d] = value.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
 export interface InvoiceCycle {
   /** Inclusive YYYY-MM-DD bounds, matching the Orders page date filter. */
   periodStart: string;

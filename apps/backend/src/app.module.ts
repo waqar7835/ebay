@@ -17,6 +17,7 @@ import { TokensModule } from "./tokens/tokens.module";
 import { ExchangeRatesModule } from "./exchange-rates/exchange-rates.module";
 import { PublicModule } from "./public/public.module";
 import { PlatformSettingsModule } from "./platform-settings/platform-settings.module";
+import { ProfitModule } from "./profit/profit.module";
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { PlatformSettingsModule } from "./platform-settings/platform-settings.mo
     SubscriptionsModule,
     ExchangeRatesModule,
     PublicModule,
+    ProfitModule,
   ],
 })
 export class AppModule {}

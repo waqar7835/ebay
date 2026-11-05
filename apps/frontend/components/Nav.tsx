@@ -9,13 +9,23 @@ import {
   LogoutOutlined,
   ShoppingCartOutlined,
   TeamOutlined,
+  WalletOutlined,
 } from "@ant-design/icons";
 import { Button, Menu } from "antd";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { CompanyDto, Role } from "@ebay-order-management/shared";
-import { clearSession, getMyCompany, getStoredUser, getToken, mediaUrl, type StoredUser } from "@/lib/api";
+import {
+  clearSession,
+  getMyCompany,
+  getMyProfile,
+  getStoredUser,
+  getToken,
+  mediaUrl,
+  updateStoredStaffPermissions,
+  type StoredUser,
+} from "@/lib/api";
 
 const COMPANY_CACHE_KEY = "navCompany";
 type NavCompany = Pick<CompanyDto, "name" | "logoUrl">;
@@ -45,6 +55,21 @@ function NavIcon({ icon, bg, fg }: { icon: React.ReactNode; bg: string; fg: stri
   );
 }
 
+const STAFF_PERMS_CHECKED_KEY = "staffPermissionsCheckedAt";
+const STAFF_PERMS_REFRESH_MS = 5 * 60 * 1000;
+
+/** True at most once per STAFF_PERMS_REFRESH_MS per tab (and marks it as checked). */
+function staffPermissionsDue(): boolean {
+  try {
+    const last = Number(sessionStorage.getItem(STAFF_PERMS_CHECKED_KEY) ?? 0);
+    if (Date.now() - last < STAFF_PERMS_REFRESH_MS) return false;
+    sessionStorage.setItem(STAFF_PERMS_CHECKED_KEY, String(Date.now()));
+  } catch {
+    // Storage blocked: just refresh.
+  }
+  return true;
+}
+
 export default function Nav() {
   const router = useRouter();
   const pathname = usePathname();
@@ -63,6 +88,22 @@ export default function Nav() {
         localStorage.setItem(COMPANY_CACHE_KEY, JSON.stringify(next));
       })
       .catch(() => undefined);
+    // Staff permissions (incl. Partner) can change after login — refresh them now and then (not on every page change)
+    // and when the window gets focus again, so the links stay current.
+    if (!getStoredUser()?.roles.includes("STAFF" as Role)) return;
+    const refresh = () => {
+      if (!staffPermissionsDue()) return;
+      getMyProfile()
+        .then((me) => {
+          if (!me.staffProfile) return;
+          updateStoredStaffPermissions(me.staffProfile);
+          setUser(getStoredUser());
+        })
+        .catch(() => undefined);
+    };
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
   }, []);
 
   const isAdmin = user?.roles.includes("ADMIN" as Role) ?? false;
@@ -77,6 +118,7 @@ export default function Nav() {
     { href: "/orders", label: "Orders", show: true, icon: <NavIcon icon={<ShoppingCartOutlined />} bg="#ede9fe" fg="#7c3aed" /> },
     { href: "/users", label: "Users", show: isAdmin || !!perms?.canManageUsers, icon: <NavIcon icon={<TeamOutlined />} bg="#e0f2fe" fg="#0284c7" /> },
     { href: "/invoices", label: "Invoices", show: true, icon: <NavIcon icon={<FileTextOutlined />} bg="#fce7f3" fg="#db2777" /> },
+    { href: "/profit", label: "Profit & Expenses", show: isAdmin || !!perms?.isPartner, icon: <NavIcon icon={<WalletOutlined />} bg="#dcfce7" fg="#16a34a" /> },
     { href: "/subscription", label: "Subscription", show: isAdmin || !!perms?.canManageUsers, icon: <NavIcon icon={<CreditCardOutlined />} bg="#fef3c7" fg="#d97706" /> },
     { href: "/profile", label: "Profile", show: true, icon: <NavIcon icon={<IdcardOutlined />} bg="#ccfbf1" fg="#0d9488" /> },
   ].filter((link) => link.show);

@@ -66,8 +66,6 @@ export default function UsersPage() {
   const [deliveryDays, setDeliveryDays] = useState<number | null>(null);
   const [billingCycleStartDay, setBillingCycleStartDay] = useState("1");
   const [staffPermissions, setStaffPermissions] = useState<StaffPermissionsState>(DEFAULT_STAFF_PERMISSIONS);
-  const [hasRevenueShare, setHasRevenueShare] = useState(false);
-  const [staffSharePercent, setStaffSharePercent] = useState("0");
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -128,8 +126,10 @@ export default function UsersPage() {
         staffPermissions: roles.includes("STAFF" as Role)
           ? {
               ...staffPermissions,
-              hasRevenueShare,
-              sharePercent: hasRevenueShare ? Number(staffSharePercent) : null,
+              // Partners (profit split) are set by the company's own Admin in the portal, not here.
+              isPartner: false,
+              partnerPercent: null,
+              canManageProfitStatements: false,
             }
           : undefined,
         accountHolderProfile: roles.includes("ACCOUNT_HOLDER" as Role)
@@ -162,8 +162,6 @@ export default function UsersPage() {
       setRoles([]);
       setCurrency(companyCurrency);
       setStaffPermissions(DEFAULT_STAFF_PERMISSIONS);
-      setHasRevenueShare(false);
-      setStaffSharePercent("0");
       inviteForm.resetFields();
       refresh();
     } catch (err) {
@@ -289,14 +287,6 @@ export default function UsersPage() {
                         {label}
                       </Checkbox>
                     ))}
-                  </div>
-                  <div className="mt-3 flex items-center gap-3">
-                    <Checkbox checked={hasRevenueShare} onChange={(e) => setHasRevenueShare(e.target.checked)}>
-                      Revenue share
-                    </Checkbox>
-                    {hasRevenueShare && (
-                      <InputNumber suffix="%" min={0} max={100} className="w-28" {...numProps(staffSharePercent, setStaffSharePercent)} />
-                    )}
                   </div>
                 </Card>
               )}

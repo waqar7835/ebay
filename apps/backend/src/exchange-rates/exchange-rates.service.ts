@@ -75,6 +75,12 @@ export class ExchangeRatesService {
     return rates;
   }
 
+  /** The last saved PKR rate for a currency, however old (null = never fetched). A last-resort fallback only. */
+  async lastSaved(currency: Currency): Promise<number | null> {
+    const row = await this.exchangeRateModel.findOne({ where: { currency } });
+    return row?.rate ?? null;
+  }
+
   /** Pulls fresh rates from the API and saves them. Returns false if the API couldn't be reached. */
   private async refresh(): Promise<boolean> {
     if (Date.now() - this.lastFailureAt < RETRY_AFTER_FAILURE_MS) return false;

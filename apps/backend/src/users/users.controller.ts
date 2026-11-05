@@ -14,6 +14,7 @@ import {
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
+import { Role } from "@ebay-order-management/shared";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { RolesGuard } from "../common/guards/roles.guard";
 import { PermissionsGuard } from "../common/guards/permissions.guard";
@@ -135,7 +136,7 @@ export class UsersController {
   @Post("invite")
   @RequirePermission("canManageUsers")
   invite(@CurrentUser() user: JwtPayload, @Body() dto: InviteUserDto, @Query("companyId") companyId?: string) {
-    return this.usersService.invite(resolveCompanyId(user, companyId), user.sub, dto);
+    return this.usersService.invite(resolveCompanyId(user, companyId), user.sub, dto, canSetPartner(user));
   }
 
   @Patch(":id/disable")
@@ -158,8 +159,13 @@ export class UsersController {
 
   @Patch(":id/staff-permissions")
   @RequirePermission("canManageUsers")
-  updateStaffPermissions(@Param("id") id: string, @Body() dto: StaffPermissionsInput) {
-    return this.usersService.upsertStaffProfile(id, dto);
+  updateStaffPermissions(
+    @CurrentUser() user: JwtPayload,
+    @Param("id") id: string,
+    @Body() dto: StaffPermissionsInput,
+    @Query("companyId") companyId?: string,
+  ) {
+    return this.usersService.upsertStaffProfile(resolveCompanyId(user, companyId), id, dto, canSetPartner(user));
   }
 
   @Patch(":id/account-holder-profile")
@@ -179,4 +185,9 @@ export class UsersController {
   updateThreePlProfile(@Param("id") id: string, @Body() dto: ThreePlProfileInput) {
     return this.usersService.upsertThreePlProfile(id, dto);
   }
+}
+
+/** Only the company Admin marks partners and sets their % (the profit split is theirs to manage). */
+function canSetPartner(user: JwtPayload): boolean {
+  return user.realm === "portal" && user.roles.includes(Role.ADMIN);
 }

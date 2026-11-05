@@ -100,8 +100,11 @@ export interface StaffPermissionsDto {
   canManageUsers: boolean;
   canGenerateInvoices: boolean;
   canViewFinancials: boolean;
-  hasRevenueShare: boolean;
-  sharePercent: number | null;
+  /** Partner (replaces "Revenue share", 2026-11-05): takes partnerPercent% of each billing cycle's company profit. */
+  isPartner: boolean;
+  partnerPercent: number | null;
+  /** Can generate / delete profit statements (partners only; the Admin always can). */
+  canManageProfitStatements: boolean;
 }
 
 export interface AccountHolderProfileDto {
@@ -863,4 +866,209 @@ export interface UpdatePlatformSettingsInput {
   clearSmtpPassword?: boolean;
   mailFromName: string | null;
   mailFromEmail: string | null;
+}
+
+// --- Profit split, expenses & profit statements (decided 2026-11-05) ---
+
+export enum ExpenseChargedTo {
+  COMPANY = "COMPANY",
+  /** The company Admin or a partner — `chargedToUserId`. */
+  USER = "USER",
+}
+
+export interface ExpenseCategoryDto {
+  id: string;
+  name: string;
+  position: number;
+}
+
+export interface ExpenseDto {
+  id: string;
+  title: string;
+  /** PKR. */
+  amount: number;
+  /** YYYY-MM-DD — picks the billing cycle it's deducted in. */
+  expenseDate: string;
+  categoryId: string | null;
+  categoryName: string | null;
+  notes: string | null;
+  chargedTo: ExpenseChargedTo;
+  chargedToUserId: string | null;
+  chargedToName: string;
+  createdByUserId: string;
+  createdByName: string;
+  /** Set once the expense's cycle has a profit statement — it can't be changed then. */
+  profitStatementId: string | null;
+  createdAt: string;
+}
+
+export interface ExpenseInput {
+  title: string;
+  amount: number;
+  expenseDate: string;
+  categoryId?: string | null;
+  notes?: string | null;
+  chargedTo: ExpenseChargedTo;
+  chargedToUserId?: string | null;
+}
+
+/** One person in the profit split. */
+export interface ProfitSplitMemberDto {
+  userId: string;
+  name: string;
+  /** ADMIN = the company Admin; PARTNER = a partner (Staff). */
+  kind: "ADMIN" | "PARTNER";
+  percent: number;
+}
+
+export interface ProfitSplitSettingsDto {
+  admin: ProfitSplitMemberDto;
+  partners: ProfitSplitMemberDto[];
+  /** 100 − Admin − partners. */
+  companyPercent: number;
+  openingBalance: number | null;
+  /** YYYY-MM-DD: first cycle that gets profit statements. */
+  openingCycleStart: string | null;
+  billingAnchorDay: number;
+}
+
+export interface ProfitSplitSettingsInput {
+  adminPercent: number;
+  partners: { userId: string; percent: number }[];
+  openingBalance: number | null;
+  openingCycleStart: string | null;
+}
+
+/** One order's company profit, broken down by where it came from (PKR). */
+export interface ProfitOrderLineDto {
+  orderId: string;
+  ebayOrderRef: string;
+  orderDate: string;
+  invoiceNumber: string | null;
+  /** When it's in this cycle only because it was missed by an earlier one (invoice edited after that was generated). */
+  late: boolean;
+  accountHolderShare: number;
+  productMarkup: number;
+  stockOwnerCut: number;
+  threePlMarkup: number;
+  total: number;
+}
+
+/** Profit from one person / source, with the orders behind it. */
+export interface ProfitSourceGroupDto {
+  /** AH / SO / 3PL user id; null for "Dropship markup" (no Stock Owner). */
+  userId: string | null;
+  name: string;
+  amount: number;
+  orderCount: number;
+  orders: { orderId: string; ebayOrderRef: string; amount: number }[];
+}
+
+export interface ProfitRefundLineDto {
+  orderId: string;
+  ebayOrderRef: string;
+  /** e.g. "full refund", "partial refund of 5.00 GBP". */
+  note: string;
+  invoiceNumber: string | null;
+  late: boolean;
+  /** What the company credits the Account Holder back (shown negative). */
+  accountHolderCredit: number;
+  /** What the Stock Owner gives back, or is never paid. */
+  stockOwnerReturn: number;
+  /** What a dropship 3PL pays back, or is never paid. */
+  threePlPayback: number;
+  /** The hit to company profit (negative = loss). */
+  net: number;
+}
+
+export interface ProfitMiscLineDto {
+  lineId: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  /** AH invoice = money in, SO / 3PL invoice = money out. */
+  role: Role;
+  partyName: string;
+  title: string;
+  /** As on the invoice, in its currency. */
+  amountOriginal: number;
+  currency: string;
+  /** Effect on company profit, PKR (+ in / − out). */
+  amount: number;
+  late: boolean;
+}
+
+export interface ProfitExpenseSummaryDto {
+  id: string;
+  title: string;
+  amount: number;
+  expenseDate: string;
+  categoryName: string | null;
+  notes: string | null;
+  createdByName: string;
+}
+
+/** One row of the split: the company, the Admin or a partner. */
+export interface ProfitShareRowDto {
+  kind: "COMPANY" | "ADMIN" | "PARTNER";
+  userId: string | null;
+  name: string;
+  percent: number;
+  share: number;
+  expenses: number;
+  expenseLines: ProfitExpenseSummaryDto[];
+  /** Company only: carried over from the previous cycle (or the opening balance). */
+  broughtForward: number | null;
+  /** Admin / partner: share − expenses. Company: share − expenses + brought forward. */
+  netInHand: number;
+}
+
+export interface ProfitCycleSummaryDto {
+  cycleStart: string;
+  cycleEnd: string;
+  /** GENERATED = frozen statement; OPEN = ended, can be generated; CURRENT = still running (draft only). */
+  status: "GENERATED" | "OPEN" | "CURRENT";
+  statementId: string | null;
+  statementNumber: string | null;
+}
+
+export interface ProfitCycleDto extends ProfitCycleSummaryDto {
+  generatedAt: string | null;
+  generatedByName: string | null;
+  orders: ProfitOrderLineDto[];
+  byAccountHolder: ProfitSourceGroupDto[];
+  byStockOwner: ProfitSourceGroupDto[];
+  byThreePl: ProfitSourceGroupDto[];
+  totals: {
+    accountHolderShare: number;
+    productMarkup: number;
+    stockOwnerCut: number;
+    threePlMarkup: number;
+    orders: number;
+    refunds: number;
+    misc: number;
+    /** orders + refunds + misc — what's split. */
+    profit: number;
+    expenses: number;
+  };
+  refunds: ProfitRefundLineDto[];
+  misc: ProfitMiscLineDto[];
+  shares: ProfitShareRowDto[];
+  /** Company net in hand at the end of the cycle. */
+  companyClosingBalance: number;
+  /** Live only (null on a generated statement): approx. company profit of orders with no Account Holder invoice yet. */
+  estimate: { orderCount: number; profit: number } | null;
+  /** True when this cycle can be generated now (ended, previous generated, requester allowed). */
+  canGenerate: boolean;
+  /** Why it can't be generated, when it can't. */
+  generateBlockedReason: string | null;
+  /** Only the latest statement can be deleted. */
+  canDelete: boolean;
+}
+
+export interface ProfitOverviewDto {
+  cycles: ProfitCycleSummaryDto[];
+  canManageStatements: boolean;
+  canManageSettings: boolean;
+  /** Set when no opening cycle is configured yet. */
+  needsSetup: boolean;
 }

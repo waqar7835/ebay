@@ -15,6 +15,8 @@ import { Order } from "../database/models/order.model";
 import { OrderItem } from "../database/models/order-item.model";
 import { Product } from "../database/models/product.model";
 import { Invoice } from "../database/models/invoice.model";
+import { Expense } from "../database/models/expense.model";
+import { ProfitStatement } from "../database/models/profit-statement.model";
 import { MailerService } from "../mailer/mailer.service";
 import { TokensService } from "../tokens/tokens.service";
 import { SubscriptionsService } from "../subscriptions/subscriptions.service";
@@ -49,6 +51,8 @@ export class UsersService {
     @InjectModel(OrderItem) private readonly orderItemModel: typeof OrderItem,
     @InjectModel(Product) private readonly productModel: typeof Product,
     @InjectModel(Invoice) private readonly invoiceModel: typeof Invoice,
+    @InjectModel(Expense) private readonly expenseModel: typeof Expense,
+    @InjectModel(ProfitStatement) private readonly profitStatementModel: typeof ProfitStatement,
     private readonly tokensService: TokensService,
     private readonly mailer: MailerService,
     private readonly config: ConfigService,
@@ -105,7 +109,7 @@ export class UsersService {
     };
   }
 
-  async invite(companyId: string, invitedByUserId: string, dto: InviteUserDto) {
+  async invite(companyId: string, invitedByUserId: string, dto: InviteUserDto, canSetPartner = false) {
     const notInvitable = dto.roles.find((role) => !INVITABLE_ROLES.includes(role));
     if (notInvitable) {
       throw new BadRequestException(`The ${notInvitable} role cannot be assigned through an invite`);
@@ -134,7 +138,7 @@ export class UsersService {
     await this.userRoleModel.bulkCreate(dto.roles.map((role) => ({ userId: user.id, role })));
 
     if (dto.roles.includes(Role.STAFF)) {
-      await this.upsertStaffProfile(user.id, dto.staffPermissions ?? defaultStaffPermissions());
+      await this.upsertStaffProfile(companyId, user.id, dto.staffPermissions ?? defaultStaffPermissions(), canSetPartner);
     }
     if (dto.roles.includes(Role.ACCOUNT_HOLDER)) {
       if (!dto.accountHolderProfile) {
@@ -254,28 +258,58 @@ export class UsersService {
           ],
         },
       })) +
-      (await this.invoiceModel.count({ where: { [Op.or]: [{ userId }, { generatedByUserId: userId }] } }));
+      (await this.invoiceModel.count({ where: { [Op.or]: [{ userId }, { generatedByUserId: userId }] } })) +
+      (await this.expenseModel.count({ where: { [Op.or]: [{ chargedToUserId: userId }, { createdByUserId: userId }] } })) +
+      (await this.profitStatementModel.count({ where: { generatedByUserId: userId } }));
     if (history > 0) {
-      throw new ConflictException("This user has orders, products or invoices, so they can't be deleted — disable them instead");
+      throw new ConflictException("This user has orders, products, invoices or expenses, so they can't be deleted — disable them instead");
     }
 
     await user.destroy();
     return { deleted: true };
   }
 
-  async upsertStaffProfile(userId: string, input: StaffPermissionsInput) {
+  /**
+   * `canSetPartner`: only the company Admin marks partners / sets their % and statement permission (2026-11-05); for
+   * anyone else (Staff with canManageUsers) those fields are left as they are.
+   */
+  async upsertStaffProfile(companyId: string, userId: string, input: StaffPermissionsInput, canSetPartner = false) {
+    const user = await this.userModel.findOne({ where: { id: userId, companyId }, attributes: ["id"] });
+    if (!user) throw new NotFoundException("User not found");
     const [profile] = await this.staffProfileModel.findOrCreate({ where: { userId }, defaults: { userId } });
+    if (canSetPartner) {
+      const partnerPercent = input.isPartner ? round2(input.partnerPercent ?? 0) : null;
+      if (partnerPercent !== null) await this.assertSplitFits(companyId, userId, partnerPercent);
+      Object.assign(profile, {
+        isPartner: input.isPartner,
+        partnerPercent,
+        canManageProfitStatements: input.isPartner ? !!input.canManageProfitStatements : false,
+      });
+    }
     Object.assign(profile, {
       canManageOrders: input.canManageOrders,
       canManageStock: input.canManageStock,
       canManageUsers: input.canManageUsers,
       canGenerateInvoices: input.canGenerateInvoices,
       canViewFinancials: input.canViewFinancials,
-      hasRevenueShare: input.hasRevenueShare,
-      sharePercent: input.hasRevenueShare ? (input.sharePercent ?? 0) : null,
     });
     await profile.save();
     return profile;
+  }
+
+  /** Admin % + every partner's % (this user's as `percent`) can't go over 100 — the company gets the rest. */
+  private async assertSplitFits(companyId: string, userId: string, percent: number) {
+    const company = await this.companyModel.findByPk(companyId, { attributes: ["id", "adminProfitPercent"] });
+    const others = await this.staffProfileModel.findAll({
+      where: { isPartner: true, userId: { [Op.ne]: userId } },
+      include: [{ model: this.userModel, where: { companyId }, attributes: [] }],
+    });
+    const total = round2((company?.adminProfitPercent ?? 0) + others.reduce((sum, p) => sum + (p.partnerPercent ?? 0), 0) + percent);
+    if (total > 100) {
+      throw new BadRequestException(
+        `The Admin and partners would get ${total}% of the profit — it can't be more than 100%. Lower someone's % first.`,
+      );
+    }
   }
 
   async upsertAccountHolderProfile(userId: string, input: AccountHolderProfileInput) {
@@ -349,6 +383,10 @@ function defaultStaffPermissions(): StaffPermissionsInput {
     canManageUsers: false,
     canGenerateInvoices: false,
     canViewFinancials: false,
-    hasRevenueShare: false,
+    isPartner: false,
   };
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }
