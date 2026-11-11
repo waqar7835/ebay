@@ -59,6 +59,7 @@ export class UpdateOrderDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   supplierUrl?: string;
 
   /** Notes for the 3PL; on update an empty string clears them. */

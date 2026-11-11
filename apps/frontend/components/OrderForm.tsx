@@ -409,7 +409,7 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
       </Form.Item>
       {isDropship && (
         <Form.Item name="supplierUrl" label="Supplier/product listing URL" className="mb-0">
-          <Input placeholder="https://…" />
+          <Input.TextArea placeholder="Links or notes about the supplier / product listing" autoSize={{ minRows: 2, maxRows: 6 }} maxLength={2000} showCount />
         </Form.Item>
       )}
     </div>

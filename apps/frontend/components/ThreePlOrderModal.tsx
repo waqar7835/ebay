@@ -142,10 +142,9 @@ export default function ThreePlOrderModal({
         <Form.Item
           name="supplierUrl"
           label="Supplier/product listing URL"
-          rules={[{ type: "url", message: "Enter a valid URL" }]}
           className="mb-0"
         >
-          <Input placeholder="https://…" allowClear />
+          <Input.TextArea placeholder="Links or notes about the supplier / product listing" autoSize={{ minRows: 2, maxRows: 6 }} maxLength={2000} showCount allowClear />
         </Form.Item>
       </Form>
     </Modal>

@@ -230,7 +230,7 @@ export class Order extends Model {
   @Column({ type: DataType.UUID, allowNull: true, field: "refund_profit_statement_id" })
   declare refundProfitStatementId: string | null;
 
-  @Column({ type: DataType.STRING, allowNull: true, field: "supplier_url" })
+  @Column({ type: DataType.TEXT, allowNull: true, field: "supplier_url" })
   declare supplierUrl: string | null;
 
   /** Admin/Staff notes for the 3PL. Only managers and 3PLs receive it (see OrdersService.forRequester). */
