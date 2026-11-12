@@ -741,6 +741,14 @@ export default function OrdersPage() {
                 </Form.Item>
               )}
 
+              {/* The dropship 3PL's own notes (it edits them on the portal); read-only here. */}
+              {editingOrder?.threePlNotes && (
+                <div className="mb-4">
+                  <div className="mb-1 text-sm font-medium">3PL notes</div>
+                  <div className="whitespace-pre-wrap break-words rounded border border-slate-200 bg-slate-50 p-2 text-sm">{editingOrder.threePlNotes}</div>
+                </div>
+              )}
+
               {formError && <Alert type="error" title={formError} className="mb-4" showIcon />}
               <Button type="primary" htmlType="submit" loading={submitting} disabled={noCommonThreePl}>
                 {editingOrderId ? "Save changes" : "Create order"}

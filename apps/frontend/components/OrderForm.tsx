@@ -756,6 +756,13 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
             >
               <Input.TextArea rows={3} maxLength={2000} showCount placeholder="e.g. Gift wrap this order" />
             </Form.Item>
+            {/* The dropship 3PL's own notes: it edits them in its Edit popup; read-only here. */}
+            {initial?.threePlNotes && (
+              <div className="mt-4">
+                <div className="mb-1 text-sm font-medium">3PL notes</div>
+                <div className="whitespace-pre-wrap break-words rounded border border-slate-200 bg-slate-50 p-2 text-sm">{initial.threePlNotes}</div>
+              </div>
+            )}
           </Card>
 
           <Card>

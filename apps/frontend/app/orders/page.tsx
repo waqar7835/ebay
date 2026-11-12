@@ -549,11 +549,8 @@ function OrdersList() {
             key: "actions",
             width: 48,
             render: (_: unknown, order: OrderDto) => (
-              <EditAction
-                onClick={() => setThreePlEditing(order)}
-                disabled={order.status !== "PROCESSING"}
-                disabledReason="Only PROCESSING orders can be edited"
-              />
+              // Any status: past PROCESSING only its notes can change (the popup locks the rest).
+              <EditAction onClick={() => setThreePlEditing(order)} />
             ),
           },
         ]
@@ -651,6 +648,18 @@ function OrdersList() {
             key: "buyerDetails",
             render: (_: unknown, o: OrderDto) => (
               <div className="min-w-[180px] max-w-[260px] whitespace-pre-wrap break-words">{o.buyerDetails || "—"}</div>
+            ),
+          },
+        ]
+      : []),
+    // A dropship 3PL's own notes (set in its Edit popup); the Order ID search also matches them.
+    ...(isDropshipThreePl
+      ? [
+          {
+            title: "Notes",
+            key: "threePlNotes",
+            render: (_: unknown, o: OrderDto) => (
+              <div className="min-w-[160px] max-w-[240px] whitespace-pre-wrap break-words">{o.threePlNotes || "—"}</div>
             ),
           },
         ]
@@ -899,7 +908,7 @@ function OrdersList() {
               Order ID
               <Input
                 allowClear
-                placeholder="eBay order number"
+                placeholder={isDropshipThreePl || isManager ? "Order number or notes" : "eBay order number"}
                 value={orderRefInput}
                 onChange={(e) => setOrderRefInput(e.target.value)}
                 className="mt-1 flex w-56"

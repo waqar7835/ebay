@@ -13,13 +13,14 @@ import { variationName } from "@/lib/productLabel";
 interface FormValues {
   buyTotals: Record<string, number | null>;
   supplierUrl: string;
+  threePlNotes: string;
 }
 
 /**
- * Edit popup for a DROPSHIP 3PL on the orders list (PROCESSING orders). Shows the order as it appears in their row
- * (read-only) plus the only fields they may change: each line's buy total (in their currency, locked once invoiced)
- * and the supplier URL. They don't enter tracking numbers, and shipping is the row's "Mark as shipped" button — which
- * needs every buy price first.
+ * Edit popup for a DROPSHIP 3PL on the orders list. Shows the order as it appears in their row (read-only) plus the
+ * only fields they may change: each line's buy total (in their currency, locked once invoiced) and the supplier URL
+ * on PROCESSING orders, and its own optional notes at any status (even invoiced). They don't enter tracking numbers,
+ * and shipping is the row's "Mark as shipped" button — which needs every buy price first.
  */
 export default function ThreePlOrderModal({
   order,
@@ -46,11 +47,14 @@ export default function ThreePlOrderModal({
     form.setFieldsValue({
       buyTotals: Object.fromEntries(order.items.map((i) => [i.id, i.buyTotalOriginal ?? i.buyTotalSnapshot])),
       supplierUrl: order.supplierUrl ?? "",
+      threePlNotes: order.threePlNotes ?? "",
     });
   }, [order, form]);
 
   if (!order) return null;
-  const buyLocked = isInvoiced(order);
+  // Past PROCESSING only the notes can change.
+  const processing = order.status === "PROCESSING";
+  const buyLocked = !processing || isInvoiced(order);
 
   async function handleSave(values: FormValues) {
     if (!order) return;
@@ -68,7 +72,8 @@ export default function ThreePlOrderModal({
     try {
       await updateThreePlOrder(order.id, {
         ...(buyTotals.length ? { buyTotals } : {}),
-        supplierUrl: values.supplierUrl ?? "",
+        ...(processing ? { supplierUrl: values.supplierUrl ?? "" } : {}),
+        threePlNotes: values.threePlNotes ?? "",
       });
       onSaved();
     } catch (err) {
@@ -110,7 +115,16 @@ export default function ThreePlOrderModal({
       <Form<FormValues> form={form} layout="vertical" onFinish={handleSave} requiredMark={false}>
         <div className="mb-1 text-sm font-medium">Products &amp; buy price</div>
         {buyLocked && (
-          <Alert type="info" showIcon className="mb-3" title="This order is on an invoice, so its buy prices can't be changed." />
+          <Alert
+            type="info"
+            showIcon
+            className="mb-3"
+            title={
+              isInvoiced(order)
+                ? "This order is on an invoice, so its buy prices can't be changed."
+                : "Buy prices and the supplier URL can only be changed while the order is PROCESSING."
+            }
+          />
         )}
         <div className="mb-4 flex flex-col gap-3">
           {order.items.map((item) => {
@@ -142,9 +156,25 @@ export default function ThreePlOrderModal({
         <Form.Item
           name="supplierUrl"
           label="Supplier/product listing URL"
+          className="mb-4"
+        >
+          <Input.TextArea
+            placeholder="Links or notes about the supplier / product listing"
+            autoSize={{ minRows: 2, maxRows: 6 }}
+            maxLength={2000}
+            showCount
+            allowClear
+            disabled={!processing}
+          />
+        </Form.Item>
+
+        <Form.Item
+          name="threePlNotes"
+          label="Notes (optional)"
+          extra="Your own notes to find this order later, e.g. the email you ordered with. You can change them at any time; the company sees them too."
           className="mb-0"
         >
-          <Input.TextArea placeholder="Links or notes about the supplier / product listing" autoSize={{ minRows: 2, maxRows: 6 }} maxLength={2000} showCount allowClear />
+          <Input.TextArea placeholder="e.g. ordered with buyer123@example.com" autoSize={{ minRows: 2, maxRows: 6 }} maxLength={2000} showCount allowClear />
         </Form.Item>
       </Form>
     </Modal>

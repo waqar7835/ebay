@@ -119,7 +119,14 @@ export class OrdersService {
       if (filters.endDate) orderDate[Op.lte] = filters.endDate;
       where.orderDate = orderDate;
     }
-    if (orderRef) where.ebayOrderRef = { [Op.iLike]: likeContains(orderRef) };
+    // Managers and 3PLs (who can see a dropship 3PL's notes) also find an order by text in its notes.
+    if (orderRef) {
+      if (this.canSeeComments(isManager, requester)) {
+        Object.assign(where, {
+          [Op.or]: [{ ebayOrderRef: { [Op.iLike]: likeContains(orderRef) } }, { threePlNotes: { [Op.iLike]: likeContains(orderRef) } }],
+        });
+      } else where.ebayOrderRef = { [Op.iLike]: likeContains(orderRef) };
+    }
     // Everything but the status filter: what the status counts are taken over.
     const countWhere = { ...where };
     if (filters.status && !(threePlOnly && filters.status === OrderStatus.PENDING)) where.status = filters.status;
@@ -177,6 +184,7 @@ export class OrdersService {
       ...json,
       items: this.visibleItems(json.items, isManager, requester),
       comments: this.canSeeComments(isManager, requester) ? json.comments : null,
+      threePlNotes: this.canSeeComments(isManager, requester) ? json.threePlNotes : null,
       // Same audience as the buy price: managers and the 3PL.
       threePlDiscountPercent: this.canSeeComments(isManager, requester) ? json.threePlDiscountPercent : null,
       // As on the list, so a row edited in place (orders list price popup) can show its new profit.
@@ -223,6 +231,7 @@ export class OrdersService {
       daysInStatus: daysInStatus(order.statusChangedAt, now),
       stale: isOrderStale(order.status, order.statusChangedAt, staleOrderDays, now),
       comments: this.canSeeComments(isManager, requester) ? json.comments : null,
+      threePlNotes: this.canSeeComments(isManager, requester) ? json.threePlNotes : null,
       // Same audience as the buy price: managers and the 3PL.
       threePlDiscountPercent: this.canSeeComments(isManager, requester) ? json.threePlDiscountPercent : null,
       // Company profit is a manager-only figure — Account Holders/Stock Owners/3PLs only ever see their own payout.
@@ -556,6 +565,8 @@ export class OrdersService {
       const accountHolderProfile = await this.accountHolderProfileModel.findByPk(order.accountHolderId);
       Object.assign(order, await this.snapshotThreePl(threePlId, fulfillmentType, accountHolderProfile, order.threePlId));
       order.threePlId = threePlId;
+      // The notes are the old 3PL's own: the new one starts without them.
+      order.threePlNotes = null;
     } else if (threePlId) {
       await this.assertThreePlHandles(threePlId, fulfillmentType);
     }
@@ -794,22 +805,25 @@ export class OrdersService {
   }
 
   /**
-   * A 3PL's own edits from the orders list (decided 2026-10-08). DROPSHIP 3PL (Edit popup, PROCESSING orders only — the
-   * only ones it sees): line buy totals (until the order is invoiced) and the supplier URL; it doesn't enter tracking
-   * numbers. STOCK 3PL (Shipped tab): the tracking number, on PROCESSING or SHIPPED orders. One save, no status change.
+   * A 3PL's own edits from the orders list (decided 2026-10-08). DROPSHIP 3PL (Edit popup): line buy totals (until
+   * the order is invoiced) and the supplier URL on PROCESSING orders, its own notes at any status; it doesn't enter
+   * tracking numbers. STOCK 3PL (Shipped tab): the tracking number, on PROCESSING or SHIPPED orders. One save, no status change.
    */
   async updateThreePlFulfillment(companyId: string, requester: JwtPayload, id: string, dto: ThreePlFulfillmentDto) {
     const order = await this.get(companyId, id);
     this.assertAssignedThreePl(order, requester);
     const dropship = await this.isDropshipOrder(order);
     if (dropship) {
-      if (order.status !== OrderStatus.PROCESSING) throw new BadRequestException("Only PROCESSING orders can be edited");
+      // Its notes can change at any status it sees; buy prices and the supplier URL only while PROCESSING.
+      if (order.status !== OrderStatus.PROCESSING && (dto.buyTotals?.length || dto.supplierUrl !== undefined)) {
+        throw new BadRequestException("Buy prices and the supplier URL can only be changed on PROCESSING orders");
+      }
       if (dto.trackingNumber !== undefined) throw new BadRequestException("Tracking numbers on dropship orders are entered by the admin");
     } else {
       if (order.status !== OrderStatus.PROCESSING && order.status !== OrderStatus.SHIPPED) {
         throw new BadRequestException("Only PROCESSING or SHIPPED orders can be edited");
       }
-      if (dto.buyTotals?.length || dto.supplierUrl !== undefined) {
+      if (dto.buyTotals?.length || dto.supplierUrl !== undefined || dto.threePlNotes !== undefined) {
         throw new BadRequestException("A Stock order's 3PL can only change its tracking number");
       }
     }
@@ -818,6 +832,7 @@ export class OrdersService {
       if (dto.buyTotals?.length) await this.applyDropshipBuyTotals(order, requester, dto.buyTotals);
       if (dto.supplierUrl !== undefined) order.supplierUrl = dto.supplierUrl.trim() || null;
       if (dto.trackingNumber !== undefined) order.trackingNumber = dto.trackingNumber.trim() || null;
+      if (dto.threePlNotes !== undefined) order.threePlNotes = dto.threePlNotes.trim() || null;
       for (const i of order.items) if (i.changed()) await i.save({ transaction });
       await order.save({ transaction });
     });

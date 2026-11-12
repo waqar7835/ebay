@@ -233,6 +233,13 @@ export class Order extends Model {
   @Column({ type: DataType.TEXT, allowNull: true, field: "supplier_url" })
   declare supplierUrl: string | null;
 
+  /**
+   * A DROPSHIP 3PL's own notes (an email or anything to find the order later). Set only by the 3PL, at any status;
+   * managers and 3PLs receive it (see OrdersService), Account Holders / Stock Owners never do.
+   */
+  @Column({ type: DataType.TEXT, allowNull: true, field: "three_pl_notes" })
+  declare threePlNotes: string | null;
+
   /** Admin/Staff notes for the 3PL. Only managers and 3PLs receive it (see OrdersService.forRequester). */
   @Column({ type: DataType.TEXT, allowNull: true })
   declare comments: string | null;

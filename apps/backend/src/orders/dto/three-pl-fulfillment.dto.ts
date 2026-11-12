@@ -13,8 +13,8 @@ export class ThreePlBuyTotalDto {
 
 /**
  * What a 3PL may change on its own order from the orders list (decided 2026-10-08). A DROPSHIP 3PL: the line buy
- * totals and the supplier URL, while the order is PROCESSING. A STOCK 3PL: the tracking number, while the order is
- * PROCESSING or SHIPPED. Omitted fields are left as they are; an empty string clears the supplier URL / tracking number.
+ * totals and the supplier URL while the order is PROCESSING, and its own notes at any status. A STOCK 3PL: the
+ * tracking number, while the order is PROCESSING or SHIPPED. Omitted fields are left as they are; an empty string clears the supplier URL / tracking number.
  * Shipping is a status change (PATCH /orders/status or /orders/:id/status), not part of this.
  */
 export class ThreePlFulfillmentDto {
@@ -34,4 +34,9 @@ export class ThreePlFulfillmentDto {
   @MaxLength(200)
   trackingNumber?: string;
 
+  /** DROPSHIP 3PL only: its own free-text notes, editable at any status it sees (even invoiced). "" clears them. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  threePlNotes?: string;
 }

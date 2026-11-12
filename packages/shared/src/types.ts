@@ -293,6 +293,8 @@ export interface OrderDto {
   supplierUrl: string | null;
   /** Admin/Staff notes for the 3PL; null for Account Holders / Stock Owners (never sent to them). */
   comments: string | null;
+  /** A DROPSHIP 3PL's own notes (set by it only, any status); managers see them read-only, AH / SO never. */
+  threePlNotes: string | null;
   statusChangedAt: string;
   buyerDetails: string;
   /** In PKR. The amount as entered (in the Account Holder's currency) is ebayNetProceedsOriginal. */
