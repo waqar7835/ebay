@@ -21,7 +21,7 @@ import { RequirePermission } from "../common/decorators/permission.decorator";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { resolveCompanyId } from "../common/company-scope.util";
 import { parsePaging } from "../common/pagination.util";
-import { multerUploadOptions, publicUploadUrl } from "../uploads/uploads.util";
+import { IMAGE_TYPES, multerUploadOptions, publicUploadUrl } from "../uploads/uploads.util";
 import type { JwtPayload } from "../auth/jwt.strategy";
 import { ProductsService } from "./products.service";
 import { CreateProductDto, SetProductImagesDto, UpdateProductDto, UpdateStockDto } from "./dto/product.dto";
@@ -95,7 +95,7 @@ export class ProductsController {
    */
   @Put(":id/images")
   @RequirePermission("canManageStock")
-  @UseInterceptors(FilesInterceptor("images", PRODUCT_MAX_IMAGES, multerUploadOptions("products")))
+  @UseInterceptors(FilesInterceptor("images", PRODUCT_MAX_IMAGES, multerUploadOptions("products", { types: IMAGE_TYPES, typeError: "Product images must be JPEG, PNG or WebP" })))
   setImages(
     @CurrentUser() user: JwtPayload,
     @Param("id") id: string,

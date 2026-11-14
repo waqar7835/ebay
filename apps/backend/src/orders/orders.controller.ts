@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Query,
+  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -21,7 +22,7 @@ import { RequirePermission } from "../common/decorators/permission.decorator";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { resolveCompanyId } from "../common/company-scope.util";
 import { parsePaging } from "../common/pagination.util";
-import { multerUploadOptions, publicUploadUrl } from "../uploads/uploads.util";
+import { PDF_TYPES, multerUploadOptions, privateUploadRef } from "../uploads/uploads.util";
 import type { JwtPayload } from "../auth/jwt.strategy";
 import { OrdersService } from "./orders.service";
 import { CreateOrderDto } from "./dto/create-order.dto";
@@ -129,20 +130,19 @@ export class OrdersController {
     return this.ordersService.updateStatus(resolveCompanyId(user, companyId), user, id, dto);
   }
 
+  /** The label file (no longer public): managers and the order's 3PL, checked in the service. */
+  @Get(":id/shipping-label")
+  async shippingLabel(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Query("companyId") companyId?: string) {
+    const { buffer, contentType } = await this.ordersService.shippingLabel(resolveCompanyId(user, companyId), user, id);
+    return new StreamableFile(buffer, { type: contentType, disposition: "inline" });
+  }
+
   @Post(":id/shipping-label")
   @RequirePermission("canManageOrders")
   @UseInterceptors(
     FileInterceptor(
       "shippingLabel",
-      multerUploadOptions("shipping-labels", {
-        fileFilter: (_req, file, cb) => {
-          if (file.mimetype !== "application/pdf") {
-            cb(new BadRequestException("Shipping label must be a PDF file"), false);
-            return;
-          }
-          cb(null, true);
-        },
-      }),
+      multerUploadOptions("shipping-labels", { types: PDF_TYPES, typeError: "Shipping label must be a PDF file" }),
     ),
   )
   uploadShippingLabel(
@@ -155,7 +155,7 @@ export class OrdersController {
     return this.ordersService.uploadShippingLabel(
       resolveCompanyId(user, companyId),
       id,
-      publicUploadUrl("shipping-labels", file.filename),
+      privateUploadRef("shipping-labels", file.filename),
     );
   }
 }

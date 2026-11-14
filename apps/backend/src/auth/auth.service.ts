@@ -17,6 +17,10 @@ import { LoginDto } from "./dto/login.dto";
 import { ForgotPasswordDto, ResetPasswordDto } from "./dto/password-reset.dto";
 import { AcceptInviteDto } from "./dto/accept-invite.dto";
 import { JwtPayload } from "./jwt.strategy";
+import { RATE_WINDOW, RateLimitService, emailKey } from "../common/rate-limit.service";
+import { effectiveRoles, isCoAdmin } from "../common/admin-access.util";
+
+const INVALID_CREDENTIALS = "Invalid credentials";
 
 /** Token lifetime when the user ticks "Keep me logged in" on the login page. */
 const REMEMBER_ME_EXPIRES_IN = "7d";
@@ -33,6 +37,7 @@ export class AuthService {
     private readonly tokensService: TokensService,
     private readonly mailer: MailerService,
     private readonly config: ConfigService,
+    private readonly rateLimit: RateLimitService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -99,11 +104,37 @@ export class AuthService {
     return rememberMe ? this.jwtService.signAsync(payload, { expiresIn: REMEMBER_ME_EXPIRES_IN }) : this.jwtService.signAsync(payload);
   }
 
+  /**
+   * A fresh token for the caller after its own session version changed (e.g. it changed its password, which ends every
+   * other login): same claims, new `sv`, and it expires when the old one would have, so "Keep me logged in" is kept.
+   */
+  async reissueToken(current: JwtPayload, sessionVersion: number): Promise<string> {
+    // Per-request fields JwtStrategy adds (re-read from the database every time) don't belong in the token.
+    const { iat: _iat, exp, coAdmin: _coAdmin, staffPermissions: _staffPermissions, ...claims } = current;
+    const secondsLeft = exp ? Math.max(60, exp - Math.floor(Date.now() / 1000)) : undefined;
+    return this.jwtService.signAsync({ ...claims, sv: sessionVersion }, secondsLeft ? { expiresIn: secondsLeft } : {});
+  }
+
+  /**
+   * Failed-login lockout per email (security audit 2026-11-13): after 10 wrong passwords in 15 minutes the email is
+   * refused for the rest of that window, whatever IP the attempts come from. A successful login clears the count.
+   */
   async login(dto: LoginDto) {
-    if (dto.context === "backoffice") {
-      return this.loginBackoffice(dto.email, dto.password, !!dto.rememberMe);
+    const failKey = `login-fail:${dto.context === "backoffice" ? "backoffice" : "portal"}:${emailKey(dto.email)}`;
+    // Counted before the password check, so parallel attempts can't all slip past the cap; undone when it turns out
+    // not to be a wrong password, cleared on success.
+    this.rateLimit.hit(failKey, 10, RATE_WINDOW.FIFTEEN_MINUTES);
+    try {
+      const result =
+        dto.context === "backoffice"
+          ? await this.loginBackoffice(dto.email, dto.password, !!dto.rememberMe)
+          : await this.loginPortal(dto.email, dto.password, dto.role, !!dto.rememberMe);
+      this.rateLimit.clear(failKey);
+      return result;
+    } catch (err) {
+      if (!(err instanceof UnauthorizedException && err.message === INVALID_CREDENTIALS)) this.rateLimit.undo(failKey);
+      throw err;
     }
-    return this.loginPortal(dto.email, dto.password, dto.role, !!dto.rememberMe);
   }
 
   private async loginPortal(email: string, password: string, role: Role | undefined, rememberMe: boolean) {
@@ -125,7 +156,7 @@ export class AuthService {
     }
 
     if (!user) {
-      throw new UnauthorizedException("Invalid credentials");
+      throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
     if (user.status !== UserStatus.ACTIVE) {
       throw new UnauthorizedException("This account is not active");
@@ -136,7 +167,11 @@ export class AuthService {
       throw new UnauthorizedException("Please verify your company's email before logging in");
     }
 
-    const roles = user.roleAssignments.map((r) => r.role);
+    // A partner with Admin access acts as the Admin (common/admin-access.util.ts).
+    const roles = effectiveRoles(
+      user.roleAssignments.map((r) => r.role),
+      user.staffProfile,
+    );
 
     const payload: JwtPayload = {
       sub: user.id,
@@ -144,6 +179,8 @@ export class AuthService {
       email: user.email,
       roles,
       realm: "portal",
+      sv: user.sessionVersion,
+      coAdmin: isCoAdmin(user.staffProfile),
     };
 
     return {
@@ -164,6 +201,7 @@ export class AuthService {
               isPartner: user.staffProfile.isPartner,
               partnerPercent: user.staffProfile.partnerPercent,
               canManageProfitStatements: user.staffProfile.canManageProfitStatements,
+              hasAdminAccess: isCoAdmin(user.staffProfile),
             }
           : null,
       },
@@ -177,7 +215,7 @@ export class AuthService {
     });
 
     if (!user || !user.passwordHash || !(await bcrypt.compare(password, user.passwordHash))) {
-      throw new UnauthorizedException("Invalid credentials");
+      throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
     if (user.status !== UserStatus.ACTIVE) {
       throw new UnauthorizedException("This account is not active");
@@ -191,6 +229,7 @@ export class AuthService {
       email: user.email,
       roles,
       realm: "backoffice",
+      sv: user.sessionVersion,
     };
 
     return {
@@ -264,6 +303,8 @@ export class AuthService {
       const user = await this.backofficeUserModel.findByPk(record.backofficeUserId);
       if (!user) throw new BadRequestException("User not found");
       user.passwordHash = passwordHash;
+      // Ends every existing login of this account.
+      user.sessionVersion += 1;
       await user.save();
       return { message: "Password updated" };
     }
@@ -273,6 +314,8 @@ export class AuthService {
       throw new BadRequestException("User not found");
     }
     user.passwordHash = passwordHash;
+    // Ends every existing login of this account.
+    user.sessionVersion += 1;
     await user.save();
 
     return { message: "Password updated" };
@@ -291,6 +334,7 @@ export class AuthService {
       if (!user) throw new BadRequestException("User not found");
       user.passwordHash = passwordHash;
       user.status = UserStatus.ACTIVE;
+      user.sessionVersion += 1;
       await user.save();
       return { message: "Account activated, you can now log in" };
     }
@@ -307,6 +351,7 @@ export class AuthService {
     user.passwordHash = passwordHash;
     user.status = UserStatus.ACTIVE;
     user.inviteAcceptedAt = new Date();
+    user.sessionVersion += 1;
     await user.save();
 
     return { message: "Account activated, you can now log in" };

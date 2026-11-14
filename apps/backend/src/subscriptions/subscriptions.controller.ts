@@ -8,6 +8,7 @@ import {
   Patch,
   Post,
   Query,
+  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -22,7 +23,7 @@ import { Roles } from "../common/decorators/roles.decorator";
 import { RequirePermission } from "../common/decorators/permission.decorator";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { resolveCompanyId } from "../common/company-scope.util";
-import { multerUploadOptions, publicUploadUrl } from "../uploads/uploads.util";
+import { RECEIPT_TYPES, multerUploadOptions, privateUploadRef } from "../uploads/uploads.util";
 import type { JwtPayload } from "../auth/jwt.strategy";
 import { SubscriptionsService } from "./subscriptions.service";
 import {
@@ -37,7 +38,7 @@ import {
 
 /**
  * Plans and billing periods are configured by the Super Admin in the backoffice. Companies
- * (Admin / Staff with canManageUsers, portal only) view their subscription and submit payments;
+ * (the Admin or a partner with Admin access, portal only) view their subscription and submit payments;
  * only the Super Admin approves them (a financial action — Platform Staff can only view).
  */
 @ApiTags("subscriptions")
@@ -100,21 +101,27 @@ export class SubscriptionsController {
 
   // --- A company's subscription ---
 
+  // The Subscription page is the Admin's (or a partner with Admin access) since 2026-11-13. Staff with canManageUsers
+  // still read the plan and seat usage (the Users and Invite pages show the limits), but not the pending payment.
+  // Platform Staff read it from the backoffice (with their canManageUsers flag).
   @Get("me")
+  @Roles(Role.ADMIN, Role.STAFF, Role.PLATFORM_STAFF)
   @RequirePermission("canManageUsers")
-  mine(@CurrentUser() user: JwtPayload, @Query("companyId") companyId?: string) {
-    return this.subscriptions.getCompanySubscription(resolveCompanyId(user, companyId));
+  async mine(@CurrentUser() user: JwtPayload, @Query("companyId") companyId?: string) {
+    const subscription = await this.subscriptions.getCompanySubscription(resolveCompanyId(user, companyId));
+    if (user.realm === "portal" && !user.roles.includes(Role.ADMIN)) return { ...subscription, pendingPayment: null };
+    return subscription;
   }
 
   @Get("payments")
-  @RequirePermission("canManageUsers")
+  @Roles(Role.ADMIN)
   listCompanyPayments(@CurrentUser() user: JwtPayload, @Query("companyId") companyId?: string) {
     return this.subscriptions.listCompanyPayments(resolveCompanyId(user, companyId));
   }
 
   @Post("payments")
-  @RequirePermission("canManageUsers")
-  @UseInterceptors(FileInterceptor("receipt", multerUploadOptions("receipts")))
+  @Roles(Role.ADMIN)
+  @UseInterceptors(FileInterceptor("receipt", multerUploadOptions("receipts", { types: RECEIPT_TYPES, typeError: "The receipt must be a PDF, JPEG, PNG or WebP file" })))
   submitPayment(
     @CurrentUser() user: JwtPayload,
     @Body() dto: SubmitSubscriptionPaymentDto,
@@ -126,9 +133,16 @@ export class SubscriptionsController {
       submittedByUserId: user.sub,
       planId: dto.planId,
       billingPeriodId: dto.billingPeriodId,
-      receiptFileUrl: file ? publicUploadUrl("receipts", file.filename) : null,
+      receiptFileUrl: file ? privateUploadRef("receipts", file.filename) : null,
       referenceNote: dto.referenceNote ?? null,
     });
+  }
+
+  /** The receipt file (no longer public); access is checked in the service. */
+  @Get("payments/:id/receipt")
+  async receipt(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    const { buffer, contentType } = await this.subscriptions.receipt(user, id);
+    return new StreamableFile(buffer, { type: contentType, disposition: "inline" });
   }
 
   // --- Backoffice ---

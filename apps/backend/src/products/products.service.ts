@@ -12,6 +12,7 @@ import type { JwtPayload } from "../auth/jwt.strategy";
 import { likeContains, type Paging } from "../common/pagination.util";
 import { CreateProductDto, ProductStockInputDto, ProductVariationDto, UpdateProductDto, UpdateStockDto } from "./dto/product.dto";
 import { variationName } from "./product-label.util";
+import { isCompanyUserWithRole } from "../common/company-user.util";
 
 // A main product's variations, in order.
 const VARIATION_ORDER: [string, string][] = [
@@ -266,6 +267,7 @@ export class ProductsService {
   async create(companyId: string, dto: CreateProductDto) {
     const variations = dto.variations ?? [];
     this.assertVariationsValid(dto, variations);
+    await this.assertStockOwner(companyId, dto);
     const stocks = await this.validStocks(companyId, dto, variations);
     await this.assertSkusAvailable(companyId, [dto.sku, ...variations.map((v) => v.sku.trim())]);
     const product = await this.productModel.sequelize!.transaction(async (transaction) => {
@@ -290,6 +292,7 @@ export class ProductsService {
     const existing = await this.variationsOf([product.id]);
     const kept = dto.variations ?? existing.map((v) => ({ ...v.get({ plain: true }), id: v.id }) as ProductVariationDto);
     this.assertVariationsValid(dto, kept);
+    await this.assertStockOwner(companyId, dto);
     const stocks = await this.validStocks(companyId, dto, dto.variations ?? []);
     await this.assertSkusAvailable(
       companyId,
@@ -489,6 +492,17 @@ export class ProductsService {
     });
     if (existing) {
       throw new ConflictException(`SKU "${existing.sku}" is already used by "${existing.title}". Use a different SKU.`);
+    }
+  }
+
+  /**
+   * A STOCK product's Stock Owner must be a Stock Owner of this company (security audit 2026-11-13: any user id used
+   * to be accepted). Dropship products have none; toProductFields reports a missing one.
+   */
+  private async assertStockOwner(companyId: string, dto: CreateProductDto) {
+    if (dto.fulfillmentType !== ProductFulfillmentType.STOCK || !dto.stockOwnerId) return;
+    if (!(await isCompanyUserWithRole(this.userModel, companyId, dto.stockOwnerId, Role.STOCK_OWNER))) {
+      throw new NotFoundException("Stock Owner not found");
     }
   }
 

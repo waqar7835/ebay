@@ -17,7 +17,8 @@ import DateField from "@/components/DateField";
 import FileUpload from "@/components/FileUpload";
 import ProductThumb from "@/components/ProductThumb";
 import ProfitRow from "@/components/ProfitRow";
-import { listExchangeRates, listProducts, listUsers, localDateOnly, mediaUrl, type UpdateOrderPayload } from "@/lib/api";
+import { downloadShippingLabel, listExchangeRates, listProducts, listUsers, localDateOnly, type UpdateOrderPayload } from "@/lib/api";
+import { openBlobInNewTab } from "@/lib/download";
 import { currencySymbol, money, pkr } from "@/lib/currency";
 import { dropshipGrossBuy, dropshipNetBuy, estimateOrderProfit } from "@/lib/orderProfit";
 import { searchable, userNameOptions } from "@/lib/selectOptions";
@@ -741,9 +742,18 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
           <Card title="Shipping label">
             <FileUpload value={shippingLabel} onChange={setShippingLabel} accept="application/pdf" label="Select PDF" />
             {initial?.shippingLabelUrl && (
-              <a href={mediaUrl(initial.shippingLabelUrl)} target="_blank" rel="noreferrer" className="mt-2 block text-sm">
+              <Button
+                type="link"
+                size="small"
+                className="mt-2 block p-0 text-sm"
+                onClick={() =>
+                  openBlobInNewTab(() => downloadShippingLabel(initial.id)).catch((err) =>
+                    setFormError(err instanceof Error ? err.message : "Couldn't open the shipping label"),
+                  )
+                }
+              >
                 View current shipping label
-              </a>
+              </Button>
             )}
           </Card>
 

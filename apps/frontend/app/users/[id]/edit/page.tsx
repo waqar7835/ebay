@@ -22,7 +22,9 @@ import {
   type OrdersOffCurrency,
   uploadUserAvatar,
   getStoredUser,
+  type StoredUser,
 } from "@/lib/api";
+import { actsAsAdmin, changeBlockedReason, isRealAdmin } from "@/lib/userAccess";
 import AvatarUpload from "@/components/AvatarUpload";
 import { currencyOptions, currencySymbol } from "@/lib/currency";
 import { listHref } from "@/lib/listQuery";
@@ -47,8 +49,12 @@ type StaffPermissionsState = Record<StaffPermissionKey, boolean>;
 export default function EditUserPage() {
   const router = useRouter();
   // Read after mount: the stored login only exists in the browser, so reading it during render breaks hydration.
-  const [isAdmin, setIsAdmin] = useState(false);
-  useEffect(() => setIsAdmin(getStoredUser()?.roles.includes("ADMIN" as never) ?? false), []);
+  const [me, setMe] = useState<StoredUser | null>(null);
+  useEffect(() => setMe(getStoredUser()), []);
+  // Staff permissions: the Admin or a partner with Admin access. Partner settings (%, statements, Admin access): the real
+  // Admin only (lib/userAccess.ts, same rules as the API).
+  const isAdmin = actsAsAdmin(me);
+  const realAdmin = isRealAdmin(me);
   const params = useParams<{ id: string }>();
   const userId = params.id;
 
@@ -80,6 +86,7 @@ export default function EditUserPage() {
   const [isPartner, setIsPartner] = useState(false);
   const [partnerPercent, setPartnerPercent] = useState("0");
   const [canManageProfitStatements, setCanManageProfitStatements] = useState(false);
+  const [hasAdminAccess, setHasAdminAccess] = useState(false);
 
   const [ahSharePercent, setAhSharePercent] = useState("0");
   const [ahThreePlPriceCharged, setAhThreePlPriceCharged] = useState("");
@@ -120,6 +127,7 @@ export default function EditUserPage() {
           setIsPartner(u.staffProfile.isPartner);
           setPartnerPercent(String(u.staffProfile.partnerPercent ?? 0));
           setCanManageProfitStatements(u.staffProfile.canManageProfitStatements);
+          setHasAdminAccess(!!u.staffProfile.hasAdminAccess);
         }
         if (u.accountHolderProfile) {
           setAhSharePercent(String(u.accountHolderProfile.sharePercent));
@@ -158,12 +166,13 @@ export default function EditUserPage() {
       if (name !== (user.name ?? "") || currencyChanged) {
         await updateUser(userId, { name, ...(currencyChanged ? { currency } : {}) });
       }
-      if (user.staffProfile) {
+      if (user.staffProfile && isAdmin) {
         await updateStaffPermissions(userId, {
           ...staffPermissions,
           isPartner,
           partnerPercent: isPartner ? Number(partnerPercent) : null,
           canManageProfitStatements: isPartner && canManageProfitStatements,
+          hasAdminAccess: isPartner && hasAdminAccess,
         });
       }
       if (user.accountHolderProfile) {
@@ -254,6 +263,7 @@ export default function EditUserPage() {
       .map((w) => w[0]!.toUpperCase())
       .join("") || "?";
   const status = user ? (STATUS_TAG[user.status] ?? { color: "default", label: user.status }) : null;
+  const blockedReason = user && me ? changeBlockedReason(me, user) : null;
 
   return (
     <>
@@ -262,8 +272,9 @@ export default function EditUserPage() {
         <BackLink href="/users" label="Users" title="Edit user" />
 
         {loadError && <Alert type="error" title={loadError} className="mt-4" showIcon />}
+        {user && blockedReason && <Alert type="info" title={blockedReason} className="mt-4" showIcon />}
 
-        {user && (
+        {user && !blockedReason && (
           <Form layout="vertical" onFinish={handleSubmit} className="mt-6">
             <div className="grid gap-6 lg:grid-cols-3">
               <div className="flex flex-col gap-6 lg:col-span-2">
@@ -319,11 +330,13 @@ export default function EditUserPage() {
                           </span>
                           <Switch
                             checked={staffPermissions[key]}
+                            disabled={!isAdmin}
                             onChange={(checked) => setStaffPermissions((prev) => ({ ...prev, [key]: checked }))}
                           />
                         </label>
                       ))}
-                      {isAdmin && (
+                      {!isAdmin && <p className="mb-0 pt-3 text-xs text-slate-500">Only the company Admin can change Staff permissions.</p>}
+                      {realAdmin && (
                         <div className="pb-0 pt-3">
                           <div className="flex items-center justify-between gap-4">
                             <label className="cursor-pointer" htmlFor="partner">
@@ -346,6 +359,17 @@ export default function EditUserPage() {
                                 <span className="block text-xs text-slate-500">Generate and delete the cycle&apos;s profit statements</span>
                               </span>
                               <Switch checked={canManageProfitStatements} onChange={setCanManageProfitStatements} />
+                            </label>
+                          )}
+                          {isPartner && (
+                            <label className="mt-3 flex cursor-pointer items-center justify-between gap-4">
+                              <span>
+                                <span className="block font-medium text-slate-800">Admin access</span>
+                                <span className="block text-xs text-slate-500">
+                                  Can do everything you can, except change your account or any partner&apos;s settings
+                                </span>
+                              </span>
+                              <Switch checked={hasAdminAccess} onChange={setHasAdminAccess} />
                             </label>
                           )}
                         </div>

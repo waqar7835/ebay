@@ -19,17 +19,14 @@ import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
 import { RolesGuard } from "../../common/guards/roles.guard";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { resolveCompanyId } from "../../common/company-scope.util";
-import { multerUploadOptions, publicUploadUrl } from "../../uploads/uploads.util";
+import { PDF_IMAGE_TYPES, multerUploadOptions, publicUploadUrl, uploadTypeFilter } from "../../uploads/uploads.util";
 import type { JwtPayload } from "../../auth/jwt.strategy";
 import { InvoiceTemplatesService } from "./invoice-templates.service";
 import { PreviewInvoiceTemplateDto, SaveInvoiceTemplateDto, SetDefaultInvoiceTemplateDto } from "./invoice-template.dto";
 
 const LOGO_MAX_SIZE = 2 * 1024 * 1024;
 // pdfkit can only draw PNG and JPEG; PNG keeps a logo's transparent background.
-const logoFilter = (_req: unknown, file: Express.Multer.File, cb: (error: Error | null, accept: boolean) => void) => {
-  if (["image/png", "image/jpeg"].includes(file.mimetype)) cb(null, true);
-  else cb(new BadRequestException("Template logos must be PNG or JPEG images"), false);
-};
+const LOGO_TYPE_ERROR = "Template logos must be PNG or JPEG images";
 
 /**
  * Invoice templates. Managing them (create/edit/reset/delete/logo/default/preview) is the company Admin's —
@@ -60,7 +57,7 @@ export class InvoiceTemplatesController {
 
   /** Sample invoice drawn with unsaved settings; an unsaved logo comes along as the `logo` file. */
   @Post("preview")
-  @UseInterceptors(FileInterceptor("logo", { limits: { fileSize: LOGO_MAX_SIZE }, fileFilter: logoFilter }))
+  @UseInterceptors(FileInterceptor("logo", { limits: { fileSize: LOGO_MAX_SIZE }, fileFilter: uploadTypeFilter(PDF_IMAGE_TYPES, LOGO_TYPE_ERROR) }))
   async preview(
     @CurrentUser() user: JwtPayload,
     @Body() dto: PreviewInvoiceTemplateDto,
@@ -87,7 +84,7 @@ export class InvoiceTemplatesController {
   }
 
   @Post(":id/logo")
-  @UseInterceptors(FileInterceptor("logo", multerUploadOptions("logos", { maxFileSize: LOGO_MAX_SIZE, fileFilter: logoFilter })))
+  @UseInterceptors(FileInterceptor("logo", multerUploadOptions("logos", { maxFileSize: LOGO_MAX_SIZE, types: PDF_IMAGE_TYPES, typeError: LOGO_TYPE_ERROR })))
   uploadLogo(@CurrentUser() user: JwtPayload, @Param("id") id: string, @UploadedFile() file: Express.Multer.File | undefined) {
     if (!file) throw new BadRequestException("Choose an image");
     return this.templatesService.setLogo(resolveCompanyId(user), user, id, publicUploadUrl("logos", file.filename));

@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypto";
+import { jwtSecret } from "./jwt-secret.util";
 
 /**
  * Small AES-256-GCM helper for secrets stored in the database (the SMTP password). The key is derived from
@@ -6,7 +7,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypt
  */
 function key(): Buffer {
   return createHash("sha256")
-    .update(`${process.env.JWT_SECRET ?? "change-me"}:platform-settings`)
+    .update(`${jwtSecret()}:platform-settings`)
     .digest();
 }
 

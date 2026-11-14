@@ -10,6 +10,7 @@ import AutoDeliveryFields from "@/components/AutoDeliveryFields";
 import BackLink from "@/components/BackLink";
 import Nav from "@/components/Nav";
 import { getMyCompany, getStoredUser, getSubscription, getToken, inviteUser } from "@/lib/api";
+import { actsAsAdmin, isRealAdmin } from "@/lib/userAccess";
 import { currencyOptions, currencySymbol } from "@/lib/currency";
 
 // Every type counts against the company's subscription plan limits. Only the non-Staff types have a currency of their own.
@@ -66,8 +67,14 @@ const DEFAULT_STAFF_PERMISSIONS: StaffPermissionsState = {
 export default function InviteUserPage() {
   const router = useRouter();
   // Read after mount: the stored login only exists in the browser, so reading it during render breaks hydration.
+  // Staff permissions: the Admin or a partner with Admin access; partner settings: the real Admin (lib/userAccess.ts).
   const [isAdmin, setIsAdmin] = useState(false);
-  useEffect(() => setIsAdmin(getStoredUser()?.roles.includes("ADMIN" as Role) ?? false), []);
+  const [realAdmin, setRealAdmin] = useState(false);
+  useEffect(() => {
+    const me = getStoredUser();
+    setIsAdmin(actsAsAdmin(me));
+    setRealAdmin(isRealAdmin(me));
+  }, []);
   const [activeType, setActiveType] = useState<Role>("STAFF" as Role);
 
   const [name, setName] = useState("");
@@ -89,6 +96,7 @@ export default function InviteUserPage() {
   const [isPartner, setIsPartner] = useState(false);
   const [partnerPercent, setPartnerPercent] = useState("0");
   const [canManageProfitStatements, setCanManageProfitStatements] = useState(false);
+  const [hasAdminAccess, setHasAdminAccess] = useState(false);
 
   const [formError, setFormError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -143,6 +151,7 @@ export default function InviteUserPage() {
                 isPartner,
                 partnerPercent: isPartner ? Number(partnerPercent) : null,
                 canManageProfitStatements: isPartner && canManageProfitStatements,
+                hasAdminAccess: isPartner && hasAdminAccess,
               }
             : undefined,
         accountHolderProfile:
@@ -282,11 +291,15 @@ export default function InviteUserPage() {
                         </span>
                         <Switch
                           checked={staffPermissions[key]}
+                          disabled={!isAdmin}
                           onChange={(checked) => setStaffPermissions((prev) => ({ ...prev, [key]: checked }))}
                         />
                       </label>
                     ))}
-                    {isAdmin && (
+                    {!isAdmin && (
+                      <p className="mb-0 pt-3 text-xs text-slate-500">Only the company Admin can give Staff permissions — they can add them after the invite.</p>
+                    )}
+                    {realAdmin && (
                       <div className="pb-0 pt-3">
                         <div className="flex items-center justify-between gap-4">
                           <label className="cursor-pointer" htmlFor="partner">
@@ -309,6 +322,17 @@ export default function InviteUserPage() {
                               <span className="block text-xs text-slate-500">Generate and delete the cycle&apos;s profit statements</span>
                             </span>
                             <Switch checked={canManageProfitStatements} onChange={setCanManageProfitStatements} />
+                          </label>
+                        )}
+                        {isPartner && (
+                          <label className="mt-3 flex cursor-pointer items-center justify-between gap-4">
+                            <span>
+                              <span className="block font-medium text-slate-800">Admin access</span>
+                              <span className="block text-xs text-slate-500">
+                                Can do everything you can, except change your account or any partner&apos;s settings
+                              </span>
+                            </span>
+                            <Switch checked={hasAdminAccess} onChange={setHasAdminAccess} />
                           </label>
                         )}
                       </div>

@@ -7,7 +7,7 @@ import { RolesGuard } from "../common/guards/roles.guard";
 import { Roles } from "../common/decorators/roles.decorator";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { resolveCompanyId } from "../common/company-scope.util";
-import { multerUploadOptions, publicUploadUrl } from "../uploads/uploads.util";
+import { IMAGE_TYPES, multerUploadOptions, publicUploadUrl } from "../uploads/uploads.util";
 import type { JwtPayload } from "../auth/jwt.strategy";
 import { CompaniesService } from "./companies.service";
 import { UpdateCompanyNameDto } from "./dto/update-company-name.dto";
@@ -34,7 +34,7 @@ export class CompaniesController {
 
   @Post("me/logo")
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
-  @UseInterceptors(FileInterceptor("logo", multerUploadOptions("logos")))
+  @UseInterceptors(FileInterceptor("logo", multerUploadOptions("logos", { types: IMAGE_TYPES, typeError: "The logo must be a JPEG, PNG or WebP image" })))
   uploadLogo(
     @CurrentUser() user: JwtPayload,
     @UploadedFile() file: Express.Multer.File,

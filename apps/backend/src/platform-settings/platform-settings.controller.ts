@@ -6,27 +6,22 @@ import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { RolesGuard } from "../common/guards/roles.guard";
 import { Roles } from "../common/decorators/roles.decorator";
 import { MailerService } from "../mailer/mailer.service";
-import { multerUploadOptions, publicUploadUrl } from "../uploads/uploads.util";
+import { FAVICON_TYPES, IMAGE_TYPES, multerUploadOptions, publicUploadUrl } from "../uploads/uploads.util";
 import { TestEmailDto, UpdatePlatformSettingsDto } from "./platform-settings.dto";
 import { PlatformSettingsService } from "./platform-settings.service";
 
 /** PNG keeps transparency for the site logo; no SVG (it could carry scripts). */
 const LOGO_UPLOAD = multerUploadOptions("branding", {
   maxFileSize: 2 * 1024 * 1024,
-  fileFilter: (_req, file, cb) => {
-    if (["image/png", "image/jpeg", "image/webp"].includes(file.mimetype)) cb(null, true);
-    else cb(new BadRequestException("The logo must be a PNG, JPEG or WebP image"), false);
-  },
+  types: IMAGE_TYPES,
+  typeError: "The logo must be a PNG, JPEG or WebP image",
 });
 
 /** Same formats as the logo plus ICO; small, since browsers show it at 16–48px. */
-const FAVICON_TYPES = ["image/png", "image/jpeg", "image/webp", "image/x-icon", "image/vnd.microsoft.icon"];
 const FAVICON_UPLOAD = multerUploadOptions("branding", {
   maxFileSize: 1024 * 1024,
-  fileFilter: (_req, file, cb) => {
-    if (FAVICON_TYPES.includes(file.mimetype)) cb(null, true);
-    else cb(new BadRequestException("The favicon must be a PNG, ICO, JPEG or WebP image"), false);
-  },
+  types: FAVICON_TYPES,
+  typeError: "The favicon must be a PNG, ICO, JPEG or WebP image",
 });
 
 /** Super Admin only (backoffice realm): branding, public contact details, contact-form destination and SMTP. */

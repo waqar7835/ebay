@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectModel } from "@nestjs/sequelize";
 import * as bcrypt from "bcrypt";
@@ -21,6 +21,8 @@ import { MailerService } from "../mailer/mailer.service";
 import { TokensService } from "../tokens/tokens.service";
 import { SubscriptionsService } from "../subscriptions/subscriptions.service";
 import type { Paging } from "../common/pagination.util";
+import type { JwtPayload } from "../auth/jwt.strategy";
+import { isCoAdmin, isRealAdmin } from "../common/admin-access.util";
 import {
   AccountHolderProfileInput,
   InviteUserDto,
@@ -36,6 +38,8 @@ const PAID_ROLES = [Role.ACCOUNT_HOLDER, Role.STOCK_OWNER, Role.THREE_PL];
 const DEFAULT_INVITE_PASSWORD = "changeme";
 /** ADMIN is created at company registration and SUPER_ADMIN is a platform-level seed; neither is invitable. */
 const INVITABLE_ROLES = [Role.STAFF, ...PAID_ROLES];
+
+const STAFF_PERMISSION_KEYS = ["canManageOrders", "canManageStock", "canManageUsers", "canGenerateInvoices", "canViewFinancials"] as const;
 
 @Injectable()
 export class UsersService {
@@ -109,7 +113,11 @@ export class UsersService {
     };
   }
 
-  async invite(companyId: string, invitedByUserId: string, dto: InviteUserDto, canSetPartner = false) {
+  async invite(companyId: string, inviter: JwtPayload, dto: InviteUserDto, canSetPartner = false) {
+    const grantsPermissions = dto.staffPermissions && STAFF_PERMISSION_KEYS.some((k) => dto.staffPermissions![k]);
+    if (grantsPermissions && inviter.realm === "portal" && !inviter.roles.includes(Role.ADMIN)) {
+      throw new ForbiddenException("Only the company Admin can give Staff permissions — invite without them and ask the Admin");
+    }
     const notInvitable = dto.roles.find((role) => !INVITABLE_ROLES.includes(role));
     if (notInvitable) {
       throw new BadRequestException(`The ${notInvitable} role cannot be assigned through an invite`);
@@ -144,19 +152,19 @@ export class UsersService {
       if (!dto.accountHolderProfile) {
         throw new BadRequestException("accountHolderProfile is required for the Account Holder role");
       }
-      await this.upsertAccountHolderProfile(user.id, dto.accountHolderProfile);
+      await this.upsertAccountHolderProfile(companyId, user.id, dto.accountHolderProfile);
     }
     if (dto.roles.includes(Role.STOCK_OWNER)) {
       if (!dto.stockOwnerProfile) {
         throw new BadRequestException("stockOwnerProfile is required for the Stock Owner role");
       }
-      await this.upsertStockOwnerProfile(user.id, dto.stockOwnerProfile);
+      await this.upsertStockOwnerProfile(companyId, user.id, dto.stockOwnerProfile);
     }
     if (dto.roles.includes(Role.THREE_PL)) {
       if (!dto.threePlProfile) {
         throw new BadRequestException("threePlProfile is required for the 3PL role");
       }
-      await this.upsertThreePlProfile(user.id, dto.threePlProfile);
+      await this.upsertThreePlProfile(companyId, user.id, dto.threePlProfile);
     }
 
     await this.sendInviteEmail(user, companyId);
@@ -208,8 +216,10 @@ export class UsersService {
     }
 
     user.passwordHash = await bcrypt.hash(dto.newPassword, 10);
+    // Ends every other login of this account; the controller hands this session a fresh token.
+    user.sessionVersion += 1;
     await user.save();
-    return { message: "Password updated" };
+    return { message: "Password updated", sessionVersion: user.sessionVersion };
   }
 
   /**
@@ -230,6 +240,7 @@ export class UsersService {
       user.inviteAcceptedAt ??= new Date();
     } else {
       user.status = UserStatus.DISABLED;
+      user.sessionVersion += 1;
     }
     user.disabledBySubscription = false;
     await user.save();
@@ -270,13 +281,55 @@ export class UsersService {
   }
 
   /**
+   * Who may change another account through the /users/:id routes (decided 2026-11-13). The guard already requires the
+   * Admin (or a partner with Admin access, who acts as one) or Staff with canManageUsers. On top of that:
+   * - the company Admin's account: only the Admin itself (and it can never be disabled or deleted);
+   * - a partner's account: only the real Admin;
+   * - your own account: never here (use your profile page);
+   * - Staff permissions: only the Admin or a partner with Admin access (`ADMIN` in the effective roles).
+   * The backoffice (platform oversight) is exempt.
+   */
+  async assertCanChange(companyId: string, actor: JwtPayload, targetId: string, action: "edit" | "status" | "delete" | "permissions") {
+    const target = await this.userModel.findOne({
+      where: { id: targetId, companyId },
+      attributes: ["id"],
+      include: [UserRoleAssignment, { model: this.staffProfileModel, attributes: ["userId", "isPartner"] }],
+    });
+    if (!target) throw new NotFoundException("User not found");
+    const targetRoles = target.roleAssignments.map((r) => r.role);
+    // Platform oversight (Super Admin / Platform Staff) isn't bound by the company's internal rules; the service itself
+    // still refuses disabling or deleting the company Admin.
+    if (actor.realm === "backoffice") {
+      if (action === "permissions" && !targetRoles.includes(Role.STAFF)) throw new BadRequestException("This user isn't Staff");
+      return;
+    }
+    if (targetRoles.includes(Role.ADMIN)) {
+      if (action !== "edit" || !isRealAdmin(actor) || actor.sub !== targetId) {
+        throw new ForbiddenException("The company Admin's account can only be changed by the Admin");
+      }
+      return;
+    }
+    if (actor.sub === targetId) throw new ForbiddenException("You can't change your own account here — use your profile page");
+    if (target.staffProfile?.isPartner && !isRealAdmin(actor)) {
+      throw new ForbiddenException("Only the company Admin can change a partner's account");
+    }
+    if (action === "permissions") {
+      if (actor.realm === "portal" && !actor.roles.includes(Role.ADMIN)) {
+        throw new ForbiddenException("Only the company Admin can change Staff permissions");
+      }
+      if (!targetRoles.includes(Role.STAFF)) throw new BadRequestException("This user isn't Staff");
+    }
+  }
+
+  /**
    * `canSetPartner`: only the company Admin marks partners / sets their % and statement permission (2026-11-05); for
    * anyone else (Staff with canManageUsers) those fields are left as they are.
    */
   async upsertStaffProfile(companyId: string, userId: string, input: StaffPermissionsInput, canSetPartner = false) {
-    const user = await this.userModel.findOne({ where: { id: userId, companyId }, attributes: ["id"] });
+    const user = await this.userModel.findOne({ where: { id: userId, companyId }, attributes: ["id", "sessionVersion"] });
     if (!user) throw new NotFoundException("User not found");
     const [profile] = await this.staffProfileModel.findOrCreate({ where: { userId }, defaults: { userId } });
+    const wasCoAdmin = isCoAdmin(profile);
     if (canSetPartner) {
       const partnerPercent = input.isPartner ? round2(input.partnerPercent ?? 0) : null;
       if (partnerPercent !== null) await this.assertSplitFits(companyId, userId, partnerPercent);
@@ -284,6 +337,8 @@ export class UsersService {
         isPartner: input.isPartner,
         partnerPercent,
         canManageProfitStatements: input.isPartner ? !!input.canManageProfitStatements : false,
+        // Admin access only for partners (2026-11-13); taking it away applies on the partner's next request.
+        hasAdminAccess: input.isPartner ? !!input.hasAdminAccess : false,
       });
     }
     Object.assign(profile, {
@@ -294,6 +349,12 @@ export class UsersService {
       canViewFinancials: input.canViewFinancials,
     });
     await profile.save();
+    // Gaining or losing Admin access changes the roles the portal shows, which it reads at login: end the partner's
+    // sessions so it signs in again with the right screens (the API applies it on the next request either way).
+    if (isCoAdmin(profile) !== wasCoAdmin) {
+      user.sessionVersion += 1;
+      await user.save();
+    }
     return profile;
   }
 
@@ -312,7 +373,18 @@ export class UsersService {
     }
   }
 
-  async upsertAccountHolderProfile(userId: string, input: AccountHolderProfileInput) {
+  /**
+   * Profile terms can only be set on a user of this company who holds that role (security audit 2026-11-13: these
+   * routes used to take any user id, so one company could rewrite another's share / payout terms).
+   */
+  private async assertCompanyUserWithRole(companyId: string, userId: string, role: Role, label: string) {
+    const user = await this.userModel.findOne({ where: { id: userId, companyId }, include: [UserRoleAssignment] });
+    if (!user) throw new NotFoundException("User not found");
+    if (!user.roleAssignments.some((r) => r.role === role)) throw new BadRequestException(`This user isn't ${label}`);
+  }
+
+  async upsertAccountHolderProfile(companyId: string, userId: string, input: AccountHolderProfileInput) {
+    await this.assertCompanyUserWithRole(companyId, userId, Role.ACCOUNT_HOLDER, "an Account Holder");
     const [profile] = await this.accountHolderModel.findOrCreate({ where: { userId }, defaults: { userId } });
     Object.assign(profile, {
       sharePercent: input.sharePercent,
@@ -323,7 +395,8 @@ export class UsersService {
     return profile;
   }
 
-  async upsertStockOwnerProfile(userId: string, input: StockOwnerProfileInput) {
+  async upsertStockOwnerProfile(companyId: string, userId: string, input: StockOwnerProfileInput) {
+    await this.assertCompanyUserWithRole(companyId, userId, Role.STOCK_OWNER, "a Stock Owner");
     const [profile] = await this.stockOwnerModel.findOrCreate({ where: { userId }, defaults: { userId } });
     Object.assign(profile, {
       payoutMode: input.payoutMode,
@@ -334,7 +407,8 @@ export class UsersService {
     return profile;
   }
 
-  async upsertThreePlProfile(userId: string, input: ThreePlProfileInput) {
+  async upsertThreePlProfile(companyId: string, userId: string, input: ThreePlProfileInput) {
+    await this.assertCompanyUserWithRole(companyId, userId, Role.THREE_PL, "a 3PL");
     const [profile] = await this.threePlModel.findOrCreate({ where: { userId }, defaults: { userId } });
     Object.assign(profile, {
       // DROPSHIP 3PLs have no configured rate — they're paid the buy price entered per order instead.

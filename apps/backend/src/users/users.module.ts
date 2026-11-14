@@ -17,6 +17,7 @@ import { ProfitStatement } from "../database/models/profit-statement.model";
 import { TokensModule } from "../tokens/tokens.module";
 import { SubscriptionsModule } from "../subscriptions/subscriptions.module";
 import { OrdersModule } from "../orders/orders.module";
+import { AuthModule } from "../auth/auth.module";
 import { UsersController } from "./users.controller";
 import { UsersService } from "./users.service";
 
@@ -41,6 +42,7 @@ import { UsersService } from "./users.service";
     TokensModule,
     SubscriptionsModule,
     OrdersModule,
+    AuthModule,
   ],
   controllers: [UsersController],
   providers: [UsersService],

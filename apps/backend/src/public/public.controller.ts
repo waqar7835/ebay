@@ -25,8 +25,7 @@ export class PublicController {
   @Post("contact")
   @HttpCode(200)
   contact(@Body() dto: ContactMessageDto, @Req() req: Request) {
-    const forwarded = req.headers["x-forwarded-for"];
-    const ip = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(",")[0].trim() || req.ip || "unknown";
-    return this.publicService.contact(dto, ip);
+    // req.ip follows TRUST_PROXY (main.ts), so a spoofed X-Forwarded-For can't dodge the limit.
+    return this.publicService.contact(dto, req.ip || "unknown");
   }
 }

@@ -243,14 +243,18 @@ export default function DashboardPage() {
           <section className="mt-6">
             <h2 className="text-lg font-medium">Company overview</h2>
             <p className="text-sm text-gray-500">
-              {staff.orderCount} orders this cycle — total company profit {pkr(staff.totalCompanyProfit)}
+              {staff.orderCount} orders this cycle
+              {/* Money figures only for the Admin and Staff with "View financials" (the API leaves them out otherwise). */}
+              {!staff.financialsHidden && staff.totalCompanyProfit != null && <> — total company profit {pkr(staff.totalCompanyProfit)}</>}
             </p>
             <UninvoicedCounts data={staff.uninvoiced} />
 
             <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
-              <Card size="small" className="kpi-hero">
-                <Statistic title="Company profit this cycle" value={staff.totalCompanyProfit} precision={2} prefix="Rs" />
-              </Card>
+              {!staff.financialsHidden && (
+                <Card size="small" className="kpi-hero">
+                  <Statistic title="Company profit this cycle" value={staff.totalCompanyProfit ?? 0} precision={2} prefix="Rs" />
+                </Card>
+              )}
               <Card size="small" className="kpi-mint">
                 <Statistic title="Active users" value={staff.userStats.active} />
               </Card>

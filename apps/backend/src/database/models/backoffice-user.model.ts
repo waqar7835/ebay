@@ -30,6 +30,10 @@ export class BackofficeUser extends Model {
   })
   declare status: UserStatus;
 
+  /** Bumped to end every existing login of this account (password reset/change, disable); tokens carry it as `sv`. */
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0, field: "session_version" })
+  declare sessionVersion: number;
+
   @Column({ type: DataType.ENUM(Role.SUPER_ADMIN, Role.PLATFORM_STAFF), allowNull: false })
   declare role: Role;
 

@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { InjectModel } from "@nestjs/sequelize";
-import { Op } from "sequelize";
+import { Op, Sequelize } from "sequelize";
 import { Role, SEAT_LIMITED_ROLES, SubscriptionPaymentStatus, UserStatus } from "@ebay-order-management/shared";
 import { Company } from "../database/models/company.model";
 import { SubscriptionPlan } from "../database/models/subscription-plan.model";
@@ -8,6 +8,8 @@ import { SubscriptionBillingPeriod } from "../database/models/subscription-billi
 import { SubscriptionPayment } from "../database/models/subscription-payment.model";
 import { User } from "../database/models/user.model";
 import { UserRoleAssignment } from "../database/models/user-role.model";
+import type { JwtPayload } from "../auth/jwt.strategy";
+import { readUpload, uploadContentType } from "../uploads/uploads.util";
 import { MailerService } from "../mailer/mailer.service";
 import { addDays, addMonths, daysBetween, todayDateOnly } from "./subscription-date.util";
 import type { BillingPeriodDto, CreatePlanDto, UpdateBillingPeriodDto, UpdatePlanDto } from "./dto/subscription.dto";
@@ -268,6 +270,23 @@ export class SubscriptionsService {
     return this.paymentModel.findAll({ where: { companyId }, order: [["createdAt", "DESC"]] });
   }
 
+  /**
+   * A payment's receipt file, for the people who can see that payment (security audit 2026-11-13: receipts used to be
+   * public files): the backoffice (Super Admin / Platform Staff), or the company's Admin (incl. a partner with Admin access).
+   */
+  async receipt(requester: JwtPayload, paymentId: string): Promise<{ buffer: Buffer; contentType: string }> {
+    const payment = await this.paymentModel.findByPk(paymentId);
+    const allowed =
+      !!payment &&
+      (requester.realm === "backoffice"
+        ? requester.roles.includes(Role.SUPER_ADMIN) || requester.roles.includes(Role.PLATFORM_STAFF)
+        : payment.companyId === requester.companyId && requester.roles.includes(Role.ADMIN));
+    if (!payment || !allowed || !payment.receiptFileUrl) throw new NotFoundException("Receipt not found");
+    const buffer = await readUpload(payment.receiptFileUrl);
+    if (!buffer) throw new NotFoundException("The receipt file is missing");
+    return { buffer, contentType: uploadContentType(payment.receiptFileUrl) };
+  }
+
   async listPayments(status?: SubscriptionPaymentStatus) {
     const payments = await this.paymentModel.findAll({
       where: status ? { status } : {},
@@ -410,7 +429,7 @@ export class SubscriptionsService {
       })
     ).map((r) => r.userId);
     const [count] = await this.userModel.update(
-      { status: UserStatus.DISABLED, disabledBySubscription: true },
+      { status: UserStatus.DISABLED, disabledBySubscription: true, sessionVersion: Sequelize.literal("session_version + 1") },
       { where: { companyId: company.id, status: { [Op.ne]: UserStatus.DISABLED }, id: { [Op.notIn]: adminIds } } },
     );
     this.logger.log(`Subscription expired for company ${company.id}; ${count} account(s) deactivated`);

@@ -66,8 +66,8 @@ export class DashboardController {
 
   @Get("staff")
   @Roles(Role.ADMIN, Role.STAFF)
-  staff(@CurrentUser() user: JwtPayload, @Query("companyId") companyId?: string) {
-    return this.dashboardService.staff(resolveCompanyId(user, companyId));
+  async staff(@CurrentUser() user: JwtPayload, @Query("companyId") companyId?: string) {
+    return this.dashboardService.staff(resolveCompanyId(user, companyId), await this.dashboardService.canSeeCompanyMoney(user));
   }
 
   private async assertNotDisabled(userId: string) {

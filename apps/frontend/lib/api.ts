@@ -371,9 +371,11 @@ export function threePlDashboard(filters: DashboardOrderFilters = {}) {
 
 export interface StaffDashboard {
   uninvoiced: UninvoicedCounts;
+  /** True for Staff without "View financials": the money fields below are null / empty. */
+  financialsHidden: boolean;
   cycleStart: string;
   cycleEnd: string;
-  totalCompanyProfit: number;
+  totalCompanyProfit: number | null;
   orderCount: number;
   ordersByStatus: Record<string, number>;
   ordersPerUser: { userId: string; name: string; role: Role; byStatus: Record<string, number> }[];
@@ -393,7 +395,7 @@ export interface StaffDashboard {
     threePlName: string | null;
   }[];
   staleOrderDays: number;
-  salesByAccountHolder: { accountHolderId: string; name: string; orderCount: number; profit: number }[];
+  salesByAccountHolder: { accountHolderId: string; name: string; orderCount: number; profit: number | null }[];
 }
 
 export function staffDashboard() {
@@ -492,11 +494,14 @@ export function updateMyProfile(payload: { name?: string }) {
   return request<UserDto>("/users/me", { method: "PATCH", body: JSON.stringify(payload) });
 }
 
-export function changeMyPassword(currentPassword: string, newPassword: string, confirmNewPassword: string) {
-  return request<{ message: string }>("/users/me/password", {
+/** Changing the password logs out every other session; this one keeps going with the fresh token the API returns. */
+export async function changeMyPassword(currentPassword: string, newPassword: string, confirmNewPassword: string) {
+  const res = await request<{ message: string; accessToken?: string }>("/users/me/password", {
     method: "PATCH",
     body: JSON.stringify({ currentPassword, newPassword, confirmNewPassword }),
   });
+  if (res.accessToken && typeof window !== "undefined") sessionStore().setItem("accessToken", res.accessToken);
+  return { message: res.message };
 }
 
 // --- Users (company self-management: ADMIN/STAFF-with-canManageUsers) ---
@@ -817,6 +822,15 @@ export function createInvoice(draft: InvoiceDraftInput) {
 
 export function downloadInvoicePdf(invoiceId: string) {
   return requestBlob(`/invoices/${invoiceId}/pdf`);
+}
+
+/** Shipping labels and receipts aren't public files: they're fetched with the login (managers / the order's 3PL). */
+export function downloadShippingLabel(orderId: string) {
+  return requestBlob(`/orders/${orderId}/shipping-label`);
+}
+
+export function downloadSubscriptionReceipt(paymentId: string) {
+  return requestBlob(`/subscriptions/payments/${paymentId}/receipt`);
 }
 
 /** UNPAID invoices are deleted, PAID ones voided; either way their orders reopen. */

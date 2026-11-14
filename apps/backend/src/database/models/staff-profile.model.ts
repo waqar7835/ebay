@@ -34,6 +34,13 @@ export class StaffProfile extends Model {
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false, field: "is_partner" })
   declare isPartner: boolean;
 
+  /**
+   * A partner with Admin access (2026-11-13): treated as the company Admin everywhere, except it can't change the
+   * Admin's account or any partner's settings. Set only by the real Admin; cleared when the account stops being a partner.
+   */
+  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false, field: "has_admin_access" })
+  declare hasAdminAccess: boolean;
+
   @Column({
     type: DataType.DECIMAL(5, 2),
     allowNull: true,

@@ -45,10 +45,11 @@ import {
   listOrdersPage,
   listProducts,
   listUsers,
-  mediaUrl,
+  downloadShippingLabel,
   updateOrderStatus,
   updateThreePlOrder,
 } from "@/lib/api";
+import { openBlobInNewTab } from "@/lib/download";
 import { searchable, userLabel, userNameOptions } from "@/lib/selectOptions";
 import { formatDate } from "@/lib/date";
 import { buildListQuery, pagingQuery, readPaging, useListUrl } from "@/lib/listQuery";
@@ -419,11 +420,11 @@ function OrdersList() {
     }
   }
 
-  function handlePrintLabel(shippingLabelUrl: string) {
-    const win = window.open(mediaUrl(shippingLabelUrl), "_blank");
-    if (win) {
-      setTimeout(() => win.print(), 500);
-    }
+  function handlePrintLabel(orderId: string) {
+    setError(null);
+    openBlobInNewTab(() => downloadShippingLabel(orderId), { print: true }).catch((err) =>
+      setError(err instanceof Error ? err.message : "Couldn't open the shipping label"),
+    );
   }
 
   /**
@@ -829,7 +830,7 @@ function OrdersList() {
                 <Button
                   size="small"
                   icon={<PrinterOutlined />}
-                  onClick={() => handlePrintLabel(order.shippingLabelUrl as string)}
+                  onClick={() => handlePrintLabel(order.id)}
                   title="Print shipping label"
                 >
                   Print

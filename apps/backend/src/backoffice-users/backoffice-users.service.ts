@@ -68,6 +68,7 @@ export class BackofficeUsersService {
   async setStatus(id: string, status: UserStatus) {
     const user = await this.backofficeUserModel.findByPk(id);
     if (!user) throw new NotFoundException("Backoffice user not found");
+    if (status === UserStatus.DISABLED && user.status !== UserStatus.DISABLED) user.sessionVersion += 1;
     user.status = status;
     await user.save();
     return this.get(id);

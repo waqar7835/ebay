@@ -124,7 +124,7 @@ export class ProfitService {
   }
 
   async updateSettings(companyId: string, requester: JwtPayload, input: ProfitSplitSettingsInputDto) {
-    await this.accessService.assertAdmin(requester);
+    await this.accessService.assertRealAdmin(requester);
     const company = await this.findCompany(companyId);
     const { partners } = await this.members(company);
     const known = new Set(partners.map((p) => p.userId));
@@ -190,7 +190,7 @@ export class ProfitService {
     return {
       cycles: ctx.cycles.map((c) => this.summary(ctx, c)).reverse(),
       canManageStatements: ctx.access.canManageStatements,
-      canManageSettings: ctx.access.admin,
+      canManageSettings: ctx.access.realAdmin,
       needsSetup: !ctx.company.profitOpeningCycleStart,
     };
   }

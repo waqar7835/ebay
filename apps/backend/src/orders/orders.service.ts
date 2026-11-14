@@ -18,6 +18,7 @@ import { AccountHolderProfile } from "../database/models/account-holder-profile.
 import { StockOwnerProfile } from "../database/models/stock-owner-profile.model";
 import { ThreePlProfile } from "../database/models/three-pl-profile.model";
 import { User } from "../database/models/user.model";
+import { readUpload, uploadContentType } from "../uploads/uploads.util";
 import { StaffProfile } from "../database/models/staff-profile.model";
 import { BackofficeStaffProfile } from "../database/models/backoffice-staff-profile.model";
 import { SubscriptionsService } from "../subscriptions/subscriptions.service";
@@ -38,6 +39,7 @@ import {
   convertOrderAmounts,
   orderCurrencies,
 } from "./order-currency.util";
+import { isCompanyUserWithRole } from "../common/company-user.util";
 
 // A cancelled order's stock goes back on the shelf. A refunded one only when it's a full STOCK refund and the product
 // is coming back (decided 2026-10-12) — see applyStatus.
@@ -179,6 +181,7 @@ export class OrdersService {
   async getForRequester(companyId: string, requester: JwtPayload, id: string) {
     const order = await this.get(companyId, id);
     const isManager = requester.roles.some((r) => MANAGER_ROLES.includes(r));
+    if (!isManager && !this.canPartnerSee(order, requester)) throw new NotFoundException("Order not found");
     const json = order.toJSON() as Order;
     return {
       ...json,
@@ -190,6 +193,23 @@ export class OrdersService {
       // As on the list, so a row edited in place (orders list price popup) can show its new profit.
       companyProfit: isManager ? this.financeService.companyProfit(order) : undefined,
     };
+  }
+
+  /**
+   * Whether a non-manager may open this order — the same orders its list shows (security audit 2026-11-13: GET
+   * /orders/:id used to only check the company). Account Holder: its own orders; Stock Owner: orders with one of its
+   * items; 3PL: orders assigned to it, once past PENDING.
+   */
+  private canPartnerSee(order: Order, requester: JwtPayload): boolean {
+    const roles = requester.roles;
+    if (roles.includes(Role.ACCOUNT_HOLDER) && order.accountHolderId === requester.sub) return true;
+    if (roles.includes(Role.STOCK_OWNER) && order.items.some((i) => i.stockOwnerId === requester.sub)) return true;
+    return this.isAssignedThreePl(order, requester);
+  }
+
+  /** The order's own 3PL, once the order is past PENDING (what its orders list shows). */
+  private isAssignedThreePl(order: Order, requester: JwtPayload): boolean {
+    return requester.roles.includes(Role.THREE_PL) && order.threePlId === requester.sub && order.status !== OrderStatus.PENDING;
   }
 
   /**
@@ -270,6 +290,7 @@ export class OrdersService {
     const lines = await this.resolveLines(companyId, dto.items);
     const fulfillmentType = lines[0].product.fulfillmentType;
 
+    await this.assertCompanyUser(companyId, dto.accountHolderId, Role.ACCOUNT_HOLDER, "Account Holder");
     if (await this.subscriptions.isUserDisabled(dto.accountHolderId)) {
       throw new ForbiddenException("This Account Holder's account is deactivated");
     }
@@ -279,6 +300,7 @@ export class OrdersService {
     }
 
     const threePlId = await this.resolveThreePlId(lines, dto.threePlId, null);
+    if (threePlId) await this.assertCompanyUser(companyId, threePlId, Role.THREE_PL, "3PL");
     const threePlSnapshot = await this.snapshotThreePl(threePlId, fulfillmentType, accountHolderProfile, null);
     const itemRows = await Promise.all(lines.map((line, position) => this.snapshotItem(line, position)));
     if (fulfillmentType === ProductFulfillmentType.DROPSHIP) {
@@ -358,6 +380,7 @@ export class OrdersService {
     const dropship = await this.isDropshipOrder(order);
     if (dto.orderDate !== undefined) order.orderDate = dto.orderDate;
     if (dto.accountHolderId !== undefined && dto.accountHolderId !== order.accountHolderId) {
+      await this.assertCompanyUser(companyId, dto.accountHolderId, Role.ACCOUNT_HOLDER, "Account Holder");
       await this.changeAccountHolder(order, dto.accountHolderId, dropship);
     }
     if (dto.ebayOrderRef !== undefined) {
@@ -562,6 +585,7 @@ export class OrdersService {
     const oldThreePlId = order.threePlId;
     const threePlId = await this.resolveThreePlId(lines, threePlIdOverride, order.threePlId, alreadyOnOrder);
     if (threePlId !== order.threePlId) {
+      if (threePlId) await this.assertCompanyUser(companyId, threePlId, Role.THREE_PL, "3PL");
       const accountHolderProfile = await this.accountHolderProfileModel.findByPk(order.accountHolderId);
       Object.assign(order, await this.snapshotThreePl(threePlId, fulfillmentType, accountHolderProfile, order.threePlId));
       order.threePlId = threePlId;
@@ -715,6 +739,14 @@ export class OrdersService {
     }
     if (candidates.length > 1) throw new BadRequestException("These products are held at more than one 3PL — pick the 3PL to ship from");
     return candidates[0];
+  }
+
+  /**
+   * An order's Account Holder / 3PL must be a user of the order's company holding that role (security audit
+   * 2026-11-13: they used to be looked up by id alone, so another company's people and their terms could be used).
+   */
+  private async assertCompanyUser(companyId: string, userId: string, role: Role, label: string) {
+    if (!(await isCompanyUserWithRole(this.userModel, companyId, userId, role))) throw new NotFoundException(`${label} not found`);
   }
 
   private async assertThreePlHandles(threePlId: string, fulfillmentType: ProductFulfillmentType) {
@@ -885,6 +917,19 @@ export class OrdersService {
       }
       convertOrderAmounts(order, order.items, order.exchangeRates!);
     }
+  }
+
+  /**
+   * The order's shipping label file (security audit 2026-11-13: labels used to be public files, and they carry the
+   * buyer's address): for managers and the order's own 3PL once it can see the order.
+   */
+  async shippingLabel(companyId: string, requester: JwtPayload, id: string): Promise<{ buffer: Buffer; contentType: string }> {
+    const order = await this.get(companyId, id);
+    const isManager = requester.roles.some((r) => MANAGER_ROLES.includes(r));
+    if (!(isManager || this.isAssignedThreePl(order, requester)) || !order.shippingLabelUrl) throw new NotFoundException("Shipping label not found");
+    const buffer = await readUpload(order.shippingLabelUrl);
+    if (!buffer) throw new NotFoundException("The shipping label file is missing");
+    return { buffer, contentType: uploadContentType(order.shippingLabelUrl) };
   }
 
   async uploadShippingLabel(companyId: string, id: string, shippingLabelUrl: string) {

@@ -42,6 +42,10 @@ export class User extends Model {
   })
   declare status: UserStatus;
 
+  /** Bumped to end every existing login of this account (password reset/change, disable); tokens carry it as `sv`. */
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0, field: "session_version" })
+  declare sessionVersion: number;
+
   /** Set when the account was disabled because the company's subscription expired (restored on renewal). */
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false, field: "disabled_by_subscription" })
   declare disabledBySubscription: boolean;

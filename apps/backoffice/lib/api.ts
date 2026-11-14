@@ -490,6 +490,17 @@ export function deleteBillingPeriod(id: string) {
   return rawRequest<unknown>(`/subscriptions/billing-periods/${id}`, { method: "DELETE" });
 }
 
+/** Receipts aren't public files: fetched with the login. Platform-wide, so no ?companyId=. */
+export async function downloadSubscriptionReceipt(paymentId: string): Promise<Blob> {
+  const res = await apiFetch(`${API_URL}/subscriptions/payments/${paymentId}/receipt`, { headers: authHeaders(), cache: "no-store" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    if (isDeadSession(res.status, body)) return endSession();
+    throw new Error(apiErrorMessage(res.status, body));
+  }
+  return res.blob();
+}
+
 export function listSubscriptionPayments(status?: SubscriptionPaymentStatus) {
   return rawRequest<SubscriptionPaymentDto[]>(`/subscriptions/payments/all${status ? `?status=${status}` : ""}`);
 }

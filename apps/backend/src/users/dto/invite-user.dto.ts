@@ -26,6 +26,7 @@ export class StaffPermissionsInput {
   @IsBoolean() isPartner!: boolean;
   @IsOptional() @IsNumber() @Min(0) @Max(100) partnerPercent?: number | null;
   @IsOptional() @IsBoolean() canManageProfitStatements?: boolean;
+  @IsOptional() @IsBoolean() hasAdminAccess?: boolean;
 }
 
 export class AccountHolderProfileInput {

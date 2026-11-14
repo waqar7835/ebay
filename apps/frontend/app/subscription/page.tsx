@@ -14,10 +14,11 @@ import {
   listBillingPeriods,
   listSubscriptionPayments,
   listSubscriptionPlans,
-  mediaUrl,
+  downloadSubscriptionReceipt,
   submitSubscriptionPayment,
   subscriptionPrice,
 } from "@/lib/api";
+import { openBlobInNewTab } from "@/lib/download";
 import { pkr } from "@/lib/currency";
 import { formatDate, formatDateTime } from "@/lib/date";
 
@@ -317,11 +318,20 @@ export default function SubscriptionPage() {
             {
               title: "Receipt",
               dataIndex: "receiptFileUrl",
-              render: (url: string | null) =>
+              render: (url: string | null, p) =>
                 url ? (
-                  <a href={mediaUrl(url)} target="_blank" rel="noreferrer">
+                  <Button
+                    type="link"
+                    size="small"
+                    className="p-0"
+                    onClick={() =>
+                      openBlobInNewTab(() => downloadSubscriptionReceipt(p.id)).catch((err) =>
+                        setError(err instanceof Error ? err.message : "Couldn't open the receipt"),
+                      )
+                    }
+                  >
                     View
-                  </a>
+                  </Button>
                 ) : (
                   "—"
                 ),

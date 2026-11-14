@@ -10,7 +10,8 @@ import Nav from "@/components/Nav";
 import RoleTag, { roleLabel } from "@/components/RoleTag";
 import { DeleteAction, EditAction, ToggleStatusAction } from "@/components/RowActions";
 import { buildListQuery, pagingQuery, readPaging, useListUrl } from "@/lib/listQuery";
-import { deleteUser, getSubscription, getToken, listUsersPage, mediaUrl, setUserStatus } from "@/lib/api";
+import { deleteUser, getStoredUser, getSubscription, getToken, listUsersPage, mediaUrl, setUserStatus, type StoredUser } from "@/lib/api";
+import { changeBlockedReason } from "@/lib/userAccess";
 
 interface UserRow {
   id: string;
@@ -20,6 +21,7 @@ interface UserRow {
   status: string;
   disabledBySubscription: boolean;
   roles: Role[];
+  staffProfile?: { isPartner: boolean } | null;
 }
 
 export default function UsersPage() {
@@ -42,6 +44,9 @@ function UsersList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [subscription, setSubscription] = useState<CompanySubscriptionDto | null>(null);
+  // Read after mount: the stored login only exists in the browser.
+  const [me, setMe] = useState<StoredUser | null>(null);
+  useEffect(() => setMe(getStoredUser()), []);
 
   // Server-side page, plus the plan usage (both change when a user is enabled, disabled or deleted).
   function refresh(p = page, size = pageSize) {
@@ -128,10 +133,12 @@ function UsersList() {
       title: "Actions",
       key: "actions",
       align: "right",
+      // Same rules as the API (lib/userAccess.ts): the Admin's account, partners' accounts (unless you're the Admin) and
+      // your own account aren't changed from here.
       render: (_, u) => (
         <Space size={2}>
-          <EditAction onClick={() => router.push(`/users/${u.id}/edit`)} />
-          {!u.roles.includes("ADMIN" as Role) && (
+          {changeBlockedReason(me, u) === null && <EditAction onClick={() => router.push(`/users/${u.id}/edit`)} />}
+          {!u.roles.includes("ADMIN" as Role) && changeBlockedReason(me, u) === null && (
             <>
               {u.status !== "ACTIVE" && (
                 <ToggleStatusAction

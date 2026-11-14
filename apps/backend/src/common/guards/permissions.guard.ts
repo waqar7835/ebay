@@ -52,8 +52,9 @@ export class PermissionsGuard implements CanActivate {
       throw new ForbiddenException("You do not have permission to perform this action");
     }
 
-    const profile = await this.staffProfileModel.findByPk(user.sub);
-    if (profile && profile[permission]) {
+    // Loaded by JwtStrategy on this request; read from the database only if it isn't there.
+    const flags = user.staffPermissions !== undefined ? user.staffPermissions : await this.staffProfileModel.findByPk(user.sub);
+    if (flags && flags[permission]) {
       return true;
     }
 

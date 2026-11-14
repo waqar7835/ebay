@@ -105,6 +105,11 @@ export interface StaffPermissionsDto {
   partnerPercent: number | null;
   /** Can generate / delete profit statements (partners only; the Admin always can). */
   canManageProfitStatements: boolean;
+  /**
+   * Partner with Admin access (2026-11-13): can do whatever the company Admin can, except change the Admin's account or
+   * any partner's settings (%, permissions, Admin access). Set only by the Admin.
+   */
+  hasAdminAccess: boolean;
 }
 
 export interface AccountHolderProfileDto {

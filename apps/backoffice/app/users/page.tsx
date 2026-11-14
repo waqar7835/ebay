@@ -130,6 +130,7 @@ export default function UsersPage() {
               isPartner: false,
               partnerPercent: null,
               canManageProfitStatements: false,
+              hasAdminAccess: false,
             }
           : undefined,
         accountHolderProfile: roles.includes("ACCOUNT_HOLDER" as Role)

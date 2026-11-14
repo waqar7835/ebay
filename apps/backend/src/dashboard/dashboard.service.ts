@@ -13,6 +13,7 @@ import { StockOwnerProfile } from "../database/models/stock-owner-profile.model"
 import { ThreePlProfile } from "../database/models/three-pl-profile.model";
 import { StaffProfile } from "../database/models/staff-profile.model";
 import { FinanceService } from "../finance/finance.service";
+import type { JwtPayload } from "../auth/jwt.strategy";
 import { currentCycle, toDateOnly } from "../invoices/billing-cycle.util";
 import { daysInStatus, isOrderStale } from "../orders/order-staleness.util";
 
@@ -223,7 +224,18 @@ export class DashboardService {
     };
   }
 
-  async staff(companyId: string) {
+  /**
+   * Company dashboard. `showMoney` (decided 2026-11-13, security audit): the Admin (incl. a partner with Admin access),
+   * the backoffice and Staff with canViewFinancials get the money figures; other Staff only the counts — company profit,
+   * the profit chart and profit per Account Holder come back null / empty with `financialsHidden: true`.
+   */
+  async canSeeCompanyMoney(requester: JwtPayload): Promise<boolean> {
+    if (requester.realm === "backoffice" || requester.roles.includes(Role.ADMIN)) return true;
+    if (requester.staffPermissions !== undefined) return !!requester.staffPermissions?.canViewFinancials;
+    return !!(await this.staffProfileModel.findByPk(requester.sub))?.canViewFinancials;
+  }
+
+  async staff(companyId: string, showMoney = true) {
     const company = await this.companyModel.findByPk(companyId);
     if (!company) throw new NotFoundException("Company not found");
 
@@ -365,13 +377,14 @@ export class DashboardService {
     const uninvoiced = await this.uninvoiced(companyId, { role: "COMPANY" });
     return {
       uninvoiced,
+      financialsHidden: !showMoney,
       cycleStart: start,
       cycleEnd: end,
-      totalCompanyProfit,
+      totalCompanyProfit: showMoney ? totalCompanyProfit : null,
       orderCount: orders.length,
       ordersByStatus,
       ordersPerUser: Array.from(ordersPerUser.values()),
-      profitSeries,
+      profitSeries: showMoney ? profitSeries : [],
       ordersPerDay,
       ordersPerDayByAccountHolder,
       userStats,
@@ -381,7 +394,8 @@ export class DashboardService {
       salesByAccountHolder: Array.from(salesByAccountHolder.entries()).map(([accountHolderId, v]) => ({
         accountHolderId,
         name: nameOf(accountHolderId),
-        ...v,
+        orderCount: v.orderCount,
+        profit: showMoney ? v.profit : null,
       })),
     };
   }

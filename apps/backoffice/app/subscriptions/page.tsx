@@ -17,6 +17,7 @@ import {
   getToken,
   listAllCompanies,
   listBillingPeriods,
+  downloadSubscriptionReceipt,
   listSubscriptionPayments,
   listSubscriptionPlans,
   reviewSubscriptionPayment,
@@ -26,6 +27,7 @@ import {
   type PlanInput,
 } from "@/lib/api";
 import { pkr } from "@/lib/currency";
+import { openBlobInNewTab } from "@/lib/download";
 import { searchable } from "@/lib/selectOptions";
 import { formatDate, formatDateTime } from "@/lib/date";
 
@@ -208,11 +210,11 @@ export default function SubscriptionsPage() {
           {
             title: "Receipt",
             dataIndex: "receiptFileUrl",
-            render: (url: string | null) =>
+            render: (url: string | null, p) =>
               url ? (
-                <a href={/^https?:\/\//.test(url) ? url : `${process.env.NEXT_PUBLIC_API_URL}${url}`} target="_blank" rel="noreferrer">
+                <Button type="link" size="small" className="p-0" onClick={() => openBlobInNewTab(() => downloadSubscriptionReceipt(p.id)).catch(fail)}>
                   View
-                </a>
+                </Button>
               ) : (
                 "—"
               ),

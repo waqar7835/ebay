@@ -6,8 +6,10 @@ import type { JwtPayload } from "../auth/jwt.strategy";
 
 export interface ProfitAccess {
   userId: string;
-  /** The company Admin: manages the split, categories and every expense. */
+  /** The company Admin, or a partner with Admin access: categories and every expense. */
   admin: boolean;
+  /** The real company Admin only: the split settings (Admin % and partners' %). */
+  realAdmin: boolean;
   /** A partner (Staff account marked partner). */
   partner: boolean;
   /** Can generate / delete profit statements: the Admin, or a partner given the permission. */
@@ -24,17 +26,27 @@ export class ProfitAccessService {
 
   async resolve(requester: JwtPayload): Promise<ProfitAccess> {
     if (requester.realm !== "portal") throw new ForbiddenException("Profit & expenses are only available in the company portal");
-    if (requester.roles.includes(Role.ADMIN)) {
-      return { userId: requester.sub, admin: true, partner: false, canManageStatements: true };
+    if (requester.roles.includes(Role.ADMIN) && !requester.coAdmin) {
+      return { userId: requester.sub, admin: true, realAdmin: true, partner: false, canManageStatements: true };
     }
     const profile = requester.roles.includes(Role.STAFF) ? await this.staffProfileModel.findByPk(requester.sub) : null;
     if (!profile?.isPartner) throw new ForbiddenException("Only the company Admin and partners can see profit & expenses");
+    // A partner with Admin access manages like the Admin, but the split itself stays the real Admin's.
+    const coAdmin = !!profile.hasAdminAccess;
     return {
       userId: requester.sub,
-      admin: false,
+      admin: coAdmin,
+      realAdmin: false,
       partner: true,
-      canManageStatements: profile.canManageProfitStatements,
+      canManageStatements: coAdmin || profile.canManageProfitStatements,
     };
+  }
+
+  /** The split settings (Admin % and partners' %): the real company Admin only. */
+  async assertRealAdmin(requester: JwtPayload): Promise<ProfitAccess> {
+    const access = await this.resolve(requester);
+    if (!access.realAdmin) throw new ForbiddenException("Only the company Admin can change the profit split");
+    return access;
   }
 
   async assertAdmin(requester: JwtPayload): Promise<ProfitAccess> {
