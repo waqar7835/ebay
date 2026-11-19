@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -27,7 +28,9 @@ import type { JwtPayload } from "../auth/jwt.strategy";
 import { UsersService } from "./users.service";
 import { OrdersService } from "../orders/orders.service";
 import { AuthService } from "../auth/auth.service";
-import { isRealAdmin } from "../common/admin-access.util";
+import { canSetOrderPrices, isRealAdmin } from "../common/admin-access.util";
+import { OwnerPricingService } from "../owner-pricing/owner-pricing.service";
+import { OwnedProductsDto } from "./dto/owned-products.dto";
 import {
   AccountHolderProfileInput,
   InviteUserDto,
@@ -54,6 +57,7 @@ export class UsersController {
     private readonly usersService: UsersService,
     private readonly ordersService: OrdersService,
     private readonly authService: AuthService,
+    private readonly ownerPricing: OwnerPricingService,
   ) {}
 
   @Get()
@@ -191,6 +195,22 @@ export class UsersController {
     return this.usersService.upsertAccountHolderProfile(resolveCompanyId(user, companyId), id, dto);
   }
 
+  /**
+   * The Account Holder's "Product owner" list (decided 2026-11-19): its linked Stock Owner account's products it owns
+   * (priced at cost on its orders) and the auto-add switch. Company Admin and partners only.
+   */
+  @Get(":id/owned-products")
+  ownedProducts(@CurrentUser() user: JwtPayload, @Param("id") id: string) {
+    assertCanSetOrderPrices(user);
+    return this.ownerPricing.getSettings(resolveCompanyId(user), id);
+  }
+
+  @Patch(":id/owned-products")
+  updateOwnedProducts(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Body() dto: OwnedProductsDto) {
+    assertCanSetOrderPrices(user);
+    return this.ownerPricing.updateSettings(resolveCompanyId(user), id, dto);
+  }
+
   @Patch(":id/stock-owner-profile")
   @RequirePermission("canManageUsers")
   async updateStockOwnerProfile(
@@ -214,6 +234,10 @@ export class UsersController {
     await this.usersService.assertCanChange(resolveCompanyId(user, companyId), user, id, "edit");
     return this.usersService.upsertThreePlProfile(resolveCompanyId(user, companyId), id, dto);
   }
+}
+
+function assertCanSetOrderPrices(user: JwtPayload) {
+  if (!canSetOrderPrices(user)) throw new ForbiddenException("Only the company Admin and partners can change this");
 }
 
 /**

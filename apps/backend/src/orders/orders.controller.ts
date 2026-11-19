@@ -31,6 +31,7 @@ import { UpdateOrderStatusDto } from "./dto/update-status.dto";
 import { BulkUpdateOrderStatusDto } from "./dto/bulk-update-status.dto";
 import { DropshipBuyPriceDto } from "./dto/dropship-buy-price.dto";
 import { ThreePlFulfillmentDto } from "./dto/three-pl-fulfillment.dto";
+import { ResyncPricesDto } from "./dto/resync-prices.dto";
 
 @ApiTags("orders")
 @ApiBearerAuth()
@@ -74,6 +75,44 @@ export class OrdersController {
     return this.ordersService.bulkUpdateStatus(resolveCompanyId(user, companyId), user, dto);
   }
 
+  /**
+   * Which products the Account Holder owns (priced at cost on new order lines; decided 2026-11-19) — for the order
+   * form's profit estimate.
+   */
+  @Get("owned-products")
+  @RequirePermission("canManageOrders")
+  ownedProducts(
+    @CurrentUser() user: JwtPayload,
+    @Query("accountHolderId") accountHolderId: string,
+    @Query("companyId") companyId?: string,
+  ) {
+    if (!accountHolderId) throw new BadRequestException("accountHolderId is required");
+    return this.ordersService
+      .ownedProductIds(resolveCompanyId(user, companyId), accountHolderId)
+      .then((productIds) => ({ productIds }));
+  }
+
+  /** "Resync prices" on many orders (Admin / partners only, checked in the service). Before ":id" routes. */
+  @Post("resync-prices")
+  resyncPrices(@CurrentUser() user: JwtPayload, @Body() dto: ResyncPricesDto, @Query("companyId") companyId?: string) {
+    return this.ordersService.resyncPrices(resolveCompanyId(user, companyId), user, dto.orderIds);
+  }
+
+  /** "Resync prices" on one order; refused (not skipped) when it can't be resynced. Returns the updated order. */
+  @Post(":id/resync-prices")
+  async resyncOrderPrices(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Query("companyId") companyId?: string) {
+    const scopedCompanyId = resolveCompanyId(user, companyId);
+    const { skipped } = await this.ordersService.resyncPrices(scopedCompanyId, user, [id]);
+    if (skipped.length) {
+      throw new BadRequestException(
+        skipped[0].reason === "on an invoice"
+          ? "This order is on an invoice and can't be changed — delete that invoice first"
+          : "Only stock orders have product prices to resync",
+      );
+    }
+    return this.ordersService.getForRequester(scopedCompanyId, user, id);
+  }
+
   @Get(":id")
   get(@CurrentUser() user: JwtPayload, @Param("id") id: string, @Query("companyId") companyId?: string) {
     return this.ordersService.getForRequester(resolveCompanyId(user, companyId), user, id);
@@ -82,7 +121,7 @@ export class OrdersController {
   @Post()
   @RequirePermission("canManageOrders")
   create(@CurrentUser() user: JwtPayload, @Body() dto: CreateOrderDto, @Query("companyId") companyId?: string) {
-    return this.ordersService.create(resolveCompanyId(user, companyId), dto);
+    return this.ordersService.create(resolveCompanyId(user, companyId), dto, user);
   }
 
   @Patch(":id")
@@ -94,7 +133,7 @@ export class OrdersController {
     @Query("companyId") companyId?: string,
   ) {
     const scopedCompanyId = resolveCompanyId(user, companyId);
-    const { stockWarnings } = await this.ordersService.update(scopedCompanyId, id, dto);
+    const { stockWarnings } = await this.ordersService.update(scopedCompanyId, id, dto, user);
     const order = await this.ordersService.getForRequester(scopedCompanyId, user, id);
     // Lines whose stock couldn't move because their 3PL is no longer on the product.
     return stockWarnings.length ? { ...order, stockWarnings } : order;

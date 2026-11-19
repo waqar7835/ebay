@@ -40,6 +40,8 @@ import {
   orderCurrencies,
 } from "./order-currency.util";
 import { isCompanyUserWithRole } from "../common/company-user.util";
+import { canSetOrderPrices } from "../common/admin-access.util";
+import { OwnerPricingService } from "../owner-pricing/owner-pricing.service";
 
 // A cancelled order's stock goes back on the shelf. A refunded one only when it's a full STOCK refund and the product
 // is coming back (decided 2026-10-12) — see applyStatus.
@@ -56,7 +58,10 @@ interface OrderLine {
   quantity: number;
   /** DROPSHIP only: the line's buy total in the 3PL's currency; undefined = not sent (keep on edit). */
   buyTotal?: number | null;
-  /** DROPSHIP only: the line's client buying price in the Account Holder's currency; undefined = keep on edit. */
+  /**
+   * The line's client buying price (all units) in the Account Holder's currency; undefined = keep on edit. DROPSHIP: the
+   * client price. STOCK: a manual price set by the Admin / a partner, replacing sell × qty (null = automatic).
+   */
   clientTotal?: number | null;
 }
 
@@ -87,6 +92,7 @@ export class OrdersService {
     private readonly subscriptions: SubscriptionsService,
     private readonly financeService: FinanceService,
     private readonly exchangeRatesService: ExchangeRatesService,
+    private readonly ownerPricing: OwnerPricingService,
   ) {}
 
   /**
@@ -282,7 +288,7 @@ export class OrdersService {
     }
   }
 
-  async create(companyId: string, dto: CreateOrderDto) {
+  async create(companyId: string, dto: CreateOrderDto, requester: JwtPayload) {
     const ebayOrderRef = dto.ebayOrderRef.trim();
     if (!ebayOrderRef) throw new BadRequestException("eBay order number is required");
     await this.assertEbayOrderRefAvailable(companyId, ebayOrderRef);
@@ -302,11 +308,19 @@ export class OrdersService {
     const threePlId = await this.resolveThreePlId(lines, dto.threePlId, null);
     if (threePlId) await this.assertCompanyUser(companyId, threePlId, Role.THREE_PL, "3PL");
     const threePlSnapshot = await this.snapshotThreePl(threePlId, fulfillmentType, accountHolderProfile, null);
-    const itemRows = await Promise.all(lines.map((line, position) => this.snapshotItem(line, position)));
+    // Products the Account Holder owns are priced at cost (decided 2026-11-19).
+    const isOwned = await this.ownerPricing.ownedChecker(companyId, dto.accountHolderId);
+    const itemRows = await Promise.all(lines.map((line, position) => this.snapshotItem(line, position, isOwned(line.product))));
     if (fulfillmentType === ProductFulfillmentType.DROPSHIP) {
       assertDropshipTotalsAllowed(lines, threePlId);
       itemRows.forEach((row, i) => {
         row.buyTotalOriginal = lines[i].buyTotal ?? null;
+        row.clientTotalOriginal = lines[i].clientTotal ?? null;
+      });
+    } else {
+      // A manual client price on a stock line: Admin / partners only.
+      if (lines.some((l) => l.clientTotal != null)) assertCanSetOrderPrices(requester);
+      itemRows.forEach((row, i) => {
         row.clientTotalOriginal = lines[i].clientTotal ?? null;
       });
     }
@@ -367,7 +381,7 @@ export class OrdersService {
    * Returns the stock warnings (see adjustStock): lines whose stock should have moved at a 3PL that's no longer on the
    * product.
    */
-  async update(companyId: string, id: string, dto: UpdateOrderDto): Promise<{ stockWarnings: string[] }> {
+  async update(companyId: string, id: string, dto: UpdateOrderDto, requester: JwtPayload): Promise<{ stockWarnings: string[] }> {
     const order = await this.get(companyId, id);
     const stockWarnings: string[] = [];
     assertNotInvoiced(order);
@@ -401,7 +415,7 @@ export class OrdersService {
     await this.saveWithUniqueRef(order.ebayOrderRef, () =>
       sequelize.transaction(async (transaction) => {
         if (dto.items !== undefined || (dto.threePlId !== undefined && dto.threePlId !== order.threePlId)) {
-          await this.changeItems(companyId, order, dto.items, dto.threePlId, transaction, stockWarnings);
+          await this.changeItems(companyId, order, dto.items, dto.threePlId, transaction, stockWarnings, requester);
         }
         await this.finalizeAmounts(order, legacy, dto, dropship, transaction);
         await order.save({ transaction });
@@ -564,6 +578,7 @@ export class OrdersService {
     threePlIdOverride: string | null | undefined,
     transaction: Transaction,
     stockWarnings: string[],
+    requester: JwtPayload,
   ) {
     const existing = order.items ?? [];
     const alreadyOnOrder = new Set(existing.map((i) => i.productId));
@@ -631,6 +646,15 @@ export class OrdersService {
       }
     }
 
+    // Added products are priced at cost when the order's Account Holder owns them (decided 2026-11-19); kept ones keep
+    // their snapshot. A manual client price on a stock line (STOCK: replaces sell × qty) is Admin / partners only.
+    const isOwned = await this.ownerPricing.ownedChecker(companyId, order.accountHolderId, transaction);
+    const manualAllowed = canSetOrderPrices(requester);
+    const assertManualChange = (before: number | null, after: number | null | undefined) => {
+      if (!wasDropship && after !== undefined && (after ?? null) !== (before ?? null) && !manualAllowed) {
+        throw new ForbiddenException("Only the company Admin and partners can set prices on an order");
+      }
+    };
     const existingByProduct = new Map(existing.map((i) => [i.productId, i]));
     const keptIds = new Set<string>();
     for (const [position, line] of lines.entries()) {
@@ -641,11 +665,18 @@ export class OrdersService {
         current.position = position;
         if (wasDropship && line.buyTotal !== undefined) setBuyTotal(current, line.buyTotal);
         if (wasDropship && line.clientTotal !== undefined) setClientTotal(current, line.clientTotal);
+        if (!wasDropship && line.clientTotal !== undefined) {
+          assertManualChange(current.clientTotalOriginal ?? current.clientTotalSnapshot, line.clientTotal);
+          setClientTotal(current, line.clientTotal);
+        }
         await current.save({ transaction });
       } else {
-        const row = await this.snapshotItem(line, position);
+        const row = await this.snapshotItem(line, position, isOwned(line.product));
         if (wasDropship) {
           setBuyTotal(row, line.buyTotal ?? null);
+          setClientTotal(row, line.clientTotal ?? null);
+        } else {
+          assertManualChange(null, line.clientTotal);
           setClientTotal(row, line.clientTotal ?? null);
         }
         await this.orderItemModel.create({ ...row, orderId: order.id }, { transaction });
@@ -690,8 +721,9 @@ export class OrdersService {
     if (new Set(lines.map((l) => l.product.fulfillmentType)).size > 1) {
       throw new BadRequestException("An order can't mix Stock and Dropship products");
     }
-    if (lines.some((l) => l.product.fulfillmentType === ProductFulfillmentType.STOCK && (l.buyTotal != null || l.clientTotal != null))) {
-      throw new BadRequestException("Only dropship products take a buy price or client buying price on the order");
+    // Stock lines may carry a manual client price (permission checked by the caller), never a buy total.
+    if (lines.some((l) => l.product.fulfillmentType === ProductFulfillmentType.STOCK && l.buyTotal != null)) {
+      throw new BadRequestException("Only dropship products take a buy price on the order");
     }
     const addedStockOwners = lines.filter((l) => !alreadyOnOrder.has(l.product.id)).map((l) => l.product.stockOwnerId);
     for (const stockOwnerId of new Set(addedStockOwners.filter((id): id is string => !!id))) {
@@ -795,7 +827,7 @@ export class OrdersService {
    * DROPSHIP: no product-level price — the line's buy total is entered on the order by the admin
    * and/or the assigned 3PL (see setDropshipBuyPrice below).
    */
-  private async snapshotItem(line: OrderLine, position: number) {
+  private async snapshotItem(line: OrderLine, position: number, owned: boolean) {
     const { product, quantity } = line;
     const stockOwnerProfile = product.stockOwnerId ? await this.stockOwnerProfileModel.findByPk(product.stockOwnerId) : null;
     if (product.stockOwnerId && !stockOwnerProfile) {
@@ -808,19 +840,71 @@ export class OrdersService {
       quantity,
       // Product prices are in the Stock Owner's currency; the PKR snapshots are derived by convertOrderAmounts().
       currency: product.stockOwnerId ? await this.currencyOf(product.stockOwnerId) : null,
-      sellPriceOriginal: product.sellPrice,
-      buyPriceOriginal: product.buyPrice,
-      stockOwnerCostOriginal: product.stockOwnerCost,
+      ...productPrices(product, owned),
       sellPriceSnapshot: null as number | null,
       buyPriceSnapshot: null as number | null,
       stockOwnerCostSnapshot: null as number | null,
       stockOwnerPayoutModeSnapshot: stockOwnerProfile?.payoutMode ?? null,
       stockOwnerSharePercentSnapshot: stockOwnerProfile?.sharePercent ?? null,
+      ownerPriced: owned,
       buyTotalOriginal: null as number | null,
       buyTotalSnapshot: null as number | null,
       clientTotalOriginal: null as number | null,
       clientTotalSnapshot: null as number | null,
     };
+  }
+
+  /** The order form's profit estimate: which products the Account Holder owns (priced at cost on new lines). */
+  ownedProductIds(companyId: string, accountHolderId: string) {
+    return this.ownerPricing.ownedProductIds(companyId, accountHolderId);
+  }
+
+  /**
+   * "Resync prices" (decided 2026-11-19; Admin / partners only): re-reads every stock line's current product prices and
+   * whether the Account Holder owns it (owned = priced at cost), and drops manual client prices. Stock Owner share terms,
+   * the Account Holder's share % and the 3PL terms stay as snapshotted. Like any admin save it re-converts the order at
+   * today's rates. One transaction for all the orders; orders on an invoice and dropship orders are skipped.
+   */
+  async resyncPrices(companyId: string, requester: JwtPayload, orderIds: string[]) {
+    assertCanSetOrderPrices(requester);
+    const ids = [...new Set(orderIds)];
+    return this.orderModel.sequelize!.transaction(async (transaction) => {
+      const orders = await this.orderModel.findAll({ where: { id: ids, companyId }, transaction });
+      if (orders.length !== ids.length) throw new NotFoundException("Some of the selected orders no longer exist — refresh and try again");
+      const skipped: { ebayOrderRef: string; reason: string }[] = [];
+      let updated = 0;
+      for (const order of orders) {
+        if (isOnInvoice(order)) skipped.push({ ebayOrderRef: order.ebayOrderRef, reason: "on an invoice" });
+        else if (await this.isDropshipOrder(order)) skipped.push({ ebayOrderRef: order.ebayOrderRef, reason: "dropship order" });
+        else {
+          await this.resyncOrder(companyId, order, transaction);
+          updated++;
+        }
+      }
+      return { updated, skipped };
+    });
+  }
+
+  private async resyncOrder(companyId: string, order: Order, transaction: Transaction) {
+    const legacy = !order.exchangeRates;
+    if (legacy) await this.adoptLegacy(order, []);
+    const isOwned = await this.ownerPricing.ownedChecker(companyId, order.accountHolderId, transaction);
+    const products = await this.productModel.findAll({ where: { id: order.items.map((i) => i.productId) }, transaction });
+    const productById = new Map(products.map((p) => [p.id, p]));
+    for (const item of order.items) {
+      const product = productById.get(item.productId);
+      if (!product || product.fulfillmentType !== ProductFulfillmentType.STOCK) continue;
+      const owned = isOwned(product);
+      // Product prices are in the product's Stock Owner's currency.
+      if (product.stockOwnerId) item.currency = await this.currencyOf(product.stockOwnerId);
+      Object.assign(item, productPrices(product, owned));
+      item.ownerPriced = owned;
+      item.clientTotalOriginal = null;
+      item.clientTotalSnapshot = null;
+      await item.save({ transaction });
+    }
+    await this.finalizeAmounts(order, legacy, {}, false, transaction);
+    await order.save({ transaction });
   }
 
   /**
@@ -1172,9 +1256,30 @@ export class OrdersService {
  * its figures. To change it, delete (or void) the invoice first. Status changes stay allowed.
  */
 function assertNotInvoiced(order: Order) {
-  if (order.accountHolderInvoiceId || order.threePlInvoiceId || order.items.some((i) => i.stockOwnerInvoiceId)) {
+  if (isOnInvoice(order)) {
     throw new BadRequestException("This order is on an invoice and can't be edited — delete that invoice first");
   }
+}
+
+function isOnInvoice(order: Order): boolean {
+  return !!(order.accountHolderInvoiceId || order.threePlInvoiceId || order.items.some((i) => i.stockOwnerInvoiceId));
+}
+
+function assertCanSetOrderPrices(requester: JwtPayload) {
+  if (!canSetOrderPrices(requester)) throw new ForbiddenException("Only the company Admin and partners can set prices on an order");
+}
+
+/**
+ * A stock line's prices as entered (the Stock Owner's currency). Owned by the Account Holder (decided 2026-11-19): sell
+ * = buy = cost, so the Account Holder pays the cost and the Stock Owner is paid the cost — no markup, no profit-share cut.
+ */
+function productPrices(product: Product, owned: boolean) {
+  const cost = product.stockOwnerCost;
+  return {
+    sellPriceOriginal: owned ? cost : product.sellPrice,
+    buyPriceOriginal: owned ? cost : product.buyPrice,
+    stockOwnerCostOriginal: cost,
+  };
 }
 
 /** "Title (Red / M)", for stock messages. */

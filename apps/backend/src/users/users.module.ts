@@ -1,3 +1,4 @@
+import { OwnerPricingModule } from "../owner-pricing/owner-pricing.module";
 import { Module } from "@nestjs/common";
 import { SequelizeModule } from "@nestjs/sequelize";
 import { User } from "../database/models/user.model";
@@ -23,6 +24,7 @@ import { UsersService } from "./users.service";
 
 @Module({
   imports: [
+    OwnerPricingModule,
     SequelizeModule.forFeature([
       User,
       UserRoleAssignment,

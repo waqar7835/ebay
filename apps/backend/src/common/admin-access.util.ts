@@ -18,3 +18,11 @@ export function effectiveRoles(roles: Role[], staff: { isPartner: boolean; hasAd
 export function isCoAdmin(staff: { isPartner: boolean; hasAdminAccess: boolean } | null | undefined): boolean {
   return !!staff?.isPartner && !!staff.hasAdminAccess;
 }
+
+/**
+ * Owner pricing (decided 2026-11-19): an Account Holder's owned products, "resync prices" and manual prices on order
+ * lines are for the real company Admin and partners only (any partner, with or without Admin access) — portal only.
+ */
+export function canSetOrderPrices(user: JwtPayload): boolean {
+  return user.realm === "portal" && (isRealAdmin(user) || !!user.isPartner);
+}

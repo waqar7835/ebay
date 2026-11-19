@@ -22,6 +22,8 @@ export interface JwtPayload {
   sv?: number;
   /** A partner with Admin access: `roles` then includes ADMIN (see common/admin-access.util.ts). */
   coAdmin?: boolean;
+  /** A partner (Staff marked partner, with or without Admin access); set per request by JwtStrategy, never signed. */
+  isPartner?: boolean;
   /** Portal Staff: the permission flags, loaded once per request by JwtStrategy (null = no staff profile). */
   staffPermissions?: Record<StaffPermissionKey, boolean> | null;
   /** Set by jsonwebtoken when signing. */
@@ -96,6 +98,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       ...payload,
       roles: effectiveRoles(roles, staff),
       coAdmin: isCoAdmin(staff),
+      isPartner: !!staff?.isPartner,
       staffPermissions: staff
         ? (Object.fromEntries(STAFF_PERMISSION_FLAGS.map((k) => [k, !!staff[k]])) as Record<StaffPermissionKey, boolean>)
         : null,

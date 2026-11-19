@@ -118,6 +118,16 @@ export interface AccountHolderProfileDto {
   billingCycleStartDay: number;
 }
 
+/** An Account Holder's "Product owner" settings (decided 2026-11-19): `GET/PATCH /users/:id/owned-products`. */
+export interface AccountHolderOwnedProductsDto {
+  autoAddOwnedProducts: boolean;
+  /** The Stock Owner accounts linked to this Account Holder (the same account, or the same email in the company). */
+  stockOwners: { id: string; name: string | null; email: string }[];
+  /** Their STOCK main products — the only ones that can be selected. */
+  products: { id: string; sku: string; title: string; imageUrl: string | null }[];
+  selectedProductIds: string[];
+}
+
 export interface StockOwnerProfileDto {
   payoutMode: StockOwnerPayoutMode;
   sharePercent: number | null;
@@ -258,6 +268,11 @@ export interface OrderItemDto {
    */
   clientTotalSnapshot: number | null;
   clientTotalOriginal: number | null;
+  /**
+   * The order's Account Holder owns this product (decided 2026-11-19): priced at cost — sell = buy = the Stock Owner's
+   * cost. Snapshotted when the line is added; "resync prices" re-reads it.
+   */
+  ownerPriced: boolean;
   /** Invoice that paid this item out to its Stock Owner (null = open). */
   stockOwnerInvoiceId: string | null;
   stockOwnerRefundInvoiceId: string | null;
@@ -273,8 +288,9 @@ export interface OrderItemInput {
    */
   buyTotal?: number | null;
   /**
-   * DROPSHIP only, optional: the client buying price for all units, in the order's Account Holder's
-   * currency. On edit, omitted = keep the current one, null = clear it.
+   * Optional: the client buying price for all units, in the order's Account Holder's currency. On edit, omitted = keep
+   * the current one, null = clear it. DROPSHIP: the client price. STOCK: a manual price replacing sell × qty (company
+   * Admin and partners only; decided 2026-11-19).
    */
   clientTotal?: number | null;
 }

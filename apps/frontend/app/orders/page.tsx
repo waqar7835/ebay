@@ -9,9 +9,10 @@ import {
   type OrderStatus,
   type ProductDto,
 } from "@ebay-order-management/shared";
-import { EditOutlined, InfoCircleOutlined, PrinterOutlined, SendOutlined } from "@ant-design/icons";
+import { EditOutlined, InfoCircleOutlined, PrinterOutlined, SendOutlined, SyncOutlined } from "@ant-design/icons";
 import {
   Alert,
+  App,
   Button,
   Card,
   Input,
@@ -37,6 +38,7 @@ import StatusCounts, { STATUS_COLORS } from "@/components/StatusCounts";
 import DateField from "@/components/DateField";
 import {
   bulkUpdateOrderStatus,
+  bulkResyncOrderPrices,
   computeCurrentCycle,
   getMyCompany,
   getMyProfile,
@@ -56,6 +58,7 @@ import { buildListQuery, pagingQuery, readPaging, useListUrl } from "@/lib/listQ
 import { productLabel, variationName } from "@/lib/productLabel";
 import { dropshipNetBuy } from "@/lib/orderProfit";
 import { takeStockWarnings } from "@/lib/stockWarnings";
+import { canSetOrderPrices } from "@/lib/userAccess";
 
 interface UserOption {
   id: string;
@@ -171,6 +174,32 @@ function OrdersList() {
   const defaultBulkStatus = threePlBulk ? ("SHIPPED" as OrderStatus) : undefined;
 
   const [selectedIds, setSelectedIds] = useState<Key[]>([]);
+  const { modal, message } = App.useApp();
+  // "Resync prices" (decided 2026-11-19): company Admin and partners only.
+  const canResync = canBulkEdit && canSetOrderPrices(currentUser);
+  /** Re-reads product prices (cost price for products the client owns) on these orders; invoiced / dropship ones are skipped. */
+  function confirmResync(ids: string[]) {
+    modal.confirm({
+      title: ids.length === 1 ? "Resync prices on this order?" : `Resync prices on ${ids.length} orders?`,
+      content:
+        "Each stock product gets its current cost / buy / sell price again, priced at cost when the client owns it. Manual " +
+        "client prices are cleared and the orders are converted at today's exchange rates. Orders on an invoice and dropship orders are skipped.",
+      okText: "Resync prices",
+      onOk: async () => {
+        try {
+          const res = await bulkResyncOrderPrices(ids.map(String));
+          if (res.updated) message.success(`Prices resynced on ${res.updated} order${res.updated === 1 ? "" : "s"}`);
+          if (res.skipped.length) {
+            message.warning(`Skipped: ${res.skipped.map((x) => `#${x.ebayOrderRef} (${x.reason})`).join(", ")}`, 8);
+          }
+          setSelectedIds([]);
+          refresh();
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Failed to resync prices");
+        }
+      },
+    });
+  }
   // Double-clicking a price cell opens that order's prices in a popup (Admin / Staff who manage orders).
   const [priceOrder, setPriceOrder] = useState<OrderDto | null>(null);
   const [bulkStatus, setBulkStatus] = useState<OrderStatus | undefined>(defaultBulkStatus);
@@ -560,13 +589,33 @@ function OrdersList() {
       ? [
           {
             key: "actions",
-            width: 48,
+            width: canResync ? 88 : 48,
             render: (_: unknown, order: OrderDto) => (
-              <EditAction
-                onClick={() => router.push(`/orders/${order.id}/edit`)}
-                disabled={isInvoiced(order)}
-                disabledReason="On an invoice — delete the invoice to edit this order"
-              />
+              <div className="flex items-center gap-1">
+                <EditAction
+                  onClick={() => router.push(`/orders/${order.id}/edit`)}
+                  disabled={isInvoiced(order)}
+                  disabledReason="On an invoice — delete the invoice to edit this order"
+                />
+                {canResync && !isDropshipRow(order) && (
+                  <Tooltip
+                    title={
+                      isInvoiced(order)
+                        ? "On an invoice — delete the invoice to resync its prices"
+                        : "Resync prices (cost price for products the client owns)"
+                    }
+                  >
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<SyncOutlined />}
+                      aria-label="Resync prices"
+                      disabled={isInvoiced(order)}
+                      onClick={() => confirmResync([order.id])}
+                    />
+                  </Tooltip>
+                )}
+              </div>
             ),
           },
         ]
@@ -589,6 +638,12 @@ function OrdersList() {
                   <div className="text-xs text-slate-500">
                     {[product?.sku ?? "—", variationName(product), `×${item.quantity}`].filter(Boolean).join(" · ")}
                   </div>
+                  {/* Priced at cost: the client owns this product (decided 2026-11-19). */}
+                  {item.ownerPriced && (isManager || isAccountHolderView) && (
+                    <Tag color="purple" className="mt-0.5 text-xs">
+                      Own product
+                    </Tag>
+                  )}
                   {/* Its own units (the API sends a 3PL only its own); hidden once it no longer holds the product. */}
                   {isStockThreePl && product && product.stocks?.length > 0 && (
                     <div className={`text-xs ${product.stockQuantity <= 0 ? "text-red-600" : product.stockQuantity <= 5 ? "text-orange-500" : "text-slate-500"}`}>
@@ -1050,6 +1105,11 @@ function OrdersList() {
               <Button type="link" size="small" onClick={() => setSelectedIds([])}>
                 Clear
               </Button>
+              {canResync && (
+                <Button size="small" icon={<SyncOutlined />} onClick={() => confirmResync(selectedIds.map(String))}>
+                  Resync prices
+                </Button>
+              )}
             </div>
             {threePlBulk ? (
               <Button

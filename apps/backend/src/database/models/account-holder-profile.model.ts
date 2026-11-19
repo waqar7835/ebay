@@ -34,4 +34,8 @@ export class AccountHolderProfile extends Model {
 
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 1, field: "billing_cycle_start_day" })
   declare billingCycleStartDay: number;
+
+  // New products of the linked Stock Owner account join this Account Holder's owned products (decided 2026-11-19).
+  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: true, field: "auto_add_owned_products" })
+  declare autoAddOwnedProducts: boolean;
 }

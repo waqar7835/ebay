@@ -723,8 +723,9 @@ export class InvoicesService {
     const selling = round2(asEntered ? (order.ebayNetProceedsOriginal ?? 0) : fromPkr(order.ebayNetProceeds));
     const { threePl, shipping } = accountHolderCharges(order, currency, pkrRate);
 
-    // STOCK: product sell price × qty, in the Stock Owner's currency, so always converted from PKR. DROPSHIP: the
-    // line's client buying price, entered in the Account Holder's currency (as entered when the invoice is in it).
+    // STOCK: product sell price × qty, in the Stock Owner's currency, so always converted from PKR — or a manual client
+    // price (2026-11-19). DROPSHIP: the line's client buying price. Those two are entered in the Account Holder's
+    // currency (as entered when the invoice is in it).
     const buying = order.items.map((i) =>
       round2(asEntered && i.clientTotalOriginal != null ? i.clientTotalOriginal : fromPkr(lineSellTotal(i))),
     );

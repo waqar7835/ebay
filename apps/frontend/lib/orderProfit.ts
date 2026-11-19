@@ -11,6 +11,8 @@ export interface ProfitLineInput {
   stockOwnerCost?: number;
   /** STOCK: the company's PROFIT_SHARE cut %, or 0 for FIXED Stock Owners. */
   companyCutPercent?: number;
+  /** STOCK: a manual client price for the line (all units), replacing sell × qty (decided 2026-11-19). */
+  manualSellTotal?: number | null;
   /** DROPSHIP: line totals (all units) — the client buying price and the company's buy price (the 3PL's less its %). */
   clientTotal?: number;
   buyTotal?: number;
@@ -70,7 +72,7 @@ export function estimateOrderProfit(input: ProfitInput): ProfitEstimate {
       productMarkup += client - (l.buyTotal ?? 0);
       continue;
     }
-    const sell = (l.sellPrice ?? 0) * l.quantity;
+    const sell = l.manualSellTotal != null ? l.manualSellTotal : (l.sellPrice ?? 0) * l.quantity;
     const buy = (l.buyPrice ?? 0) * l.quantity;
     buyingPrice += sell;
     productMarkup += sell - buy;

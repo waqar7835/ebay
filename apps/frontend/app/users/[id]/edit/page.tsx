@@ -1,6 +1,6 @@
 "use client";
 
-import { DEFAULT_CURRENCY, type Currency, type ProductFulfillmentType, type StockOwnerPayoutMode, type UserDto } from "@ebay-order-management/shared";
+import { DEFAULT_CURRENCY, type AccountHolderOwnedProductsDto, type Currency, type ProductFulfillmentType, type StockOwnerPayoutMode, type UserDto } from "@ebay-order-management/shared";
 import { MailOutlined } from "@ant-design/icons";
 import { Alert, App, Button, Card, Form, Input, InputNumber, Modal, Select, Switch, Table, Tag } from "antd";
 import { useEffect, useState } from "react";
@@ -23,8 +23,11 @@ import {
   uploadUserAvatar,
   getStoredUser,
   type StoredUser,
+  getOwnedProducts,
+  updateOwnedProducts,
 } from "@/lib/api";
-import { actsAsAdmin, changeBlockedReason, isRealAdmin } from "@/lib/userAccess";
+import { actsAsAdmin, canSetOrderPrices, changeBlockedReason, isRealAdmin } from "@/lib/userAccess";
+import { searchable } from "@/lib/selectOptions";
 import AvatarUpload from "@/components/AvatarUpload";
 import { currencyOptions, currencySymbol } from "@/lib/currency";
 import { listHref } from "@/lib/listQuery";
@@ -91,6 +94,12 @@ export default function EditUserPage() {
   const [ahSharePercent, setAhSharePercent] = useState("0");
   const [ahThreePlPriceCharged, setAhThreePlPriceCharged] = useState("");
   const [ahBillingCycleStartDay, setAhBillingCycleStartDay] = useState("1");
+  // "Product owner" (decided 2026-11-19; company Admin and partners only): the linked Stock Owner account's products
+  // this Account Holder owns — charged at cost on its orders.
+  const [owned, setOwned] = useState<AccountHolderOwnedProductsDto | null>(null);
+  const [ownedIds, setOwnedIds] = useState<string[]>([]);
+  const [autoAddOwned, setAutoAddOwned] = useState(true);
+  const canEditOwned = canSetOrderPrices(me);
 
   const [payoutMode, setPayoutMode] = useState<StockOwnerPayoutMode>("FIXED" as StockOwnerPayoutMode);
   const [soSharePercent, setSoSharePercent] = useState("0");
@@ -153,6 +162,17 @@ export default function EditUserPage() {
       .catch((err) => setLoadError(err instanceof Error ? err.message : "Failed to load user"));
   }, [router, userId]);
 
+  useEffect(() => {
+    if (!user?.accountHolderProfile || !canEditOwned) return;
+    getOwnedProducts(user.id)
+      .then((o) => {
+        setOwned(o);
+        setOwnedIds(o.selectedProductIds);
+        setAutoAddOwned(o.autoAddOwnedProducts);
+      })
+      .catch(() => setOwned(null));
+  }, [user, canEditOwned]);
+
   async function handleSubmit() {
     if (!user) return;
     setFormError(null);
@@ -181,6 +201,7 @@ export default function EditUserPage() {
           threePlPriceCharged: ahThreePlPriceCharged ? Number(ahThreePlPriceCharged) : null,
           billingCycleStartDay: Number(ahBillingCycleStartDay),
         });
+        if (owned && canEditOwned) await updateOwnedProducts(userId, { productIds: ownedIds, autoAddOwnedProducts: autoAddOwned });
       }
       if (user.stockOwnerProfile) {
         await updateStockOwnerProfile(userId, {
@@ -389,6 +410,44 @@ export default function EditUserPage() {
                       </Form.Item>
                       {billingDayField(ahBillingCycleStartDay, setAhBillingCycleStartDay)}
                     </div>
+                  </Card>
+                )}
+
+                {user.accountHolderProfile && owned && (
+                  <Card title="Product owner">
+                    {owned.stockOwners.length === 0 ? (
+                      <p className="mb-0 text-sm text-slate-500">
+                        No Stock Owner account with this email in your company. When this person also has a Stock Owner
+                        account, the products they own can be picked here.
+                      </p>
+                    ) : (
+                      <>
+                        <p className="mb-3 text-sm text-slate-500">
+                          On this client&apos;s orders, the products picked here are charged at the product&apos;s cost
+                          instead of its sell price, and the Stock Owner is paid the cost only. Changes apply to new orders
+                          (and existing ones after &quot;Resync prices&quot;). Stock Owner account:{" "}
+                          {owned.stockOwners.map((so) => so.name || so.email).join(", ")}.
+                        </p>
+                        <Form.Item label="Products this client owns" className="mb-3">
+                          <Select
+                            mode="multiple"
+                            allowClear
+                            showSearch={searchable}
+                            placeholder={owned.products.length ? "Select products…" : "This Stock Owner has no stock products yet"}
+                            value={ownedIds}
+                            onChange={setOwnedIds}
+                            options={owned.products.map((p) => ({ value: p.id, label: `${p.sku} — ${p.title}` }))}
+                            className="w-full"
+                          />
+                        </Form.Item>
+                        <div className="flex items-center gap-3">
+                          <Switch id="auto-add-owned" checked={autoAddOwned} onChange={setAutoAddOwned} />
+                          <label htmlFor="auto-add-owned" className="text-sm">
+                            Automatically add new products from this Stock Owner account
+                          </label>
+                        </div>
+                      </>
+                    )}
                   </Card>
                 )}
 

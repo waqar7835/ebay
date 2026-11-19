@@ -138,7 +138,10 @@ export function dropshipNetBuy(buyTotal: number, discountPercent: number | null)
   return round2(buyTotal * (1 - (discountPercent ?? 0) / 100));
 }
 
-/** STOCK: sell price × qty; DROPSHIP: the line's client buying price. */
+/**
+ * DROPSHIP: the line's client buying price. STOCK: sell price × qty, unless the Admin / a partner set a manual client
+ * price for the line (decided 2026-11-19; same column). Owned lines already have sell = cost in their snapshot.
+ */
 export function lineSellTotal(item: OrderItem): number {
   if (item.clientTotalSnapshot != null) return item.clientTotalSnapshot;
   return (item.sellPriceSnapshot ?? 0) * item.quantity;

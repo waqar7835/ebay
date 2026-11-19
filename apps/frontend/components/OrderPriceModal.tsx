@@ -1,12 +1,13 @@
 "use client";
 
 import type { Currency, ExchangeRateDto, OrderDto, ProductDto } from "@ebay-order-management/shared";
-import { InfoCircleOutlined } from "@ant-design/icons";
+import { InfoCircleOutlined, SyncOutlined } from "@ant-design/icons";
 import { Alert, Button, Form, Input, InputNumber, Modal, Tag, Tooltip } from "antd";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import ProfitRow from "@/components/ProfitRow";
-import { listExchangeRates, updateOrder, type UpdateOrderPayload } from "@/lib/api";
+import { getStoredUser, listExchangeRates, resyncOrderPrices, updateOrder, type StoredUser, type UpdateOrderPayload } from "@/lib/api";
+import { canSetOrderPrices } from "@/lib/userAccess";
 import { currencySymbol, money, pkr } from "@/lib/currency";
 import { dropshipGrossBuy, dropshipNetBuy, estimateOrderProfit } from "@/lib/orderProfit";
 import { productLabel } from "@/lib/productLabel";
@@ -15,7 +16,7 @@ interface PriceValues {
   trackingNumber?: string | null;
   ebayNetProceeds?: number | null;
   shippingCost?: number | null;
-  /** DROPSHIP only, one per item: totals for all units. */
+  /** One per item, totals for all units: DROPSHIP buy + client price; STOCK a manual client price (Admin / partners). */
   items?: { buyTotal?: number | null; clientTotal?: number | null }[];
 }
 
@@ -43,10 +44,16 @@ export default function OrderPriceModal({
   const [error, setError] = useState<string | null>(null);
   // Client buying prices filled in from the 3PL's buy price, per line: they keep following it until edited by hand.
   const autoClientTotals = useRef(new Map<number, number>());
+  const [me, setMe] = useState<StoredUser | null>(null);
+  useEffect(() => setMe(getStoredUser()), []);
+  // Manual stock prices and "Resync prices": company Admin and partners only (decided 2026-11-19).
+  const canPrice = canSetOrderPrices(me);
+  const [resyncConfirm, setResyncConfirm] = useState(false);
 
   useEffect(() => {
     if (!order) return;
     setError(null);
+    setResyncConfirm(false);
     autoClientTotals.current.clear();
     form.setFieldsValue({
       trackingNumber: order.trackingNumber,
@@ -124,6 +131,7 @@ export default function OrderPriceModal({
         buyPrice: price(item.buyPriceOriginal, item.buyPriceSnapshot),
         stockOwnerCost: price(item.stockOwnerCostOriginal, item.stockOwnerCostSnapshot),
         companyCutPercent: item.stockOwnerPayoutModeSnapshot === "PROFIT_SHARE" ? (item.stockOwnerSharePercentSnapshot ?? 0) : 0,
+        manualSellTotal: lines[i]?.clientTotal != null ? toPkr(lines[i].clientTotal, ahCurrency) : null,
       };
     }),
     ebayNetProceeds: toPkr(ebayNetProceeds, ahCurrency),
@@ -167,6 +175,12 @@ export default function OrderPriceModal({
         buyTotal: order.threePlId && v.items?.[i]?.buyTotal != null ? Number(v.items[i].buyTotal) : null,
         clientTotal: v.items?.[i]?.clientTotal != null ? Number(v.items[i].clientTotal) : null,
       }));
+    } else if (canPrice) {
+      // Stock: manual client prices travel with the items, only when one changed.
+      const next = order.items.map((_, i) => (v.items?.[i]?.clientTotal != null ? Number(v.items[i].clientTotal) : null));
+      if (next.some((c, i) => c !== (order.items[i].clientTotalOriginal ?? order.items[i].clientTotalSnapshot ?? null))) {
+        payload.items = order.items.map((item, i) => ({ productId: item.productId, quantity: item.quantity, clientTotal: next[i] }));
+      }
     }
     setSaving(true);
     setError(null);
@@ -180,7 +194,22 @@ export default function OrderPriceModal({
     }
   }
 
-  const lockedTip = "Locked on the order when it was created — product price changes don't rewrite past orders";
+  async function handleResync() {
+    if (!order) return;
+    setSaving(true);
+    setError(null);
+    try {
+      onSaved(await resyncOrderPrices(order.id));
+      setResyncConfirm(false);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to resync prices");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const lockedTip = "Locked on the order when it was created — use Resync prices to fetch the products' current prices";
 
   return (
     <Modal
@@ -197,6 +226,27 @@ export default function OrderPriceModal({
               </Button>,
             ]
           : [
+              ...(!dropship && canPrice
+                ? [
+                    resyncConfirm ? (
+                      <span key="resync" className="mr-2 inline-flex items-center gap-2 text-sm">
+                        Fetch current prices and clear manual ones?
+                        <Button size="small" onClick={() => setResyncConfirm(false)} disabled={saving}>
+                          No
+                        </Button>
+                        <Button size="small" type="primary" danger loading={saving} onClick={handleResync}>
+                          Resync
+                        </Button>
+                      </span>
+                    ) : (
+                      <Tooltip key="resync" title="Fetch the products' current prices again (cost price for products the client owns)">
+                        <Button icon={<SyncOutlined />} onClick={() => setResyncConfirm(true)} disabled={saving} className="float-left">
+                          Resync prices
+                        </Button>
+                      </Tooltip>
+                    ),
+                  ]
+                : []),
               <Button key="cancel" onClick={onClose} disabled={saving}>
                 Cancel
               </Button>,
@@ -270,7 +320,14 @@ export default function OrderPriceModal({
                 return (
                   <div key={item.id} className="rounded-lg border border-slate-100 p-3">
                     <div className="mb-2 flex justify-between gap-3 text-sm">
-                      <span className="truncate font-medium text-slate-700">{product ? productLabel(product) : "Product"}</span>
+                      <span className="truncate font-medium text-slate-700">
+                        {product ? productLabel(product) : "Product"}
+                        {item.ownerPriced && (
+                          <Tag color="purple" className="ml-2">
+                            Own product
+                          </Tag>
+                        )}
+                      </span>
                       <span className="shrink-0 text-slate-500">× {item.quantity}</span>
                     </div>
                     {dropship ? (
@@ -334,6 +391,22 @@ export default function OrderPriceModal({
                             <InputNumber value={value} prefix={currencySymbol(item.currency)} disabled className="w-full" />
                           </Form.Item>
                         ))}
+                        {canPrice ? (
+                          <Form.Item
+                            name={["items", i, "clientTotal"]}
+                            label="Manual client price"
+                            tooltip="Optional: what the client is charged for all units of this product, in the client's currency, instead of the sell price. Leave empty for the automatic price."
+                            className="mb-0 mt-3 sm:col-span-3"
+                          >
+                            <InputNumber min={0} step={0.01} prefix={currencySymbol(ahCurrency)} placeholder="Automatic (all units)" className="w-full" />
+                          </Form.Item>
+                        ) : (
+                          (item.clientTotalOriginal ?? item.clientTotalSnapshot) != null && (
+                            <div className="mt-2 text-xs text-slate-500 sm:col-span-3">
+                              Manual client price: {money(item.clientTotalOriginal ?? item.clientTotalSnapshot ?? 0, ahCurrency)} (all units)
+                            </div>
+                          )
+                        )}
                       </div>
                     )}
                   </div>

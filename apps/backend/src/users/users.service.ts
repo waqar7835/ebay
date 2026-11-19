@@ -1,3 +1,4 @@
+import { OwnerPricingService } from "../owner-pricing/owner-pricing.service";
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectModel } from "@nestjs/sequelize";
@@ -58,6 +59,7 @@ export class UsersService {
     @InjectModel(Expense) private readonly expenseModel: typeof Expense,
     @InjectModel(ProfitStatement) private readonly profitStatementModel: typeof ProfitStatement,
     private readonly tokensService: TokensService,
+    private readonly ownerPricing: OwnerPricingService,
     private readonly mailer: MailerService,
     private readonly config: ConfigService,
     private readonly subscriptions: SubscriptionsService,
@@ -153,6 +155,8 @@ export class UsersService {
         throw new BadRequestException("accountHolderProfile is required for the Account Holder role");
       }
       await this.upsertAccountHolderProfile(companyId, user.id, dto.accountHolderProfile);
+      // An Account Holder linked to a Stock Owner account (same email in this company): its products start selected.
+      await this.ownerPricing.prefill(companyId, user.id);
     }
     if (dto.roles.includes(Role.STOCK_OWNER)) {
       if (!dto.stockOwnerProfile) {

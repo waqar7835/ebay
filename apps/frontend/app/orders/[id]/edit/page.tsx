@@ -17,6 +17,8 @@ export default function EditOrderPage() {
   const { id: orderId } = useParams<{ id: string }>();
   const [order, setOrder] = useState<OrderDto | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Bumped after "Resync prices" so the form starts again from the resynced order.
+  const [formKey, setFormKey] = useState(0);
 
   useEffect(() => {
     if (!getToken()) {
@@ -54,7 +56,12 @@ export default function EditOrderPage() {
 
         {order && !isInvoiced(order) && (
           <OrderForm
+            key={formKey}
             initial={order}
+            onResynced={(updated) => {
+              setOrder(updated);
+              setFormKey((k) => k + 1);
+            }}
             submitLabel="Save changes"
             submittingLabel="Saving..."
             onSubmit={async (payload, shippingLabel) => {

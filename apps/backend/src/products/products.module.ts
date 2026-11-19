@@ -1,3 +1,4 @@
+import { OwnerPricingModule } from "../owner-pricing/owner-pricing.module";
 import { Module } from "@nestjs/common";
 import { SequelizeModule } from "@nestjs/sequelize";
 import { Product } from "../database/models/product.model";
@@ -10,7 +11,7 @@ import { ProductsController } from "./products.controller";
 import { ProductsService } from "./products.service";
 
 @Module({
-  imports: [SequelizeModule.forFeature([Product, ProductStock, OrderItem, User, StaffProfile, BackofficeStaffProfile])],
+  imports: [OwnerPricingModule, SequelizeModule.forFeature([Product, ProductStock, OrderItem, User, StaffProfile, BackofficeStaffProfile])],
   controllers: [ProductsController],
   providers: [ProductsService],
   exports: [ProductsService],

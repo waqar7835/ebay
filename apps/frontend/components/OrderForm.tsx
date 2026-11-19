@@ -10,14 +10,26 @@ import type {
   ProductFulfillmentType,
   UserDto,
 } from "@ebay-order-management/shared";
-import { DeleteOutlined, InfoCircleOutlined, PlusOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Form, Input, InputNumber, Segmented, Select, Tag, Tooltip } from "antd";
+import { DeleteOutlined, InfoCircleOutlined, PlusOutlined, SyncOutlined } from "@ant-design/icons";
+import { Alert, App, Button, Card, Form, Input, InputNumber, Segmented, Select, Tag, Tooltip } from "antd";
 import { useEffect, useRef, useState } from "react";
 import DateField from "@/components/DateField";
 import FileUpload from "@/components/FileUpload";
 import ProductThumb from "@/components/ProductThumb";
 import ProfitRow from "@/components/ProfitRow";
-import { downloadShippingLabel, listExchangeRates, listProducts, listUsers, localDateOnly, type UpdateOrderPayload } from "@/lib/api";
+import {
+  downloadShippingLabel,
+  getAccountHolderOwnedProductIds,
+  getStoredUser,
+  listExchangeRates,
+  listProducts,
+  listUsers,
+  localDateOnly,
+  resyncOrderPrices,
+  type StoredUser,
+  type UpdateOrderPayload,
+} from "@/lib/api";
+import { canSetOrderPrices } from "@/lib/userAccess";
 import { openBlobInNewTab } from "@/lib/download";
 import { currencySymbol, money, pkr } from "@/lib/currency";
 import { dropshipGrossBuy, dropshipNetBuy, estimateOrderProfit } from "@/lib/orderProfit";
@@ -31,6 +43,8 @@ interface OrderFormProps {
   submittingLabel: string;
   // On edit, `items`/`threePlId` are only included when they changed (see handleFinish).
   onSubmit: (payload: UpdateOrderPayload, shippingLabel: File | null) => Promise<void>;
+  /** Edit only: after "Resync prices" the page reloads the form from the updated order. */
+  onResynced?: (order: OrderDto) => void;
 }
 
 interface ItemRow {
@@ -41,7 +55,10 @@ interface ItemRow {
    * this less the 3PL's discount % (the "admin buy price", typed in either field).
    */
   buyTotal?: number | null;
-  /** Dropship only: what the client (Account Holder) is charged for this line (all units), in their currency. Optional. */
+  /**
+   * What the client (Account Holder) is charged for this line (all units), in their currency. Optional. Dropship: the
+   * client buying price. Stock: a manual price replacing sell × qty (company Admin and partners only).
+   */
   clientTotal?: number | null;
 }
 
@@ -69,8 +86,15 @@ function timeAgo(iso: string | null | undefined): string {
 }
 
 /** Shared by /orders/new and /orders/[id]/edit so both stay field-for-field identical. */
-export default function OrderForm({ initial, submitLabel, submittingLabel, onSubmit }: OrderFormProps) {
+export default function OrderForm({ initial, submitLabel, submittingLabel, onSubmit, onResynced }: OrderFormProps) {
   const [form] = Form.useForm<OrderFormValues>();
+  const { modal } = App.useApp();
+  // Read after mount: the stored login only exists in the browser.
+  const [me, setMe] = useState<StoredUser | null>(null);
+  useEffect(() => setMe(getStoredUser()), []);
+  // Manual prices on stock lines and "Resync prices": company Admin and partners only (decided 2026-11-19).
+  const canPrice = canSetOrderPrices(me);
+  const [resyncing, setResyncing] = useState(false);
   const [products, setProducts] = useState<ProductDto[]>([]);
   const [users, setUsers] = useState<UserDto[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
@@ -164,6 +188,24 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
     if (needed <= 0 || needed <= row.quantity) return null;
     return { name: row.threePlName || "This 3PL", available: row.quantity, after: row.quantity - needed };
   }
+  // Products the client owns: priced at cost on lines added now (lines already on the order keep their snapshot).
+  const [ownedIds, setOwnedIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    setOwnedIds(new Set());
+    if (!accountHolderId) return;
+    let live = true;
+    getAccountHolderOwnedProductIds(accountHolderId)
+      .then((r) => live && setOwnedIds(new Set(r.productIds)))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [accountHolderId]);
+  /** Whether this row's line is priced at cost: its snapshot when it's already on the order, else the client's list. */
+  const isOwnedLine = (p: ProductDto) => {
+    const item = initial?.items.find((it) => it.productId === p.id);
+    return item ? item.ownerPriced : ownedIds.has(p.id);
+  };
   const accountHolderChanged = !!initial && accountHolderId !== initial.accountHolderId;
   const ahUserCurrency = accountHolderId ? userById.get(accountHolderId)?.currency : undefined;
   // Dropship buy totals are entered in the order's 3PL's currency.
@@ -227,15 +269,19 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
           buyPrice: price(item.buyPriceOriginal, item.buyPriceSnapshot),
           stockOwnerCost: price(item.stockOwnerCostOriginal, item.stockOwnerCostSnapshot),
           companyCutPercent: item.stockOwnerPayoutModeSnapshot === "PROFIT_SHARE" ? (item.stockOwnerSharePercentSnapshot ?? 0) : 0,
+          manualSellTotal: r?.clientTotal != null ? toPkr(r.clientTotal, ahCurrency) : null,
         };
       }
       const so = p.stockOwnerId ? userById.get(p.stockOwnerId)?.stockOwnerProfile : undefined;
+      // Owned by the client: sell = buy = cost (no markup, no cut).
+      const owned = ownedIds.has(p.id);
       return {
         quantity,
-        sellPrice: toPkr(p.sellPrice, p.currency),
-        buyPrice: toPkr(p.buyPrice, p.currency),
+        sellPrice: toPkr(owned ? p.stockOwnerCost : p.sellPrice, p.currency),
+        buyPrice: toPkr(owned ? p.stockOwnerCost : p.buyPrice, p.currency),
         stockOwnerCost: toPkr(p.stockOwnerCost, p.currency),
         companyCutPercent: so?.payoutMode === "PROFIT_SHARE" ? (so.sharePercent ?? 0) : 0,
+        manualSellTotal: r?.clientTotal != null ? toPkr(r.clientTotal, ahCurrency) : null,
       };
     }),
     ebayNetProceeds: toPkr(ebayNetProceeds, ahCurrency),
@@ -295,7 +341,7 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
         r?.productId !== initial.items[i]?.productId ||
         r?.quantity !== initial.items[i]?.quantity ||
         (isDropship && (r?.buyTotal ?? null) !== (initialItems[i]?.buyTotal ?? null)) ||
-        (isDropship && (r?.clientTotal ?? null) !== (initialItems[i]?.clientTotal ?? null)),
+        ((isDropship || canPrice) && (r?.clientTotal ?? null) !== (initialItems[i]?.clientTotal ?? null)),
     );
   const addedProduct = !!initial && rows.some((r) => r?.productId && !initial.items.some((i) => i.productId === r.productId));
 
@@ -330,7 +376,10 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
             buyTotal: threePlId && r.buyTotal != null ? Number(r.buyTotal) : null,
             clientTotal: r.clientTotal != null ? Number(r.clientTotal) : null,
           }
-        : {}),
+        : // Stock: a manual client price, only from the Admin / partners (others leave it as it is).
+          canPrice
+          ? { clientTotal: r.clientTotal != null ? Number(r.clientTotal) : null }
+          : {}),
     }));
     // On edit only send what changed: re-sending items would re-validate products that haven't changed.
     // A dropship order's new 3PL also re-sends the items, since their buy totals are in that 3PL's currency.
@@ -360,6 +409,29 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
       setFormError(err instanceof Error ? err.message : "Failed to save order");
       setSubmitting(false);
     }
+  }
+
+  /** "Resync prices": re-reads product prices + the owner rule on the saved order (unsaved changes here are dropped). */
+  function handleResync() {
+    if (!initial) return;
+    modal.confirm({
+      title: "Resync prices?",
+      content:
+        "Every product on this order gets its current cost / buy / sell price again, priced at cost when the client owns it. " +
+        "Manual client prices are cleared, and the order is converted at today's exchange rates. Unsaved changes on this form are lost.",
+      okText: "Resync prices",
+      onOk: async () => {
+        setResyncing(true);
+        setFormError(null);
+        try {
+          onResynced?.(await resyncOrderPrices(initial.id));
+        } catch (err) {
+          setFormError(err instanceof Error ? err.message : "Failed to resync prices");
+        } finally {
+          setResyncing(false);
+        }
+      },
+    });
   }
 
   // Dropship: shown above the product rows, since their buy prices are in the picked 3PL's currency.
@@ -465,7 +537,18 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
 
           <Card
             title="Products"
-            extra={unitCount > 0 && <Tag>{`${rows.length} product${rows.length === 1 ? "" : "s"} · ${unitCount} unit${unitCount === 1 ? "" : "s"}`}</Tag>}
+            extra={
+              <div className="flex items-center gap-2">
+                {unitCount > 0 && <Tag className="mr-0">{`${rows.length} product${rows.length === 1 ? "" : "s"} · ${unitCount} unit${unitCount === 1 ? "" : "s"}`}</Tag>}
+                {initial && !isDropship && canPrice && onResynced && (
+                  <Tooltip title="Fetch the products' current prices again (cost price for products the client owns)">
+                    <Button size="small" icon={<SyncOutlined />} loading={resyncing} onClick={handleResync}>
+                      Resync prices
+                    </Button>
+                  </Tooltip>
+                )}
+              </div>
+            }
           >
             <Segmented<ProductFulfillmentType>
               value={mode}
@@ -599,8 +682,32 @@ export default function OrderForm({ initial, submitLabel, submittingLabel, onSub
                                 ) : (
                                   <span>{product.stockQuantity} on hand in total</span>
                                 ))}
-                              {product.sellPrice != null && <span>Sell {money(product.sellPrice, product.currency)} / unit</span>}
+                              {product.fulfillmentType === "STOCK" && isOwnedLine(product) ? (
+                                <span>
+                                  <Tag color="purple" className="mr-1">Own product</Tag>
+                                  Cost {money(product.stockOwnerCost, product.currency)} / unit
+                                </span>
+                              ) : (
+                                product.sellPrice != null && <span>Sell {money(product.sellPrice, product.currency)} / unit</span>
+                              )}
                             </div>
+                          )}
+                          {!isDropship && canPrice && product && (
+                            <Form.Item
+                              name={[field.name, "clientTotal"]}
+                              label="Manual client price"
+                              tooltip="Optional: what the client is charged for all units of this product, in the client's currency, instead of the price above. Leave empty for the automatic price. Resync prices clears it."
+                              className="mb-0 mt-3 sm:w-1/2"
+                            >
+                              <InputNumber
+                                min={0}
+                                step={0.01}
+                                prefix={ahCurrency !== undefined ? currencySymbol(ahCurrency) : undefined}
+                                placeholder={accountHolderId ? "Automatic (all units)" : "Pick a client first"}
+                                disabled={!accountHolderId}
+                                className="w-full"
+                              />
+                            </Form.Item>
                           )}
                           {(() => {
                             const short = stockShortfall(index);

@@ -14,6 +14,14 @@ export function actsAsAdmin(me: StoredUser | null): boolean {
   return !!me && me.roles.includes("ADMIN" as Role);
 }
 
+/**
+ * Owner pricing (decided 2026-11-19): an Account Holder's owned products, "Resync prices" and manual order prices are for
+ * the real company Admin and partners only (mirrors the backend's canSetOrderPrices).
+ */
+export function canSetOrderPrices(me: StoredUser | null): boolean {
+  return isRealAdmin(me) || !!me?.staffPermissions?.isPartner;
+}
+
 interface Target {
   id: string;
   roles: Role[];

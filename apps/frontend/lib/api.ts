@@ -1,4 +1,5 @@
 import type {
+  AccountHolderOwnedProductsDto,
   AccountHolderProfileDto,
   BillingPeriodDto,
   CompanyDto,
@@ -568,6 +569,15 @@ export function updateAccountHolderProfile(
   return request<unknown>(`/users/${id}/account-holder-profile`, { method: "PATCH", body: JSON.stringify(payload) });
 }
 
+/** An Account Holder's owned products (company Admin and partners only). */
+export function getOwnedProducts(id: string) {
+  return request<AccountHolderOwnedProductsDto>(`/users/${id}/owned-products`);
+}
+
+export function updateOwnedProducts(id: string, payload: { productIds: string[]; autoAddOwnedProducts: boolean }) {
+  return request<AccountHolderOwnedProductsDto>(`/users/${id}/owned-products`, { method: "PATCH", body: JSON.stringify(payload) });
+}
+
 export function updateStockOwnerProfile(
   id: string,
   payload: Pick<StockOwnerProfileDto, "payoutMode" | "sharePercent" | "billingCycleStartDay">,
@@ -755,6 +765,23 @@ export function createOrder(payload: CreateOrderPayload) {
 
 export function updateOrder(orderId: string, payload: UpdateOrderPayload) {
   return request<OrderDto>(`/orders/${orderId}`, { method: "PATCH", body: JSON.stringify(payload) });
+}
+
+/** Products the Account Holder owns (priced at cost on new order lines) — for the order form's profit estimate. */
+export function getAccountHolderOwnedProductIds(accountHolderId: string) {
+  return request<{ productIds: string[] }>(`/orders/owned-products?accountHolderId=${encodeURIComponent(accountHolderId)}`);
+}
+
+/** "Resync prices" (company Admin and partners): re-reads product prices and the owner rule; drops manual prices. */
+export function resyncOrderPrices(orderId: string) {
+  return request<OrderDto>(`/orders/${orderId}/resync-prices`, { method: "POST" });
+}
+
+export function bulkResyncOrderPrices(orderIds: string[]) {
+  return request<{ updated: number; skipped: { ebayOrderRef: string; reason: string }[] }>("/orders/resync-prices", {
+    method: "POST",
+    body: JSON.stringify({ orderIds }),
+  });
 }
 
 /**

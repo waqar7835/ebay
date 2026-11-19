@@ -13,6 +13,7 @@ import { likeContains, type Paging } from "../common/pagination.util";
 import { CreateProductDto, ProductStockInputDto, ProductVariationDto, UpdateProductDto, UpdateStockDto } from "./dto/product.dto";
 import { variationName } from "./product-label.util";
 import { isCompanyUserWithRole } from "../common/company-user.util";
+import { OwnerPricingService } from "../owner-pricing/owner-pricing.service";
 
 // A main product's variations, in order.
 const VARIATION_ORDER: [string, string][] = [
@@ -135,6 +136,7 @@ export class ProductsService {
     @InjectModel(OrderItem) private readonly orderItemModel: typeof OrderItem,
     @InjectModel(ProductStock) private readonly productStockModel: typeof ProductStock,
     @InjectModel(User) private readonly userModel: typeof User,
+    private readonly ownerPricing: OwnerPricingService,
   ) {}
 
   /** The 3PL rows of these products, by product id. */
@@ -274,6 +276,8 @@ export class ProductsService {
       const created = await this.productModel.create({ companyId, ...this.toProductFields(dto) }, { transaction });
       await this.syncStocks(created, stocks, transaction);
       await this.syncVariations(companyId, created, variations, transaction);
+      // Joins the owned products of Account Holders linked to its Stock Owner with auto-add on (decided 2026-11-19).
+      await this.ownerPricing.onProductSaved(companyId, created, null, transaction);
       return created;
     });
     return this.withVariations(companyId, product.id);
@@ -299,9 +303,12 @@ export class ProductsService {
       [dto.sku, ...(dto.variations ?? []).map((v) => v.sku.trim())],
       [product.id, ...existing.map((v) => v.id)],
     );
+    // A product moved to another Stock Owner is treated like a new one for its Account Holders' auto-add.
+    const previousStockOwnerId = product.fulfillmentType === ProductFulfillmentType.STOCK ? product.stockOwnerId : null;
     await this.productModel.sequelize!.transaction(async (transaction) => {
       product.set(this.toProductFields(dto));
       await product.save({ transaction });
+      await this.ownerPricing.onProductSaved(companyId, product, previousStockOwnerId, transaction);
       await this.syncStocks(product, stocks, transaction);
       if (dto.variations) await this.syncVariations(companyId, product, dto.variations, transaction);
       else await this.syncVariationsToMain(product, transaction);

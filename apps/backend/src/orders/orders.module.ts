@@ -1,3 +1,4 @@
+import { OwnerPricingModule } from "../owner-pricing/owner-pricing.module";
 import { Module } from "@nestjs/common";
 import { SequelizeModule } from "@nestjs/sequelize";
 import { Order } from "../database/models/order.model";
@@ -20,6 +21,7 @@ import { OrdersScheduler } from "./orders.scheduler";
 
 @Module({
   imports: [
+    OwnerPricingModule,
     SequelizeModule.forFeature([
       Order,
       OrderItem,

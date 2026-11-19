@@ -110,7 +110,7 @@ export class AuthService {
    */
   async reissueToken(current: JwtPayload, sessionVersion: number): Promise<string> {
     // Per-request fields JwtStrategy adds (re-read from the database every time) don't belong in the token.
-    const { iat: _iat, exp, coAdmin: _coAdmin, staffPermissions: _staffPermissions, ...claims } = current;
+    const { iat: _iat, exp, coAdmin: _coAdmin, isPartner: _isPartner, staffPermissions: _staffPermissions, ...claims } = current;
     const secondsLeft = exp ? Math.max(60, exp - Math.floor(Date.now() / 1000)) : undefined;
     return this.jwtService.signAsync({ ...claims, sv: sessionVersion }, secondsLeft ? { expiresIn: secondsLeft } : {});
   }

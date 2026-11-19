@@ -146,7 +146,8 @@ export class OrderItem extends Model {
   })
   declare buyTotalOriginal: number | null;
 
-  // DROPSHIP only: the "client buying price" — what the company charges the Account Holder for this line
+  // STOCK (2026-11-19): an optional manual client price set by the Admin / a partner, replacing sell × qty; cleared by
+  // "resync prices". DROPSHIP: the "client buying price" — what the company charges the Account Holder for this line
   // (all units), entered by Admin/Staff in the order's Account Holder currency (clientTotalOriginal) and
   // converted to PKR (clientTotalSnapshot). Null until entered; required before the Account Holder invoice.
   @Column({
@@ -168,6 +169,12 @@ export class OrderItem extends Model {
     },
   })
   declare clientTotalOriginal: number | null;
+
+  // The Account Holder owns this product (decided 2026-11-19): priced at cost — sell = buy = the Stock Owner's cost, so
+  // the Account Holder pays the cost, the Stock Owner is paid the cost, no markup or cut. Snapshotted when the line is
+  // added; only "resync prices" re-reads it.
+  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false, field: "owner_priced" })
+  declare ownerPriced: boolean;
 
   // Invoice that paid this item out to its Stock Owner — null means still open.
   @Column({ type: DataType.UUID, allowNull: true, field: "stock_owner_invoice_id" })
