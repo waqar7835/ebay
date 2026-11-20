@@ -449,9 +449,17 @@ export default function OrdersPage() {
     {
       title: "Buy Price",
       key: "buyPrice",
-      // Stock: buy price × qty; dropship: each line's buy total. Pending while a dropship line awaits its price.
+      // Stock: buy price × qty, or the line's manual client price when the Admin set one (2026-11-20); dropship: each
+      // line's buy total. Pending while a dropship line awaits its price.
       render: (_, o) => {
-        const totals = o.items.map((i) => i.buyTotalSnapshot ?? (i.buyPriceSnapshot == null ? null : i.buyPriceSnapshot * i.quantity));
+        const totals = o.items.map((i) =>
+          i.buyTotalSnapshot ??
+          (i.stockOwnerId && i.clientTotalSnapshot != null
+            ? i.clientTotalSnapshot
+            : i.buyPriceSnapshot == null
+              ? null
+              : i.buyPriceSnapshot * i.quantity),
+        );
         return totals.some((t) => t == null) ? "Pending" : pkr(totals.reduce<number>((sum, t) => sum + t!, 0));
       },
     },

@@ -521,6 +521,11 @@ function OrdersList() {
       ? null
       : round2(o.items.reduce((sum, i) => sum + dropshipNetBuy(i.buyTotalSnapshot!, o.threePlDiscountPercent), 0));
   const isDropshipRow = (o: OrderDto) => productById.get(o.items[0]?.productId ?? "")?.fulfillmentType === ProductFulfillmentType.DROPSHIP;
+  // Stock: a line's manual client price (all units), when the Admin set one, is shown as its buy price (2026-11-20).
+  // Stock lines always have a Stock Owner, dropship lines never do (works before the product list has loaded).
+  const hasManualPrice = (o: OrderDto) => o.items.some((i) => !!i.stockOwnerId && i.clientTotalSnapshot != null);
+  const stockBuyTotal = (o: OrderDto) =>
+    round2(o.items.reduce((sum, i) => sum + (i.clientTotalSnapshot ?? (i.buyPriceSnapshot ?? 0) * i.quantity), 0));
 
   /**
    * A Stock Owner's figures for one item, in their own currency as entered (PKR on orders from before currencies).
@@ -791,6 +796,14 @@ function OrdersList() {
                     <span className="text-xs text-slate-500">Admin{o.threePlDiscountPercent ? ` (−${o.threePlDiscountPercent}%)` : ""}:</span>{" "}
                     {inAhCurrency(o, adminBuyTotal(o))}
                   </div>
+                </div>
+              ) : !isDropshipRow(o) && hasManualPrice(o) ? (
+                // Manual price: that's the buy price; the Stock Owner is still paid its own buy price (below).
+                <div className="whitespace-nowrap">
+                  <div>{inAhCurrency(o, stockBuyTotal(o))}</div>
+                  {stockBuyTotal(o) !== round2(buyTotal(o) ?? 0) && (
+                    <div className="text-xs text-slate-500">Stock Owner: {inAhCurrency(o, buyTotal(o))}</div>
+                  )}
                 </div>
               ) : (
                 inAhCurrency(o, buyTotal(o), "Pending")
