@@ -144,8 +144,9 @@ export class OrdersService {
     const staleOrderDays = await this.staleOrderDays(companyId);
     const now = new Date();
     const visible = (orders: Order[]) => orders.map((order) => this.withStaleness(order, staleOrderDays, now, isManager, requester));
-    // id breaks createdAt ties so pages never overlap.
+    // Newest order date first; createdAt then id break ties so pages never overlap.
     const sort: [string, string][] = [
+      ["orderDate", "DESC"],
       ["createdAt", "DESC"],
       ["id", "ASC"],
     ];
