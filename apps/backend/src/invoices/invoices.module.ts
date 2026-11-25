@@ -12,6 +12,7 @@ import { StaffProfile } from "../database/models/staff-profile.model";
 import { BackofficeStaffProfile } from "../database/models/backoffice-staff-profile.model";
 import { FinanceModule } from "../finance/finance.module";
 import { ExchangeRatesModule } from "../exchange-rates/exchange-rates.module";
+import { AdvancesModule } from "../advances/advances.module";
 import { InvoicesController } from "./invoices.controller";
 import { InvoicesService } from "./invoices.service";
 import { InvoiceTemplatesController } from "./templates/invoice-templates.controller";
@@ -33,6 +34,7 @@ import { InvoiceTemplatesService } from "./templates/invoice-templates.service";
     ]),
     FinanceModule,
     ExchangeRatesModule,
+    AdvancesModule,
   ],
   controllers: [InvoicesController, InvoiceTemplatesController],
   providers: [InvoicesService, InvoiceTemplatesService],

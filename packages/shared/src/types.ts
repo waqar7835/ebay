@@ -439,6 +439,22 @@ export type InvoiceLineDetails =
       /** Company's share of the profit, % (100 − the Account Holder's share). */
       companySharePercent: number;
       products: InvoiceAccountHolderProduct[];
+      /**
+       * Since 2026-11-25: Stock or Dropship order, for the invoice's "your profit" split. Absent on older lines (the PDF
+       * then reads it from the order — an order's type never changes).
+       */
+      fulfillment?: ProductFulfillmentType;
+    }
+  | {
+      /**
+       * An Account Holder's refund adjustment (since 2026-11-25; older refund lines have no details): what the eBay
+       * buyer got back, in the invoice currency, so the PDF can take the refund off the Account Holder's profit
+       * (credit − refund amount).
+       */
+      role: "ACCOUNT_HOLDER_REFUND";
+      orderRef: string;
+      fulfillment: ProductFulfillmentType;
+      refundAmount: number;
     }
   | {
       role: "THREE_PL";
@@ -489,6 +505,13 @@ export interface InvoiceDto {
    * company (they hold the eBay proceeds).
    */
   totalAmount: number;
+  /**
+   * Account Holder invoices (2026-11-25): part of the amount due paid from the holder's advance deposits. The amount
+   * due = totalAmount + advanceUsed; totalAmount is what's still to be paid. 0 on every other invoice.
+   */
+  advanceUsed: number;
+  /** The holder's advance balance left right after this invoice was approved / last edited (snapshot). */
+  advanceBalanceAfter: number | null;
   generatedByUserId: string;
   generatedAt: string;
   paidAt: string | null;
@@ -1094,4 +1117,42 @@ export interface ProfitOverviewDto {
   canManageSettings: boolean;
   /** Set when no opening cycle is configured yet. */
   needsSetup: boolean;
+}
+
+/** One advance deposit an Account Holder paid the company (2026-11-25), in the holder's currency. */
+export interface AccountHolderAdvanceDto {
+  id: string;
+  amount: number;
+  /** YYYY-MM-DD. */
+  depositDate: string;
+  note: string | null;
+  /** How much of it invoices have used (oldest deposit first). */
+  used: number;
+  /** Any of it used on an invoice: it can't be edited or deleted any more. */
+  locked: boolean;
+  createdAt: string;
+}
+
+export interface AccountHolderAdvanceUsageDto {
+  invoiceId: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  amount: number;
+}
+
+export interface AccountHolderAdvancesDto {
+  /** The holder's current currency (deposits are re-read in it when it changes). */
+  currency: string;
+  /** Deposits − used. */
+  balance: number;
+  totalDeposited: number;
+  totalUsed: number;
+  deposits: AccountHolderAdvanceDto[];
+  usages: AccountHolderAdvanceUsageDto[];
+}
+
+export interface AccountHolderAdvanceInput {
+  amount: number;
+  depositDate: string;
+  note?: string | null;
 }

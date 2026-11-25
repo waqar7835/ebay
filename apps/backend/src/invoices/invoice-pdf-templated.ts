@@ -41,6 +41,11 @@ export interface TemplatedPdfInput extends Omit<InvoicePdfInput, "company"> {
   logo: Buffer | null;
   /** The template's watermark; drawn only when enabled (it then replaces the DRAFT mark). */
   watermark?: InvoiceWatermark | null;
+  /**
+   * Account Holder invoices paid from the holder's advance (2026-11-25): `totalAmount` is then what's left to pay, the
+   * amount due being totalAmount + used.
+   */
+  advance?: { used: number; balanceAfter: number | null } | null;
 }
 
 type Doc = PDFKit.PDFDocument;
@@ -370,6 +375,10 @@ function shortDate(value: string) {
     .replace(/ /g, "\u00a0");
 }
 
+function fulfillmentLabel(type: ProductFulfillmentType) {
+  return type === ProductFulfillmentType.DROPSHIP ? "Dropship" : "Stock";
+}
+
 /** "DELIVERED" → "Delivered". */
 function statusLabel(status: string) {
   return status.charAt(0) + status.slice(1).toLowerCase();
@@ -377,7 +386,9 @@ function statusLabel(status: string) {
 
 /**
  * Account Holder: what the Account Holder pays the company (they hold the eBay proceeds). One row per
- * order, with what makes up its amount due: company share + buying + 3PL charge + shipping.
+ * order, with what makes up its amount due: company share + buying + 3PL charge + shipping, and the
+ * holder's own share. The final box also shows the holder's profit, split into Stock and Dropship orders
+ * (less what refunds cost them), and — when their advance paid part of it — the amount left to pay (2026-11-25).
  */
 function accountHolderModel(input: TemplatedPdfInput): Model {
   const cur = input.currency;
@@ -396,16 +407,20 @@ function accountHolderModel(input: TemplatedPdfInput): Model {
     const buying = round2(sum(products.map((p) => p.buying)));
     const threePl = round2(sum(products.map((p) => p.threePl)));
     const shipping = round2(sum(products.map((p) => p.shipping ?? 0)));
+    const profit = round2(selling - buying - threePl - shipping);
+    const companyShare = round2(l.netAmount - buying - threePl - shipping);
     return {
       orderRef: d?.orderRef ?? l.description,
       orderDate: d?.orderDate ?? null,
+      fulfillment: d?.fulfillment ?? null,
       products: products.map((p) => `${p.title} ×${p.quantity}`).join("\n"),
       selling,
       buying,
       threePl,
       shipping,
-      profit: round2(selling - buying - threePl - shipping),
-      companyShare: round2(l.netAmount - buying - threePl - shipping),
+      profit,
+      companyShare,
+      yourShare: round2(profit - companyShare),
       due: l.netAmount,
     };
   });
@@ -415,6 +430,7 @@ function accountHolderModel(input: TemplatedPdfInput): Model {
     threePl: round2(sum(orders.map((o) => o.threePl))),
     shipping: round2(sum(orders.map((o) => o.shipping))),
     companyShare: round2(sum(orders.map((o) => o.companyShare))),
+    yourShare: round2(sum(orders.map((o) => o.yourShare))),
     due: round2(sum(orders.map((o) => o.due))),
   };
   const profit = round2(totals.selling - totals.buying - totals.threePl - totals.shipping);
@@ -441,12 +457,16 @@ function accountHolderModel(input: TemplatedPdfInput): Model {
       ...(withShipping ? ([[head("SHIPPING", "SHIP"), 56, "right"]] as [string, number, Align][]) : []),
       [head("PROFIT", "PROFIT"), 52, "right"],
       [head(`COMPANY SHARE${pct(sharePercent)}`, "CO. SHARE"), 60, "right"],
+      [head(`YOUR SHARE${pct(sharePercent === null ? null : round2(100 - sharePercent))}`, "YOURS"), 56, "right"],
       [head("AMOUNT DUE", "DUE"), 60, "right"],
     ]);
-    const amounts = (r: Omit<(typeof orders)[number], "orderRef" | "orderDate" | "products">) =>
-      [r.selling, r.buying, r.threePl, ...(withShipping ? [r.shipping] : []), r.profit, r.companyShare, r.due].map((v) =>
-        plain(v, cur),
+    type Amounts = Omit<(typeof orders)[number], "orderRef" | "orderDate" | "fulfillment" | "products">;
+    const amounts = (r: Amounts) =>
+      [r.selling, r.buying, r.threePl, ...(withShipping ? [r.shipping] : []), r.profit, r.companyShare, r.yourShare, r.due].map(
+        (v) => plain(v, cur),
       );
+    // Stock or Dropship under the order number, so the holder sees where each profit comes from.
+    const typeTag = (o: (typeof orders)[number]) => (o.fulfillment ? fulfillmentLabel(o.fulfillment) : "");
     blocks.push({ type: "section", title: `${section++}. ORDER BREAKDOWN`, note: narrow ? `Amounts in ${currencyLabel(cur)}` : undefined });
     blocks.push({
       type: "table",
@@ -454,26 +474,65 @@ function accountHolderModel(input: TemplatedPdfInput): Model {
       rows: [
         ...orders.map((o) => {
           const date = o.orderDate ? shortDate(o.orderDate) : "";
-          return narrow
-            ? [date ? `${o.orderRef}\n${date}` : o.orderRef, o.products, ...amounts(o)]
-            : [o.orderRef, date, o.products, ...amounts(o)];
+          const ref = [o.orderRef, ...(narrow && date ? [date] : []), ...(typeTag(o) ? [typeTag(o)] : [])].join("\n");
+          return narrow ? [ref, o.products, ...amounts(o)] : [ref, date, o.products, ...amounts(o)];
         }),
         ["TOTAL", ...(narrow ? [] : [""]), "", ...amounts({ ...totals, profit })],
       ],
       boldLastRow: true,
-      columnColors: { [cols.length - 3]: FIXED.green },
+      columnColors: { [cols.length - 4]: FIXED.green, [cols.length - 2]: FIXED.green },
     });
   }
   blocks.push(...extrasBlocks(`${section}. ADJUSTMENTS & OTHER CHARGES`, extraLines, money));
   if (extraLines.length) section++;
 
+  // The holder's own profit per kind of order: its share of each order's profit, less what each refund cost it (the
+  // credit it gets back − what the buyer got back). Refund lines approved before 2026-11-25 without a known refund
+  // amount aren't counted.
+  const withCur = (v: number) => `${money(v)} ${cur}`;
+  const profitOf = (kind: ProductFulfillmentType) => {
+    const share = round2(sum(orders.filter((o) => o.fulfillment === kind).map((o) => o.yourShare)));
+    const refunds = round2(
+      sum(
+        extraLines.map((l) =>
+          l.kind === InvoiceLineKind.REFUND && l.details?.role === "ACCOUNT_HOLDER_REFUND" && l.details.fulfillment === kind
+            ? l.deductionAmount - l.details.refundAmount
+            : 0,
+        ),
+      ),
+    );
+    return { share, refunds, total: round2(share + refunds) };
+  };
+  const stockProfit = profitOf(ProductFulfillmentType.STOCK);
+  const dropshipProfit = profitOf(ProductFulfillmentType.DROPSHIP);
+  // Orders approved before the type was known (no `fulfillment`, and no order to read it from) count in the total only.
+  const unknownShare = round2(sum(orders.filter((o) => !o.fulfillment).map((o) => o.yourShare)));
+  const yourTotalProfit = round2(stockProfit.total + dropshipProfit.total + unknownShare);
+  const hasRefundProfit = extraLines.some((l) => l.details?.role === "ACCOUNT_HOLDER_REFUND");
+  const profitRows: BoxRow[] =
+    hasOrders || hasRefundProfit
+      ? [
+          { label: "Your Profit Share — Stock Orders:", value: withCur(stockProfit.share), bold: true },
+          ...(stockProfit.refunds
+            ? [{ label: "Less: Stock Order Refunds:", value: withCur(stockProfit.refunds), indent: true }]
+            : []),
+          { label: "Your Profit Share — Dropshipping Orders:", value: withCur(dropshipProfit.share), bold: true },
+          ...(dropshipProfit.refunds
+            ? [{ label: "Less: Dropshipping Order Refunds:", value: withCur(dropshipProfit.refunds), indent: true }]
+            : []),
+          ...(unknownShare ? [{ label: "Your Profit Share — Other Orders:", value: withCur(unknownShare), bold: true }] : []),
+          { label: "Your Total Profit:", value: withCur(yourTotalProfit), bold: true, color: FIXED.green },
+        ]
+      : [];
+
   // What the company is owed: its profit share + reimbursements (+ adjustments).
   const companyShare = totals.companyShare;
-  const withCur = (v: number) => `${money(v)} ${cur}`;
+  const advanceUsed = input.advance?.used ?? 0;
   const rows: BoxRow[] = [
+    ...(hasOrders ? [{ label: "Total Generated Net Profit:", value: withCur(profit), bold: true }] : []),
+    ...profitRows,
     ...(hasOrders
       ? [
-          { label: "Total Generated Net Profit:", value: withCur(profit), bold: true },
           { label: `${company} Profit Share Due${pct(sharePercent)}:`, value: withCur(companyShare), color: "accent" },
           { label: "Buying Price Reimbursement:", value: withCur(totals.buying) },
           { label: "3PL Warehouse Charges Reimbursement:", value: withCur(totals.threePl) },
@@ -482,6 +541,12 @@ function accountHolderModel(input: TemplatedPdfInput): Model {
         ]
       : []),
     ...(extraLines.length ? [{ label: "Adjustments & Other Charges:", value: withCur(extrasTotal) }] : []),
+    ...(advanceUsed
+      ? [
+          { label: "Total Amount Due:", value: withCur(round2(input.totalAmount + advanceUsed)), bold: true },
+          { label: "Less: Paid from Your Advance:", value: withCur(-advanceUsed), indent: true },
+        ]
+      : []),
   ];
 
   return {
@@ -508,8 +573,12 @@ function accountHolderModel(input: TemplatedPdfInput): Model {
     box: {
       title: `${section}. FINAL PAYABLE BREAKDOWN (PROFIT SHARE & REIMBURSEMENTS)`,
       rows,
-      totalLabel: "TOTAL AMOUNT PAYABLE BY CLIENT:",
+      totalLabel: advanceUsed ? "REMAINING AMOUNT PAYABLE BY CLIENT:" : "TOTAL AMOUNT PAYABLE BY CLIENT:",
       totalValue: withCur(input.totalAmount),
+      footnote:
+        advanceUsed && input.advance?.balanceAfter != null
+          ? ["ADVANCE BALANCE LEFT AFTER THIS INVOICE:", withCur(input.advance.balanceAfter)]
+          : undefined,
     },
     footer: {
       thanks: company.toUpperCase(),
@@ -1232,7 +1301,7 @@ function table(
   const widths = () => opts.columns.map((c) => ({ ...c, width: (c.weight / totalWeight) * cw }));
   let cols = widths();
   // A wide table (e.g. 3PL orders beside the Sidebar) steps down a little rather than break words.
-  while (!fitColumns(doc, cols, opts.rows, { headSize, bodySize, pad, boldLastRow: !!opts.boldLastRow }) && bodySize > 7) {
+  while (!fitColumns(doc, cols, opts.rows, { headSize, bodySize, pad, boldLastRow: !!opts.boldLastRow }) && bodySize > (narrow ? 6.5 : 7)) {
     bodySize -= 0.5;
     headSize -= 0.5;
     pad = 5;

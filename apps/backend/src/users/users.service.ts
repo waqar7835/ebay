@@ -17,6 +17,7 @@ import { OrderItem } from "../database/models/order-item.model";
 import { Product } from "../database/models/product.model";
 import { Invoice } from "../database/models/invoice.model";
 import { Expense } from "../database/models/expense.model";
+import { AccountHolderAdvance } from "../database/models/account-holder-advance.model";
 import { ProfitStatement } from "../database/models/profit-statement.model";
 import { MailerService } from "../mailer/mailer.service";
 import { TokensService } from "../tokens/tokens.service";
@@ -58,6 +59,7 @@ export class UsersService {
     @InjectModel(Invoice) private readonly invoiceModel: typeof Invoice,
     @InjectModel(Expense) private readonly expenseModel: typeof Expense,
     @InjectModel(ProfitStatement) private readonly profitStatementModel: typeof ProfitStatement,
+    @InjectModel(AccountHolderAdvance) private readonly advanceModel: typeof AccountHolderAdvance,
     private readonly tokensService: TokensService,
     private readonly ownerPricing: OwnerPricingService,
     private readonly mailer: MailerService,
@@ -275,9 +277,13 @@ export class UsersService {
       })) +
       (await this.invoiceModel.count({ where: { [Op.or]: [{ userId }, { generatedByUserId: userId }] } })) +
       (await this.expenseModel.count({ where: { [Op.or]: [{ chargedToUserId: userId }, { createdByUserId: userId }] } })) +
-      (await this.profitStatementModel.count({ where: { generatedByUserId: userId } }));
+      (await this.profitStatementModel.count({ where: { generatedByUserId: userId } })) +
+      // Advance money they paid (or recorded) is kept on record.
+      (await this.advanceModel.count({ where: { [Op.or]: [{ accountHolderId: userId }, { createdByUserId: userId }] } }));
     if (history > 0) {
-      throw new ConflictException("This user has orders, products, invoices or expenses, so they can't be deleted — disable them instead");
+      throw new ConflictException(
+        "This user has orders, products, invoices, expenses or advances, so they can't be deleted — disable them instead",
+      );
     }
 
     await user.destroy();

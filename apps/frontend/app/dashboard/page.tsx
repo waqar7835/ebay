@@ -42,6 +42,7 @@ import { pkr } from "@/lib/currency";
 import StatusCounts from "@/components/StatusCounts";
 import { productLabel } from "@/lib/productLabel";
 import ProfitShareTable from "@/components/ProfitShareTable";
+import AdvancesCard from "@/components/AdvancesCard";
 import { formatDate } from "@/lib/date";
 
 const STATUS_OPTIONS = ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "REFUNDED"];
@@ -323,6 +324,9 @@ export default function DashboardPage() {
               <ChartCard title="Your orders per day">
                 <DailyLineChart data={ah.ordersByDay} color="#3b82f6" valueLabel="orders" />
               </ChartCard>
+            </div>
+            <div className="mt-3">
+              <AdvancesCard />
             </div>
           </section>
         )}

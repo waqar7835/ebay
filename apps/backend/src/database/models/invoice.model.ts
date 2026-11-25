@@ -54,6 +54,29 @@ export class Invoice extends Model {
   })
   declare totalAmount: number;
 
+  /** Account Holder invoices (2026-11-25): paid from the holder's advance; the amount due = totalAmount + this. */
+  @Column({
+    type: DataType.DECIMAL(12, 2),
+    allowNull: false,
+    defaultValue: 0,
+    field: "advance_used",
+    get(this: Invoice) {
+      return toDecimal(this.getDataValue("advanceUsed" as keyof Invoice));
+    },
+  })
+  declare advanceUsed: number;
+
+  /** The holder's advance balance left right after this invoice was approved / last edited. */
+  @Column({
+    type: DataType.DECIMAL(12, 2),
+    allowNull: true,
+    field: "advance_balance_after",
+    get(this: Invoice) {
+      return toNullableDecimal(this.getDataValue("advanceBalanceAfter" as keyof Invoice));
+    },
+  })
+  declare advanceBalanceAfter: number | null;
+
   @ForeignKey(() => User)
   @Column({ type: DataType.UUID, allowNull: false, field: "generated_by_user_id" })
   declare generatedByUserId: string;

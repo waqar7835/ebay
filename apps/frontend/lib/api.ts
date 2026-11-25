@@ -1,4 +1,6 @@
 import type {
+  AccountHolderAdvanceInput,
+  AccountHolderAdvancesDto,
   AccountHolderOwnedProductsDto,
   AccountHolderProfileDto,
   BillingPeriodDto,
@@ -576,6 +578,31 @@ export function getOwnedProducts(id: string) {
 
 export function updateOwnedProducts(id: string, payload: { productIds: string[]; autoAddOwnedProducts: boolean }) {
   return request<AccountHolderOwnedProductsDto>(`/users/${id}/owned-products`, { method: "PATCH", body: JSON.stringify(payload) });
+}
+
+/** An Account Holder's advance deposits and balance (company Admin and partners manage them). */
+export function getAdvances(userId: string) {
+  return request<AccountHolderAdvancesDto>(`/account-holder-advances/${userId}`);
+}
+
+/** The logged-in Account Holder's own advance (read-only). */
+export function getMyAdvances() {
+  return request<AccountHolderAdvancesDto>(`/account-holder-advances/me`);
+}
+
+export function addAdvance(userId: string, payload: AccountHolderAdvanceInput) {
+  return request<AccountHolderAdvancesDto>(`/account-holder-advances/${userId}`, { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function updateAdvance(userId: string, advanceId: string, payload: AccountHolderAdvanceInput) {
+  return request<AccountHolderAdvancesDto>(`/account-holder-advances/${userId}/${advanceId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteAdvance(userId: string, advanceId: string) {
+  return request<AccountHolderAdvancesDto>(`/account-holder-advances/${userId}/${advanceId}`, { method: "DELETE" });
 }
 
 export function updateStockOwnerProfile(

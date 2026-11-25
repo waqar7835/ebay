@@ -64,6 +64,9 @@ export default function InvoicesPage() {
           <div className="text-xs text-slate-500">
             {inv.role === "ACCOUNT_HOLDER" ? "owed to company" : "payable to user"}
           </div>
+          {inv.advanceUsed > 0 && (
+            <div className="text-xs text-slate-500">{invoiceMoney(inv.advanceUsed, inv.currency)} paid from advance</div>
+          )}
         </div>
       ),
     },

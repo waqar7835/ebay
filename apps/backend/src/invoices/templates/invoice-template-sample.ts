@@ -90,15 +90,16 @@ function accountHolderSample() {
         orderDate: `2026-${i < 2 ? "08" : "09"}-${String(5 + i * 4).padStart(2, "0")}`,
         companySharePercent,
         products: [{ productId: `sample-${i}`, title: PRODUCTS[i], quantity, selling, buying, threePl, shipping }],
+        fulfillment: i < 3 ? ProductFulfillmentType.STOCK : ProductFulfillmentType.DROPSHIP,
       },
     };
   });
   const refund: InvoicePdfLine = {
     kind: InvoiceLineKind.REFUND,
     description: "Refund adjustment — order 12-11873-44120 (refunded)",
-    deductionAmount: 0,
+    deductionAmount: 21.5,
     netAmount: -21.5,
-    details: null,
+    details: { role: "ACCOUNT_HOLDER_REFUND", orderRef: "12-11873-44120", fulfillment: ProductFulfillmentType.STOCK, refundAmount: 25 },
   };
   const lines = [...orders, refund];
   return { lines, currency: "GBP", partnerName: "Sample Account Holder", totalAmount: round2(sum(lines.map((l) => l.netAmount))) };

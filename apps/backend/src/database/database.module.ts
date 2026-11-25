@@ -27,6 +27,8 @@ import { ExpenseCategory } from "./models/expense-category.model";
 import { Expense } from "./models/expense.model";
 import { ProfitStatement } from "./models/profit-statement.model";
 import { AccountHolderOwnedProduct } from "./models/account-holder-owned-product.model";
+import { AccountHolderAdvance } from "./models/account-holder-advance.model";
+import { AccountHolderAdvanceUsage } from "./models/account-holder-advance-usage.model";
 
 export const ALL_MODELS = [
   Company,
@@ -55,6 +57,8 @@ export const ALL_MODELS = [
   Expense,
   ProfitStatement,
   AccountHolderOwnedProduct,
+  AccountHolderAdvance,
+  AccountHolderAdvanceUsage,
 ];
 
 @Module({

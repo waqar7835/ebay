@@ -108,6 +108,11 @@ export default function InvoicesPage() {
                 ? "payable to user"
                 : "payable to you"}
           </div>
+          {inv.advanceUsed > 0 && (
+            <div className="text-xs text-slate-500">
+              {invoiceMoney(inv.advanceUsed, inv.currency)} paid from advance
+            </div>
+          )}
         </div>
       ),
     },

@@ -38,6 +38,7 @@ import { InvoicePdfLine, renderInvoicePdf } from "./invoice-pdf";
 import { renderTemplatedInvoicePdf } from "./invoice-pdf-templated";
 import { InvoiceTemplatesService } from "./templates/invoice-templates.service";
 import { accountHolderFullCredit, isFullRefund, stockRefundSettlement } from "./refund-settlement.util";
+import { AdvancesService } from "../advances/advances.service";
 
 /** Stock Owner and 3PL invoices are in PKR; an Account Holder's in their own currency. */
 const PKR = "PKR";
@@ -93,7 +94,10 @@ interface InvoiceContent {
   role: InvoiceRole;
   currency: string;
   lines: InvoicePdfLine[];
+  /** What's left to pay (after the advance, on an Account Holder invoice). */
   totalAmount: number;
+  /** Account Holder invoices paid partly or fully from the holder's advance. */
+  advance?: { used: number; balanceAfter: number | null } | null;
 }
 
 interface Draft {
@@ -122,6 +126,7 @@ export class InvoicesService {
     private readonly finance: FinanceService,
     private readonly exchangeRates: ExchangeRatesService,
     private readonly templates: InvoiceTemplatesService,
+    private readonly advances: AdvancesService,
   ) {}
 
   /** Managers see every company invoice; everyone else only their own. */
@@ -177,6 +182,10 @@ export class InvoicesService {
     const draft = await this.buildDraft(companyId, dto, editingInvoiceId);
     const template = await this.templates.snapshot(companyId, dto.templateId);
     const company = await this.companyModel.findByPk(companyId);
+    const advance =
+      draft.role === Role.ACCOUNT_HOLDER
+        ? await this.advances.previewUse(draft.partner.id, draft.totalAmount, editingInvoiceId)
+        : null;
     return this.render(company!.name, template, {
       invoiceNumber: editing ? `${editing.invoiceNumber} (DRAFT)` : "DRAFT",
       date: new Date(),
@@ -185,7 +194,8 @@ export class InvoicesService {
       role: draft.role,
       currency: draft.currency,
       lines: draft.lines,
-      totalAmount: draft.totalAmount,
+      totalAmount: round2(draft.totalAmount - (advance?.used ?? 0)),
+      advance: advance?.used ? advance : null,
     });
   }
 
@@ -225,6 +235,7 @@ export class InvoicesService {
         { transaction },
       );
       await this.claim(draft, invoice.id, transaction);
+      await this.payFromAdvance(invoice, draft, transaction);
       return invoice.id;
     });
 
@@ -294,6 +305,9 @@ export class InvoicesService {
       invoice.pkrRate = draft.pkrRate;
       await invoice.save({ transaction });
       await this.claim(draft, invoiceId, transaction);
+      // Re-issued: its old advance use goes back first, then it takes what the new amount due needs.
+      await this.advances.releaseInvoice(invoiceId, transaction);
+      await this.payFromAdvance(invoice, draft, transaction);
     });
     return this.invoiceModel.findByPk(invoiceId, { include: [InvoiceLineItem] });
   }
@@ -320,6 +334,8 @@ export class InvoicesService {
         );
       }
       await this.release(invoice, transaction);
+      // Whatever it paid from the Account Holder's advance goes back to the advance.
+      await this.advances.releaseInvoice(invoice.id, transaction);
       if (!voiding) {
         await invoice.destroy({ transaction });
       } else {
@@ -362,8 +378,12 @@ export class InvoicesService {
       partnerName: partnerName(invoice.user),
       role: invoice.role as InvoiceRole,
       currency: invoice.currency,
-      lines: invoice.lineItems,
+      lines:
+        invoice.role === Role.ACCOUNT_HOLDER && invoice.template
+          ? await this.withFulfillment(invoice.lineItems, invoice.currency)
+          : invoice.lineItems,
       totalAmount: invoice.totalAmount,
+      advance: invoice.advanceUsed > 0 ? { used: invoice.advanceUsed, balanceAfter: invoice.advanceBalanceAfter } : null,
     };
     // Invoices issued before templates existed keep their original look (and the current company logo).
     const buffer = invoice.template
@@ -373,6 +393,56 @@ export class InvoicesService {
           company: { name: company!.name, logo: company!.logoUrl ? await readUpload(company!.logoUrl) : null },
         });
     return { buffer, filename: `${invoice.invoiceNumber}.pdf` };
+  }
+
+  /**
+   * Account Holder invoices (2026-11-25): pays as much of the amount due as the holder's advance allows; the invoice's
+   * total becomes what's left. Fully paid from the advance → PAID straight away.
+   */
+  private async payFromAdvance(invoice: Invoice, draft: Draft, transaction: Transaction) {
+    if (draft.role !== Role.ACCOUNT_HOLDER) return;
+    const { used, balanceAfter } = await this.advances.apply(draft.partner.id, invoice.id, draft.totalAmount, transaction);
+    invoice.advanceUsed = used;
+    invoice.advanceBalanceAfter = balanceAfter;
+    invoice.totalAmount = round2(draft.totalAmount - used);
+    if (used > 0 && invoice.totalAmount <= 0 && invoice.status === InvoiceStatus.UNPAID) {
+      invoice.status = InvoiceStatus.PAID;
+      invoice.paidAt = new Date();
+    }
+    await invoice.save({ transaction });
+  }
+
+  /**
+   * Account Holder lines approved before 2026-11-25 don't say whether their order is Stock or Dropship (the PDF's
+   * profit split needs it), nor refund lines what the buyer got back: read from the order (its type never changes,
+   * nor its refund while a refund line holds it).
+   */
+  private async withFulfillment(lines: InvoiceLineItem[], currency: string): Promise<InvoicePdfLine[]> {
+    const missing = lines.filter(
+      (l) =>
+        l.orderId &&
+        ((l.kind === InvoiceLineKind.ORDER && l.details?.role === "ACCOUNT_HOLDER" && !l.details.fulfillment) ||
+          (l.kind === InvoiceLineKind.REFUND && !l.details)),
+    );
+    if (!missing.length) return lines;
+    const orders = await this.orderModel.findAll({ where: { id: [...new Set(missing.map((l) => l.orderId!))] } });
+    const byId = new Map(orders.map((o) => [o.id, o]));
+    return lines.map((line) => {
+      const order = line.orderId ? byId.get(line.orderId) : undefined;
+      if (!order || !missing.includes(line)) return line;
+      const fulfillment = isDropshipOrder(order) ? ProductFulfillmentType.DROPSHIP : ProductFulfillmentType.STOCK;
+      const plainLine: InvoicePdfLine = {
+        kind: line.kind,
+        description: line.description,
+        deductionAmount: line.deductionAmount,
+        netAmount: line.netAmount,
+        details: line.details,
+      };
+      if (line.kind === InvoiceLineKind.ORDER && line.details?.role === "ACCOUNT_HOLDER") {
+        return { ...plainLine, details: { ...line.details, fulfillment } };
+      }
+      return { ...plainLine, details: refundDetails(order, fulfillment, currency) };
+    });
   }
 
   /** Draws an invoice in its template's layout, colors and (frozen) logo. */
@@ -530,9 +600,11 @@ export class InvoicesService {
         const refunded = order.status === OrderStatus.REFUNDED;
         // Refunded before it was invoiced: settled on the same invoice.
         const credit = refunded ? accountHolderRefundCredit(order, line.netAmount, currency as Currency, rate) : 0;
+        const refund = refundLine(order, credit, refundNote(order));
+        refund.details = accountHolderRefundDetails(order, currency as Currency, rate);
         open.set(order.id, {
           order,
-          lines: credit > 0 ? [line, refundLine(order, credit, refundNote(order))] : [line],
+          lines: credit > 0 ? [line, refund] : [line],
           claimIds: [order.id],
           refundClaimIds: refunded ? [order.id] : [],
         });
@@ -564,8 +636,11 @@ export class InvoicesService {
     let refunds: Map<string, Candidate>;
     if (role === Role.ACCOUNT_HOLDER) {
       const rates = await this.accountHolderRates(refundedOrders, currency as Currency);
-      refunds = await this.refundCandidates(refundable, currency, (order, original) =>
-        accountHolderRefundCredit(order, original.netAmount, currency as Currency, rates.get(order.id)!),
+      refunds = await this.refundCandidates(
+        refundable,
+        currency,
+        (order, original) => accountHolderRefundCredit(order, original.netAmount, currency as Currency, rates.get(order.id)!),
+        (order) => accountHolderRefundDetails(order, currency as Currency, rates.get(order.id)!),
       );
     } else {
       refunds = await this.refundCandidates(refundable, currency, (_order, original) => original.netAmount);
@@ -679,6 +754,7 @@ export class InvoicesService {
     refundable: { order: Order; invoiceId: string }[],
     currency: string,
     credit: (order: Order, original: InvoiceLineItem) => number,
+    details?: (order: Order) => InvoiceLineDetails,
   ) {
     const refunds = new Map<string, Candidate>();
     if (!refundable.length) return refunds;
@@ -700,9 +776,11 @@ export class InvoicesService {
       if (!original || invoiceById.get(invoiceId)?.currency !== currency) continue;
       const amount = credit(order, original);
       if (amount <= 0) continue;
+      const line = refundLine(order, amount, refundNote(order), invoiceById.get(invoiceId)!.invoiceNumber);
+      if (details) line.details = details(order);
       refunds.set(order.id, {
         order,
-        lines: [refundLine(order, amount, refundNote(order), invoiceById.get(invoiceId)!.invoiceNumber)],
+        lines: [line],
         claimIds: [],
         refundClaimIds: [order.id],
       });
@@ -762,6 +840,7 @@ export class InvoicesService {
         orderDate: order.orderDate,
         companySharePercent,
         products,
+        fulfillment: isDropshipOrder(order) ? ProductFulfillmentType.DROPSHIP : ProductFulfillmentType.STOCK,
       },
     };
   }
@@ -974,6 +1053,43 @@ function refundNote(order: Order): string {
   const asEntered = order.refundAmountOriginal != null && !!order.accountHolderCurrency;
   const amount = asEntered ? order.refundAmountOriginal! : (order.refundAmount ?? order.ebayNetProceeds);
   return `${isFullRefund(order) ? "full" : "partial"} refund of ${amount.toFixed(2)} ${asEntered ? order.accountHolderCurrency : PKR}`;
+}
+
+/** What the eBay buyer got back on a refunded order, in the Account Holder invoice's currency. */
+function refundAmountIn(order: Order, currency: Currency, pkrRate: number): number {
+  if (order.refundAmountOriginal != null && !!order.exchangeRates && order.accountHolderCurrency === currency) {
+    return round2(order.refundAmountOriginal);
+  }
+  return round2((order.refundAmount ?? order.ebayNetProceeds) / pkrRate);
+}
+
+/** Snapshot on an Account Holder's refund line, for the PDF's profit split (2026-11-25). */
+function accountHolderRefundDetails(order: Order, currency: Currency, pkrRate: number): InvoiceLineDetails {
+  return {
+    role: "ACCOUNT_HOLDER_REFUND",
+    orderRef: order.ebayOrderRef,
+    fulfillment: isDropshipOrder(order) ? ProductFulfillmentType.DROPSHIP : ProductFulfillmentType.STOCK,
+    refundAmount: refundAmountIn(order, currency, pkrRate),
+  };
+}
+
+/**
+ * The same for a refund line approved before 2026-11-25, read from the order: as entered when the refund was in the
+ * invoice's currency, else converted with the order's locked rate. Null (no profit effect shown) when unknown.
+ */
+function refundDetails(order: Order, fulfillment: ProductFulfillmentType, currency: string): InvoiceLineDetails | null {
+  if (order.status !== OrderStatus.REFUNDED) return null;
+  const asEntered = order.refundAmountOriginal != null && order.accountHolderCurrency === currency;
+  const rate = order.exchangeRates?.[currency as Currency];
+  if (!asEntered && !rate) return null;
+  return {
+    role: "ACCOUNT_HOLDER_REFUND",
+    orderRef: order.ebayOrderRef,
+    fulfillment,
+    refundAmount: asEntered
+      ? round2(order.refundAmountOriginal!)
+      : round2((order.refundAmount ?? order.ebayNetProceeds) / rate!),
+  };
 }
 
 /** A negative adjustment for a refund; `invoicedOn` = the invoice that paid the order out, when it's an earlier one. */

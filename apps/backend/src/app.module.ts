@@ -10,6 +10,7 @@ import { ProductsModule } from "./products/products.module";
 import { OrdersModule } from "./orders/orders.module";
 import { FinanceModule } from "./finance/finance.module";
 import { InvoicesModule } from "./invoices/invoices.module";
+import { AdvancesModule } from "./advances/advances.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { SubscriptionsModule } from "./subscriptions/subscriptions.module";
 import { MailerModule } from "./mailer/mailer.module";
@@ -35,6 +36,7 @@ import { ProfitModule } from "./profit/profit.module";
     OrdersModule,
     FinanceModule,
     InvoicesModule,
+    AdvancesModule,
     DashboardModule,
     SubscriptionsModule,
     ExchangeRatesModule,

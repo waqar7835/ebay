@@ -26,6 +26,7 @@ import {
   getOwnedProducts,
   updateOwnedProducts,
 } from "@/lib/api";
+import AdvancesCard from "@/components/AdvancesCard";
 import { actsAsAdmin, canSetOrderPrices, changeBlockedReason, isRealAdmin } from "@/lib/userAccess";
 import { searchable } from "@/lib/selectOptions";
 import AvatarUpload from "@/components/AvatarUpload";
@@ -450,6 +451,8 @@ export default function EditUserPage() {
                     )}
                   </Card>
                 )}
+
+                {user.accountHolderProfile && canEditOwned && <AdvancesCard userId={user.id} />}
 
                 {user.stockOwnerProfile && (
                   <Card title="Stock Owner terms">

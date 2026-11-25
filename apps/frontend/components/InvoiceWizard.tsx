@@ -464,6 +464,11 @@ export default function InvoiceWizard({ invoiceId }: { invoiceId?: string }) {
               {isAccountHolder ? "Total owed to company" : "Total payable"}:{" "}
               <span className="font-semibold">{fmt(round2(ordersTotal + miscTotal))}</span>
             </div>
+            {isAccountHolder && (
+              <div className="text-xs text-slate-500">
+                Paid from this client&apos;s advance first, if they have one — the Review shows what&apos;s left to pay.
+              </div>
+            )}
           </div>
 
           <div className="mt-4 flex justify-between">
